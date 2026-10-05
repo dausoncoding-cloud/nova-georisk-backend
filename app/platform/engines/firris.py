@@ -52,7 +52,7 @@ _SATELLITE_LEGENDS = {
         "nodata_label": "No data / outside valid coverage",
     },
     "flood_probability": {
-        "title": "Conditional Random Forest class score (not AEP)",
+        "title": "Conditional classifier class score (not AEP)",
         "entries": [{"label": "0.00–0.20", "color": "#0B6E4F"}, {"label": "0.20–0.40", "color": "#F6D55C"}, {"label": "0.40–0.60", "color": "#ED553B"}, {"label": "0.60–1.00", "color": "#7A0019"}],
         "nodata_label": "No data / outside valid coverage",
     },
@@ -249,7 +249,7 @@ class FIRRISEngineAdapter(EngineAdapter):
                 west, south, east, north = shape(context.aoi_geometry).bounds
                 product_metadata["aoi_bounds_wgs84"] = {"west": west, "south": south,
                                                          "east": east, "north": north}
-            product_metadata.update({"methodology": "SAR-derived screening pseudo-labels -> Random Forest flood classification",
+            product_metadata.update({"methodology": "Input labels -> explicitly selected classifier; see workflow provenance for label limitations",
                                      "independent_ground_truth": False,
                                      "validation_limitation": "Pseudo-label held-out accuracy is not independent authoritative flood accuracy"})
         export_values = np.where(valid_mask & np.isfinite(values.astype(float)), numeric, nodata).astype(numeric.dtype)
@@ -288,6 +288,26 @@ class FIRRISEngineAdapter(EngineAdapter):
                 media_type="image/png", artifact_type="preview", result_version=context.result_version,
                 role="export", delivery_type="preview", format_name="png")
 
+        if workflow.generalized_extent is not None:
+            generalized = workflow.generalized_extent
+            generalized_path = context.output_directory / "generalized-extent.cog.tif"
+            write_cog(str(generalized_path), np.where(workflow.valid_mask, generalized, 255).astype("uint8"), workflow.raster_spec, nodata=255)
+            vector_path = context.output_directory / "generalized-extent.geojson"
+            _write_json(vector_path, export_flood_extent_geojson((generalized == 1) & workflow.valid_mask, workflow.raster_spec))
+            metadata = {**context.gis_metadata, "units": "generalized binary class", "nodata": 255,
+                        "purpose": "optional categorical map generalization; not a replacement for raw prediction",
+                        "postprocessing": workflow.provenance["postprocessing"]}
+            bounds = context.gis_metadata["bounding_box"]
+            west, south, east, north = transform_bounds(context.gis_metadata["crs"], "EPSG:4326",
+                bounds["west"], bounds["south"], bounds["east"], bounds["north"], densify_pts=21)
+            vector_metadata = {**metadata, "crs": "EPSG:4326", "nodata": None, "spatial_resolution": None,
+                "bounding_box": {"west": west, "south": south, "east": east, "north": north}}
+            for key, path, media, kind, delivery in (
+                ("generalized_extent_cog", generalized_path, "image/tiff", "raster", "cog"),
+                ("generalized_extent_vector", vector_path, "application/geo+json", "vector", "geojson")):
+                reports[key] = artifact_entry(path, label="Optional generalized extent", media_type=media,
+                    artifact_type=kind, result_version=context.result_version, role="export", delivery_type=delivery,
+                    format_name=delivery, gis_metadata=(vector_metadata if kind == "vector" else metadata))
         sample_path = context.output_directory / "samples.csv"
         export_csv(workflow.samples, str(sample_path))
         reports["samples_csv"] = artifact_entry(sample_path, label="Analysis samples", media_type="text/csv", artifact_type="report", result_version=context.result_version, role="export", delivery_type="csv", format_name="csv")
@@ -399,7 +419,7 @@ class FIRRISEngineAdapter(EngineAdapter):
                 source_values = workflow.product_arrays[product]
                 computed = {"values": np.where(workflow.valid_mask, source_values, np.nan), "units": "dimensionless" if product == "flood_probability" else "binary class"}
                 if product == "flood_probability":
-                    computed["semantics"] = "Conditional Random Forest class score; not annual exceedance probability or return period."
+                    computed["semantics"] = "Conditional classifier class score; not annual exceedance probability or return period."
             else:
                 computed = self._compute(product, params)
             values = np.asarray(computed["values"])

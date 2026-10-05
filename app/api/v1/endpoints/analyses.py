@@ -88,6 +88,10 @@ def submit_source_bound_analysis(
                "reviewed_at": source.evidence.get("reviewed_at")}
         for role, source in bindings.sources.items()
     }
+    if payload.module == "flood_change":
+        from app.services.source_data.change import comparison_source_fingerprint
+        for role, source in bindings.sources.items():
+            source_snapshot[role]["comparison_manifest_sha256"] = comparison_source_fingerprint(source)
     result_snapshot = {role: result.lineage() for role, result in bindings.upstream.items()}
     task = Task(
         project_id=payload.project_id, engine_key="firris", aoi_id=payload.aoi_id,

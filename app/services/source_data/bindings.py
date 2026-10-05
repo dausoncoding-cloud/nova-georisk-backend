@@ -18,6 +18,7 @@ from app.services.source_data.temporal_sources import validate_annual_sources, v
 
 
 MODULE_SOURCE_ROLES: dict[str, dict[str, str]] = {
+    "flood_change": {"before": "inundation_time_slice", "after": "inundation_time_slice"},
     "satellite_preprocessing": {},
     "hazard": {"rainfall": "rainfall_stations", "terrain": "terrain_dem", "river_network": "river_drainage_network", "land_cover": "land_cover", "soil": "soil_permeability"},
     "exposure": {"population": "population_density", "buildings": "buildings", "roads": "roads", "critical_infrastructure": "critical_infrastructure", "cropland": "cropland_fraction", "livestock": "livestock_density"},
@@ -44,7 +45,7 @@ MODULE_RESULT_ROLES: dict[str, dict[str, str]] = {
     "flood_hazard_zonation": {"depth": "source_bound_flood_depth", "velocity": "source_bound_flood_velocity"},
 }
 OPTIONAL_SOURCE_ROLES: dict[str, dict[str, str]] = {"satellite_preprocessing": {"climate": "rainfall_stations", "soil": "soil_permeability", "population": "population_density", "roads": "roads", "rivers": "river_drainage_network", "land_cover": "land_cover", "terrain": "terrain_dem"}, "exposure": {"economic_assets": "economic_assets"}}
-EXECUTABLE_MODULES = frozenset({"satellite_preprocessing", "hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"})
+EXECUTABLE_MODULES = frozenset({"flood_change", "satellite_preprocessing", "hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"})
 
 
 @dataclass(frozen=True)
@@ -86,7 +87,7 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
         raise SourceNotReady("Source/result roles do not match the FIRRIS module binding contract")
     if len(set(request.sources.values())) != len(request.sources):
         raise SourceNotReady("The same source dataset cannot fill multiple distinct roles")
-    if request.module in {"satellite_preprocessing", "hazard", "exposure", "risk", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"} and request.target_grid is None:
+    if request.module in {"flood_change", "satellite_preprocessing", "hazard", "exposure", "risk", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"} and request.target_grid is None:
         raise SourceNotReady("Raster-backed modules require an explicit target grid")
     if request.module in {"vulnerability", "insecurity", "resilience"} and request.target_grid is not None:
         raise SourceNotReady("Survey modules use reviewed boundary spatial units, not a raster target grid")
@@ -102,7 +103,7 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
         manifest = source.manifest
         if manifest.category != category:
             raise SourceNotReady(f"Source role {role} requires category {category}")
-        if (request.module not in {"flood_aep", "flood_duration"}
+        if (request.module not in {"flood_change", "flood_aep", "flood_duration"}
                 and (manifest.temporal_coverage.start > request.period.start
                      or manifest.temporal_coverage.end < request.period.end)):
             raise SourceNotReady(f"Source role {role} does not cover the requested analysis period")
@@ -172,7 +173,7 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
             raise SourceNotReady("Risk requires the exact projected metric Hazard/Exposure grid")
         if grid.width * grid.height > 25_000:
             raise SourceNotReady("Risk grid exceeds the reviewed 25,000-cell execution limit")
-    if request.module in {"flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"}:
+    if request.module in {"flood_change", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"}:
         grid = request.target_grid
         crs = CRS.from_user_input(grid.crs)
         if not crs.is_projected or len(crs.axis_info) < 2 or any(abs(axis.unit_conversion_factor - 1) > 1e-9 for axis in crs.axis_info[:2]):
@@ -210,6 +211,9 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
         upstream.update(load_physical_results(db, request, aoi_geometry=aoi_geometry, root=root))
     if request.module == "flood_aep":
         _, _, alignment["annual_record"] = validate_annual_sources(request, sources, aoi_geometry)
+    if request.module == "flood_change":
+        from app.services.source_data.change import validate_change_sources
+        _, _, alignment["change_record"] = validate_change_sources(request, sources, aoi_geometry)
     if request.module == "flood_duration":
         _, _, alignment["duration_series"] = validate_duration_sources(request, sources, aoi_geometry)
     if request.module == "flood_return_period":

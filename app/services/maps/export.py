@@ -176,27 +176,52 @@ def write_continuous_png(
 
 
 def export_flood_extent_geojson(mask: np.ndarray, spec: RasterSpec) -> dict:
+    """Polygonize valid flooded cells with topology and exact-cell round-trip QA.
+
+    Geometry repairs are accepted only if they preserve polygon area and the
+    raster's exact cell-centre footprint. No buffering or boundary smoothing.
     """
-    Polygonize contiguous flooded cells and emit RFC 7946 WGS84 GeoJSON.
-    Invalid/nodata cells must already be excluded from ``mask``.
-    """
-    mask = np.asarray(mask, dtype=bool)
-    if mask.ndim != 2:
-        raise ValueError("Flood extent mask must be two-dimensional.")
-    features = []
+    from shapely import make_valid
+    from shapely.geometry import shape, mapping
+    from rasterio.features import rasterize
+    from app.services.gee.firris_contracts import validate_grid
+
+    raw = np.asarray(mask)
+    if raw.ndim != 2 or not np.isin(raw, [0, 1]).all():
+        raise ValueError("Flood extent mask must be two-dimensional and binary.")
+    mask = raw.astype(bool)
     source_crs = f"EPSG:{spec.crs_epsg}"
+    validate_grid(source_crs, spec.transform)
+    source_polygons, features = [], []
+
+    def polygons(geometry):
+        if geometry.geom_type == "Polygon":
+            return [geometry]
+        if geometry.geom_type in {"MultiPolygon", "GeometryCollection"}:
+            return [polygon for part in geometry.geoms for polygon in polygons(part)]
+        return []
+
     for geometry, value in raster_shapes(mask.astype(np.uint8), mask=mask, transform=spec.transform, connectivity=4):
         if value != 1:
             continue
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": transform_geom(source_crs, "EPSG:4326", geometry),
-                "properties": {"class": "flooded"},
-            }
-        )
-
-    return {
-        "type": "FeatureCollection",
-        "features": features,
-    }
+        original = shape(geometry)
+        repaired = original if original.is_valid else make_valid(original)
+        parts = polygons(repaired)
+        if not parts or not np.isclose(sum(part.area for part in parts), original.area, rtol=1e-9, atol=0):
+            raise ValueError("Polygonization topology repair changed raster-cell area")
+        for part in parts:
+            if part.is_empty or not part.is_valid or part.area <= 0:
+                raise ValueError("Polygonization produced invalid source topology")
+            source_polygons.append((mapping(part), 1))
+            wgs84 = transform_geom(source_crs, "EPSG:4326", mapping(part))
+            delivered = shape(wgs84)
+            bounds = delivered.bounds
+            if (delivered.is_empty or not delivered.is_valid or not np.isfinite(bounds).all()
+                    or bounds[0] < -180 or bounds[2] > 180 or bounds[1] < -90 or bounds[3] > 90):
+                raise ValueError("Polygonization reprojection produced invalid WGS84 topology")
+            features.append({"type": "Feature", "geometry": wgs84, "properties": {"class": "flooded"}})
+    roundtrip = (rasterize(source_polygons, out_shape=mask.shape, transform=spec.transform, fill=0,
+                          dtype="uint8").astype(bool) if source_polygons else np.zeros(mask.shape, dtype=bool))
+    if not np.array_equal(roundtrip, mask):
+        raise ValueError("Polygonization failed exact cell-centre round-trip QA")
+    return {"type": "FeatureCollection", "features": features}

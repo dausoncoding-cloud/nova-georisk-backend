@@ -108,6 +108,7 @@ class SourceDatasetManifest(StrictModel):
     hydraulic_model_validation_reference: str | None = None
     observation_year: int | None = Field(default=None, ge=1900, le=2200)
     event_definition: str | None = None
+    observation_definition: str | None = Field(default=None, min_length=10, max_length=512)
 
     @model_validator(mode="after")
     def check_category_contract(self):
@@ -191,6 +192,8 @@ class SourceDatasetManifest(StrictModel):
             or any(not description.strip() for description in self.indicator_scale_descriptions.values())
         ):
             raise ValueError("Community capacities require reviewed benefit orientations, measurement scales and reject-on-missing")
+        if self.observation_definition is not None and self.category != "inundation_time_slice":
+            raise ValueError("Observation definition is only applicable to inundation time slices")
         if self.category == "inundation_time_slice" and self.temporal_coverage.start != self.temporal_coverage.end:
             raise ValueError("Inundation time slice must have one exact observation timestamp")
         return self

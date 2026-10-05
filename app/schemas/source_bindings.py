@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.schemas.source_data import TemporalCoverage
 
 
-FIRRISModule = Literal["hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation", "satellite_preprocessing"]
+FIRRISModule = Literal["hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation", "satellite_preprocessing", "flood_change"]
 
 
 class RasterGrid(BaseModel):

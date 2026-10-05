@@ -45,6 +45,8 @@ class ReadySource:
             "hydraulic_model_validation_reference": self.manifest.hydraulic_model_validation_reference,
             "observation_year": self.manifest.observation_year,
             "event_definition": self.manifest.event_definition,
+            **({"observation_definition": self.manifest.observation_definition}
+               if self.manifest.observation_definition is not None else {}),
             "readiness_evidence": self.evidence,
         }
 

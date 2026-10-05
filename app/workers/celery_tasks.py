@@ -296,12 +296,20 @@ def execute_engine_task(db, task_id: uuid.UUID) -> None:
                     or pinned.get("sha256") != source.manifest.sha256.lower()
                     or pinned.get("reviewed_at") != source.evidence.get("reviewed_at")):
                     raise ValueError("Source approval or version changed after submission")
+                if request.module == "flood_change":
+                    from app.services.source_data.change import comparison_source_fingerprint
+                    if pinned.get("comparison_manifest_sha256") != comparison_source_fingerprint(source):
+                        raise ValueError("Comparison source metadata changed after submission")
             result_snapshots = params.get("result_snapshot") or {}
             if result_snapshots != {role: upstream.lineage() for role, upstream in resolved.upstream.items()}:
                 raise ValueError("Upstream Result approval, version or artifact changed after submission")
             if request.module == "satellite_preprocessing":
                 from app.services.source_data.satellite_preprocessing import execute_satellite_preprocessing
                 execution = execute_satellite_preprocessing(resolved, mapping(to_shape(aoi.geometry)),
+                    output_directory, next_version, task_id=str(task.id))
+            elif request.module == "flood_change":
+                from app.services.source_data.change import execute_change_product
+                execution = execute_change_product(resolved, mapping(to_shape(aoi.geometry)),
                     output_directory, next_version, task_id=str(task.id))
             elif request.module == "hazard":
                 execution = execute_hazard_module(

@@ -63,8 +63,10 @@ def test_explicit_module_contracts_do_not_substitute_risk_formula():
     contract = binding_contract()
     assert set(contract) == {"hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience",
                              "flood_depth", "flood_velocity", "flood_hazard_product",
-                             "flood_aep", "flood_return_period", "flood_duration",
+                             "flood_aep", "flood_return_period", "flood_duration", "flood_change",
                              "flood_susceptibility", "flood_hazard_zonation", "satellite_preprocessing"}
+    assert contract["flood_change"]["source_roles"] == {"before": "inundation_time_slice", "after": "inundation_time_slice"}
+    assert contract["flood_change"]["executable"] is True
     assert contract["satellite_preprocessing"]["source_roles"] == {}
     assert contract["satellite_preprocessing"]["optional_source_roles"] == {
         "climate": "rainfall_stations", "soil": "soil_permeability", "population": "population_density",

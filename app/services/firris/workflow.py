@@ -1,7 +1,7 @@
 """Supervised FIRRIS satellite-image analysis workflow.
 
 The workflow is intentionally provider-neutral after raster acquisition: prepared
-rasters and GEE rasters use the same QA, stratified sampling, Random Forest,
+rasters and GEE rasters use the same QA, stratified sampling, explicit classifier selection,
 held-out validation, and GIS/export structures.
 """
 from __future__ import annotations
@@ -24,7 +24,8 @@ from app.services.gee.sampling import (
 from app.services.maps.export import RasterSpec
 from app.services.ml.features import build_feature_dataframe, build_label_series
 from app.services.ml.predict import predict_flood_class, predict_flood_probability
-from app.services.ml.training import train_classifier_from_split
+from app.services.ml.training import train_classifier_from_split, classifier_configuration
+from app.services.firris.postprocessing import generalize_extent
 from app.services.validation.spatial_products import accuracy_map, confusion_map
 from rasterio.transform import xy as raster_xy
 
@@ -52,6 +53,7 @@ class FIRRISWorkflowOutput:
     raster_spec: RasterSpec
     valid_mask: np.ndarray
     enhancement_preview: np.ndarray | None = None
+    generalized_extent: np.ndarray | None = None
 
 
 def _epsg_code(crs: str) -> int:
@@ -220,20 +222,36 @@ def run_satellite_workflow(
     X_test = build_feature_dataframe(feature_layers, split.test)
     y_test = build_label_series(label_layer, split.test, name="flood")
 
-    modelling = dict(workflow.get("model") or {})
+    from app.schemas.analyses import FIRRISModelConfig
+    modelling = FIRRISModelConfig.model_validate(workflow.get("model") or {}).model_dump()
     algorithm = str(modelling.get("algorithm", "random_forest"))
-    if algorithm != "random_forest":
-        raise ValueError("FIRRIS production baseline currently supports only random_forest.")
+    comparisons = list(modelling.get("comparison_algorithms") or [])
     n_estimators = int(modelling.get("n_estimators", 200))
     trained = train_classifier_from_split(
         X_train,
         y_train,
         X_test,
         y_test,
-        model_type="random_forest",
+        model_type=algorithm,
         random_seed=random_seed,
         n_estimators=n_estimators,
     )
+
+    split_fingerprints = {
+        "training_coordinates": _array_fingerprint(np.column_stack((split.train.rows, split.train.cols))),
+        "testing_coordinates": _array_fingerprint(np.column_stack((split.test.rows, split.test.cols))),
+        "training_features": _array_fingerprint(X_train.to_numpy()),
+        "testing_features": _array_fingerprint(X_test.to_numpy()),
+        "training_labels": _array_fingerprint(y_train.to_numpy()),
+        "testing_labels": _array_fingerprint(y_test.to_numpy()),
+    }
+    model_comparison = {algorithm: {"configuration": classifier_configuration(trained.model),
+                                   "metrics": asdict(trained.test_metrics)}}
+    for candidate in comparisons:
+        alternative = train_classifier_from_split(X_train, y_train, X_test, y_test,
+            model_type=candidate, random_seed=random_seed, n_estimators=n_estimators)
+        model_comparison[candidate] = {"configuration": classifier_configuration(alternative.model),
+                                       "metrics": asdict(alternative.test_metrics)}
 
     flat = pd.DataFrame({name: layer.reshape(-1) for name, layer in feature_layers.items()})
     valid_flat = valid_mask.reshape(-1)
@@ -242,6 +260,10 @@ def run_satellite_workflow(
     valid_features = flat.loc[valid_flat, trained.feature_names]
     probability_flat[valid_flat] = predict_flood_probability(trained, valid_features).to_numpy(dtype=np.float32)
     class_flat[valid_flat] = predict_flood_class(trained, valid_features).to_numpy(dtype=np.uint8)
+    if (not np.isfinite(probability_flat[valid_flat]).all()
+            or not ((probability_flat[valid_flat] >= 0) & (probability_flat[valid_flat] <= 1)).all()
+            or not np.isin(class_flat[valid_flat], [0, 1]).all()):
+        raise ValueError("Classifier returned invalid whole-grid predictions")
     probability = probability_flat.reshape(label_layer.shape)
     predicted_class = class_flat.reshape(label_layer.shape)
 
@@ -262,19 +284,28 @@ def run_satellite_workflow(
     metrics = asdict(trained.test_metrics)
     metrics["confusion"] = asdict(trained.test_metrics.confusion)
     model_metadata = {
-        "model_key": "firris-random-forest-baseline",
+        "model_key": "firris-random-forest-baseline" if algorithm == "random_forest" else "firris-" + algorithm + "-candidate",
         "model_version": str(modelling.get("version", "1.0")),
         "workflow_version": WORKFLOW_VERSION,
-        "algorithm": "RandomForestClassifier",
-        "library": "scikit-learn",
-        "n_estimators": n_estimators,
+        "algorithm": classifier_configuration(trained.model)["estimator"],
+        "library": "xgboost" if algorithm == "xgboost" else "scikit-learn",
+        "configuration": classifier_configuration(trained.model),
+        "selection": "explicit request; held-out comparison never selects or tunes model",
+        "comparison": model_comparison,
+        "split_checksums": split_fingerprints,
+        "importance_policy": "native tree importances only; unavailable for SVM/neural network",
+        "n_estimators": n_estimators if algorithm in {"random_forest", "xgboost", "gradient_boosting"} else None,
         "random_seed": random_seed,
         "feature_names": trained.feature_names,
         "feature_importances": trained.feature_importances,
         "training_samples": trained.n_train,
         "testing_samples": trained.n_test,
-        "decision_threshold": 0.5,
+        "decision_threshold": None if algorithm == "svm" else 0.5,
+        "decision_rule": "estimator.predict; SVM margin classification can differ from calibrated-score threshold",
     }
+    generalized, cleanup_record = generalize_extent(predicted_class, valid_mask, workflow.get("postprocessing"))
+    if not cleanup_record["applied"]:
+        generalized = None
     enhanced = None
     enhancement_requested = workflow.get("preprocessing", {}).get("preview_enhancement", False)
     if not isinstance(enhancement_requested, bool):
@@ -295,6 +326,10 @@ def run_satellite_workflow(
     provenance = {
         **source_provenance,
         "enhancement": enhancement_record,
+        "postprocessing": cleanup_record,
+        "model_selection": {"algorithm": algorithm, "configuration": classifier_configuration(trained.model),
+                            "comparison_algorithms": comparisons, "split_checksums": split_fingerprints,
+                            "comparison_scope": "model-internal descriptive comparison; no automatic selection or independent validation"},
         "materialized_input_checksums": {
             "feature_layers": {key: _array_fingerprint(value) for key, value in feature_layers.items()},
             "label_layer": _array_fingerprint(label_layer),
@@ -340,4 +375,5 @@ def run_satellite_workflow(
         raster_spec=raster_spec,
         valid_mask=valid_mask,
         enhancement_preview=enhanced,
+        generalized_extent=generalized,
     )

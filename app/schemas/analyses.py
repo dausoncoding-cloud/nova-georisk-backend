@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.common import TaskStatusResponse
+from app.services.ml.contracts import ClassifierType
 
 
 class FIRRISProduct(str, Enum):
@@ -112,14 +113,41 @@ class FIRRISSamplingConfig(BaseModel):
 
 
 class FIRRISModelConfig(BaseModel):
-    algorithm: Literal["random_forest"] = "random_forest"
+    model_config = ConfigDict(extra="forbid")
+    algorithm: ClassifierType = "random_forest"
+    comparison_algorithms: list[ClassifierType] = Field(default_factory=list, max_length=5)
     version: str = Field(default="1.0", min_length=1, max_length=64)
     n_estimators: int = Field(default=200, ge=10, le=2000)
+
+    @model_validator(mode="after")
+    def unique_comparisons(self):
+        if len(set(self.comparison_algorithms)) != len(self.comparison_algorithms) or self.algorithm in self.comparison_algorithms:
+            raise ValueError("Comparison algorithms must be unique and exclude the explicitly selected algorithm")
+        return self
+
+
+class FIRRISPostprocessingConfig(BaseModel):
+    """Optional categorical generalization; raw scientific predictions are preserved."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    operations: list[Literal["majority", "opening", "closing"]] = Field(default_factory=list, max_length=3)
+    policy_reference: str | None = Field(default=None, min_length=3, max_length=512)
+    window_pixels: Literal[3, 5, 7] = 3
+
+    @model_validator(mode="after")
+    def explicit_policy(self):
+        if len(set(self.operations)) != len(self.operations):
+            raise ValueError("Cleanup operations must be unique")
+        if self.operations and not self.policy_reference:
+            raise ValueError("Opt-in cleanup requires an explicit policy reference")
+        if not self.operations and self.policy_reference is not None:
+            raise ValueError("A cleanup policy reference requires explicit operations")
+        return self
 
 
 class FIRRISSatelliteWorkflowConfig(BaseModel):
     source: SatelliteSourceConfig
     preprocessing: FIRRISPreprocessingConfig = Field(default_factory=FIRRISPreprocessingConfig)
+    postprocessing: FIRRISPostprocessingConfig = Field(default_factory=FIRRISPostprocessingConfig)
     sampling: FIRRISSamplingConfig = Field(default_factory=FIRRISSamplingConfig)
     model: FIRRISModelConfig = Field(default_factory=FIRRISModelConfig)
     quality: dict[str, Any] = Field(default_factory=dict)
