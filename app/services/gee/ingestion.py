@@ -114,5 +114,6 @@ def get_dem(aoi: ee.Geometry, source: str = "SRTM") -> ee.Image:
     if source == "SRTM":
         return ee.Image(SRTM_DEM_ASSET).clip(aoi)
     if source == "ALOS":
-        return ee.ImageCollection(ALOS_DEM_COLLECTION).select("DSM").mosaic().clip(aoi)
+        collection = ee.ImageCollection(ALOS_DEM_COLLECTION).filterBounds(aoi).select("DSM")
+        return collection.mosaic().setDefaultProjection(collection.first().projection()).clip(aoi)
     raise ValueError(f"Unknown DEM source '{source}'. Use 'SRTM' or 'ALOS'.")

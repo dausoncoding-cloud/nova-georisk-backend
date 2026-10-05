@@ -124,14 +124,17 @@ def test_get_dem_srtm_default(mock_ee):
 def test_get_dem_alos_uses_mosaic(mock_ee):
     aoi = MagicMock()
     collection = mock_ee.ImageCollection.return_value
-    selected = collection.select.return_value
+    bounded = collection.filterBounds.return_value
+    selected = bounded.select.return_value
     mosaicked = selected.mosaic.return_value
 
     ingestion.get_dem(aoi, source="ALOS")
 
     mock_ee.ImageCollection.assert_called_once_with(ingestion.ALOS_DEM_COLLECTION)
-    collection.select.assert_called_once_with("DSM")
-    mosaicked.clip.assert_called_once_with(aoi)
+    collection.filterBounds.assert_called_once_with(aoi)
+    bounded.select.assert_called_once_with("DSM")
+    mosaicked.setDefaultProjection.assert_called_once_with(selected.first.return_value.projection.return_value)
+    mosaicked.setDefaultProjection.return_value.clip.assert_called_once_with(aoi)
 
 
 def test_get_dem_rejects_unknown_source():

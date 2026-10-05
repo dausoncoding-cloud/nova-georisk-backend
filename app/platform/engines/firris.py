@@ -280,6 +280,14 @@ class FIRRISEngineAdapter(EngineAdapter):
 
     def _workflow_reports(self, context: EngineExecutionContext, workflow: FIRRISWorkflowOutput, summaries: dict[str, Any]) -> dict[str, dict[str, Any]]:
         reports: dict[str, dict[str, Any]] = {}
+        if workflow.enhancement_preview is not None:
+            from PIL import Image
+            preview_path = context.output_directory / "enhanced-display.png"
+            Image.fromarray(workflow.enhancement_preview, "RGBA").save(preview_path)
+            reports["enhanced_display"] = artifact_entry(preview_path, label="Optional enhanced display (not analysis input)",
+                media_type="image/png", artifact_type="preview", result_version=context.result_version,
+                role="export", delivery_type="preview", format_name="png")
+
         sample_path = context.output_directory / "samples.csv"
         export_csv(workflow.samples, str(sample_path))
         reports["samples_csv"] = artifact_entry(sample_path, label="Analysis samples", media_type="text/csv", artifact_type="report", result_version=context.result_version, role="export", delivery_type="csv", format_name="csv")

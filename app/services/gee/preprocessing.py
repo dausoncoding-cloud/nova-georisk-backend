@@ -46,7 +46,7 @@ def apply_speckle_filter(image: ee.Image, radius: int = 50) -> ee.Image:
     Refined Lee exist, but a focal median is the documented minimum
     Doc 0 asks for and is what most GIS pipelines default to).
     """
-    return image.focal_median(radius, "circle", "meters")
+    return image.focal_median(radius, "circle", "meters").updateMask(image.mask())
 
 
 def clip_to_aoi(image: ee.Image, aoi: ee.Geometry) -> ee.Image:

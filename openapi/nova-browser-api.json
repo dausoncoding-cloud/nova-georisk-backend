@@ -96,7 +96,6 @@
           "source_lineage": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -447,7 +446,6 @@
         "properties": {
           "entries": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "title": "Entries",
@@ -547,7 +545,6 @@
             "type": "string"
           },
           "provenance": {
-            "additionalProperties": true,
             "title": "Provenance",
             "type": "object"
           },
@@ -718,7 +715,7 @@
       "Body_list_geopackage_layers_api_v1_aoi_gpkg_layers_post": {
         "properties": {
           "file": {
-            "contentMediaType": "application/octet-stream",
+            "format": "binary",
             "title": "File",
             "type": "string"
           },
@@ -738,7 +735,7 @@
       "Body_register_upload_api_v1_source_datasets_post": {
         "properties": {
           "file": {
-            "contentMediaType": "application/octet-stream",
+            "format": "binary",
             "title": "File",
             "type": "string"
           },
@@ -757,7 +754,7 @@
       "Body_upload_geopackage_aoi_api_v1_aoi_upload_gpkg_post": {
         "properties": {
           "file": {
-            "contentMediaType": "application/octet-stream",
+            "format": "binary",
             "title": "File",
             "type": "string"
           },
@@ -794,7 +791,7 @@
       "Body_upload_shapefile_aoi_api_v1_aoi_upload_post": {
         "properties": {
           "file": {
-            "contentMediaType": "application/octet-stream",
+            "format": "binary",
             "title": "File",
             "type": "string"
           },
@@ -819,7 +816,7 @@
       "Body_validate_upload_api_v1_source_datasets_validate_post": {
         "properties": {
           "file": {
-            "contentMediaType": "application/octet-stream",
+            "format": "binary",
             "title": "File",
             "type": "string"
           },
@@ -1352,6 +1349,9 @@
           "gap_policy": {
             "const": "reject",
             "default": "reject",
+            "enum": [
+              "reject"
+            ],
             "title": "Gap Policy",
             "type": "string"
           },
@@ -1392,7 +1392,6 @@
             "type": "boolean"
           },
           "capabilities": {
-            "additionalProperties": true,
             "title": "Capabilities",
             "type": "object"
           },
@@ -1621,6 +1620,9 @@
           "algorithm": {
             "const": "random_forest",
             "default": "random_forest",
+            "enum": [
+              "random_forest"
+            ],
             "title": "Algorithm",
             "type": "string"
           },
@@ -1657,6 +1659,11 @@
           "normalize_projection": {
             "default": true,
             "title": "Normalize Projection",
+            "type": "boolean"
+          },
+          "preview_enhancement": {
+            "default": false,
+            "title": "Preview Enhancement",
             "type": "boolean"
           },
           "sar_speckle_filter": {
@@ -1791,7 +1798,6 @@
             "$ref": "#/components/schemas/FIRRISPreprocessingConfig"
           },
           "quality": {
-            "additionalProperties": true,
             "title": "Quality",
             "type": "object"
           },
@@ -2918,7 +2924,6 @@
           "legend": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -2977,7 +2982,6 @@
           "spatial_resolution": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -3089,7 +3093,6 @@
           "gis_metadata": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -3244,7 +3247,6 @@
           "provenance": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -3260,7 +3262,6 @@
           "summary": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -3351,6 +3352,48 @@
         "title": "RiskMapRequest",
         "type": "object"
       },
+      "SatellitePreprocessingOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "climate_interpolation": {
+            "const": "reviewed_station_idw",
+            "enum": [
+              "reviewed_station_idw"
+            ],
+            "title": "Climate Interpolation",
+            "type": "string"
+          },
+          "raster_alignment": {
+            "const": "nearest_no_upsampling",
+            "enum": [
+              "nearest_no_upsampling"
+            ],
+            "title": "Raster Alignment",
+            "type": "string"
+          },
+          "terrain_products": {
+            "items": {
+              "enum": [
+                "slope",
+                "aspect",
+                "curvature",
+                "flow_direction",
+                "flow_accumulation",
+                "twi"
+              ],
+              "type": "string"
+            },
+            "title": "Terrain Products",
+            "type": "array"
+          }
+        },
+        "required": [
+          "raster_alignment",
+          "climate_interpolation"
+        ],
+        "title": "SatellitePreprocessingOptions",
+        "type": "object"
+      },
       "SatelliteSourceConfig": {
         "properties": {
           "baseline_period": {
@@ -3369,6 +3412,16 @@
             },
             "title": "Datasets",
             "type": "array"
+          },
+          "date_mode": {
+            "default": "pre-post",
+            "enum": [
+              "pre-post",
+              "seasonal",
+              "annual"
+            ],
+            "title": "Date Mode",
+            "type": "string"
           },
           "dem_source": {
             "default": "SRTM",
@@ -3563,7 +3616,8 @@
               "flood_return_period",
               "flood_duration",
               "flood_susceptibility",
-              "flood_hazard_zonation"
+              "flood_hazard_zonation",
+              "satellite_preprocessing"
             ],
             "title": "Module",
             "type": "string"
@@ -3650,7 +3704,8 @@
               "flood_return_period",
               "flood_duration",
               "flood_susceptibility",
-              "flood_hazard_zonation"
+              "flood_hazard_zonation",
+              "satellite_preprocessing"
             ],
             "title": "Module",
             "type": "string"
@@ -3662,6 +3717,16 @@
             "format": "uuid",
             "title": "Project Id",
             "type": "string"
+          },
+          "satellite_options": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SatellitePreprocessingOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "sources": {
             "additionalProperties": {
@@ -3705,6 +3770,9 @@
           "analysis_ready": {
             "const": false,
             "default": false,
+            "enum": [
+              false
+            ],
             "title": "Analysis Ready",
             "type": "boolean"
           },
@@ -3746,6 +3814,9 @@
           "structural_validation_only": {
             "const": true,
             "default": true,
+            "enum": [
+              true
+            ],
             "title": "Structural Validation Only",
             "type": "boolean"
           }
@@ -3767,6 +3838,9 @@
           "analysis_ready": {
             "const": false,
             "default": false,
+            "enum": [
+              false
+            ],
             "title": "Analysis Ready",
             "type": "boolean"
           },
@@ -3803,6 +3877,9 @@
           "structural_validation_only": {
             "const": true,
             "default": true,
+            "enum": [
+              true
+            ],
             "title": "Structural Validation Only",
             "type": "boolean"
           }
@@ -3832,6 +3909,9 @@
           },
           "crs_datum_verified": {
             "const": true,
+            "enum": [
+              true
+            ],
             "title": "Crs Datum Verified",
             "type": "boolean"
           },
@@ -3860,26 +3940,41 @@
           },
           "licence_verified": {
             "const": true,
+            "enum": [
+              true
+            ],
             "title": "Licence Verified",
             "type": "boolean"
           },
           "provenance_verified": {
             "const": true,
+            "enum": [
+              true
+            ],
             "title": "Provenance Verified",
             "type": "boolean"
           },
           "qa_verified": {
             "const": true,
+            "enum": [
+              true
+            ],
             "title": "Qa Verified",
             "type": "boolean"
           },
           "temporal_coverage_verified": {
             "const": true,
+            "enum": [
+              true
+            ],
             "title": "Temporal Coverage Verified",
             "type": "boolean"
           },
           "uncertainty_reviewed": {
             "const": true,
+            "enum": [
+              true
+            ],
             "title": "Uncertainty Reviewed",
             "type": "boolean"
           }
@@ -4092,7 +4187,6 @@
           "result_payload": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -4436,7 +4530,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Get Source Binding Contract Api V1 Analyses Source Bindings Contract Get",
                   "type": "object"
                 }
@@ -8915,7 +9008,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Catalogue Api V1 Source Datasets Catalogue Get",
                   "type": "object"
                 }
@@ -10429,7 +10521,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "title": "Response Health Health Get",
                   "type": "object"
                 }

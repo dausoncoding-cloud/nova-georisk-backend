@@ -51,6 +51,7 @@ class FIRRISWorkflowOutput:
     provenance: dict[str, Any]
     raster_spec: RasterSpec
     valid_mask: np.ndarray
+    enhancement_preview: np.ndarray | None = None
 
 
 def _epsg_code(crs: str) -> int:
@@ -94,11 +95,19 @@ def _prepared_stack(workflow: dict[str, Any], gis_metadata: dict[str, Any],
         bounds["west"], bounds["south"], bounds["east"], bounds["north"], width, height,
         crs_epsg=_epsg_code(gis_metadata["crs"]),
     )
+    from app.services.gee.firris_contracts import validate_grid, validate_aoi
+    validate_grid(gis_metadata["crs"], raster_spec.transform)
     if aoi_geometry is not None:
+        validate_aoi(aoi_geometry)
         polygon = shape(aoi_geometry)
         if polygon.geom_type not in {"Polygon", "MultiPolygon"} or polygon.is_empty or not polygon.is_valid:
             raise ValueError("Prepared FIRRIS AOI must be a valid Polygon or MultiPolygon.")
         projected = transform_geom("EPSG:4326", gis_metadata["crs"], aoi_geometry)
+        west, south, east, north = shape(projected).bounds
+        tolerance = max(abs(raster_spec.transform.a), abs(raster_spec.transform.e)) * 1e-6
+        if (west < bounds["west"] - tolerance or south < bounds["south"] - tolerance
+                or east > bounds["east"] + tolerance or north > bounds["north"] + tolerance):
+            raise ValueError("Prepared raster grid does not cover the complete persisted AOI")
         aoi_mask = geometry_mask([projected], out_shape=label_layer.shape,
                                  transform=raster_spec.transform, invert=True)
         if not aoi_mask.any():
@@ -108,7 +117,9 @@ def _prepared_stack(workflow: dict[str, Any], gis_metadata: dict[str, Any],
         aoi_mask = np.ones(label_layer.shape, dtype=bool)
     coverage = float(np.count_nonzero(valid_mask) / np.count_nonzero(aoi_mask) * 100)
     minimum_coverage = float(workflow.get("quality", {}).get("minimum_valid_coverage_pct", 70))
-    if coverage < minimum_coverage:
+    if not np.isfinite(minimum_coverage) or not 0 <= minimum_coverage <= 100:
+        raise ValueError("Minimum valid coverage must be finite and between 0 and 100")
+    if not valid_mask.any() or coverage < minimum_coverage:
         raise ValueError(
             f"Valid pixel coverage {coverage:.2f}% is below the configured {minimum_coverage:.2f}% threshold."
         )
@@ -264,8 +275,26 @@ def run_satellite_workflow(
         "testing_samples": trained.n_test,
         "decision_threshold": 0.5,
     }
+    enhanced = None
+    enhancement_requested = workflow.get("preprocessing", {}).get("preview_enhancement", False)
+    if not isinstance(enhancement_requested, bool):
+        raise ValueError("Preview enhancement requires an explicit boolean opt-in")
+    enhancement_record = {"applied": enhancement_requested, "purpose": "display only; excluded from scientific inputs"}
+    if enhancement_requested:
+        preview_name = next(iter(feature_layers))
+        preview_source = feature_layers[preview_name]
+        low, high = np.percentile(preview_source[valid_mask], [2, 98])
+        enhanced = np.zeros((*valid_mask.shape, 4), dtype=np.uint8)
+        normalized = np.zeros(valid_mask.shape, dtype=np.uint8)
+        if high > low:
+            normalized[valid_mask] = (np.clip((preview_source[valid_mask] - low) / (high - low), 0, 1) * 255).astype(np.uint8)
+        enhanced[..., :3] = normalized[..., None]
+        enhanced[..., 3][valid_mask] = 255
+        enhancement_record.update({"feature": preview_name, "method": "2/98 percentile grayscale display stretch",
+            "source_sha256": _array_fingerprint(preview_source), "display_limits": [float(low), float(high)]})
     provenance = {
         **source_provenance,
+        "enhancement": enhancement_record,
         "materialized_input_checksums": {
             "feature_layers": {key: _array_fingerprint(value) for key, value in feature_layers.items()},
             "label_layer": _array_fingerprint(label_layer),
@@ -310,4 +339,5 @@ def run_satellite_workflow(
         provenance=provenance,
         raster_spec=raster_spec,
         valid_mask=valid_mask,
+        enhancement_preview=enhanced,
     )

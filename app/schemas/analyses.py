@@ -76,16 +76,26 @@ class SatelliteSourceConfig(BaseModel):
     scale: float = Field(default=30, ge=1, le=1000)
     target_crs: str = Field(default="EPSG:4326", min_length=1, max_length=128)
     dem_source: Literal["SRTM", "ALOS"] = "SRTM"
+    date_mode: Literal["pre-post", "seasonal", "annual"] = "pre-post"
     features: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def gee_periods_required(self) -> "SatelliteSourceConfig":
         if self.provider == "gee" and (self.target_period is None or self.baseline_period is None):
             raise ValueError("GEE source requires target_period and baseline_period.")
+        if self.provider == "gee":
+            baseline, target = self.baseline_period, self.target_period
+            if baseline.end > target.start:
+                raise ValueError("Baseline must precede target without overlap")
+            if self.date_mode == "annual" and any((p.start.month, p.start.day, p.end.month, p.end.day, p.end.year - p.start.year) != (1, 1, 1, 1, 1) for p in (baseline, target)):
+                raise ValueError("Annual mode requires full end-exclusive calendar years")
+            if self.date_mode == "seasonal" and (baseline.start.month, baseline.start.day, baseline.end.month, baseline.end.day) != (target.start.month, target.start.day, target.end.month, target.end.day):
+                raise ValueError("Seasonal mode requires matching calendar windows")
         return self
 
 
 class FIRRISPreprocessingConfig(BaseModel):
+    preview_enhancement: bool = False
     cloud_mask: bool = True
     sar_speckle_filter: bool = True
     sar_speckle_radius_m: int = Field(default=50, ge=1, le=500)

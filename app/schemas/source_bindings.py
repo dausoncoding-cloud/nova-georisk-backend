@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.schemas.source_data import TemporalCoverage
 
 
-FIRRISModule = Literal["hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"]
+FIRRISModule = Literal["hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation", "satellite_preprocessing"]
 
 
 class RasterGrid(BaseModel):
@@ -49,6 +49,19 @@ class DurationProcessingOptions(BaseModel):
     gap_policy: Literal["reject"] = "reject"
 
 
+class SatellitePreprocessingOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    raster_alignment: Literal["nearest_no_upsampling"]
+    climate_interpolation: Literal["reviewed_station_idw"]
+    terrain_products: list[Literal["slope", "aspect", "curvature", "flow_direction", "flow_accumulation", "twi"]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def unique_products(self):
+        if len(set(self.terrain_products)) != len(self.terrain_products):
+            raise ValueError("Terrain products must be unique")
+        return self
+
+
 class SourceBoundAnalysisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     project_id: uuid.UUID
@@ -61,6 +74,7 @@ class SourceBoundAnalysisRequest(BaseModel):
     hazard_options: HazardProcessingOptions | None = None
     exposure_options: ExposureProcessingOptions | None = None
     duration_options: DurationProcessingOptions | None = None
+    satellite_options: SatellitePreprocessingOptions | None = None
 
     @model_validator(mode="after")
     def check_module_options(self):
@@ -70,6 +84,8 @@ class SourceBoundAnalysisRequest(BaseModel):
             raise ValueError("Exposure requires an explicit Hazard index class threshold")
         if (self.module == "flood_duration") != (self.duration_options is not None):
             raise ValueError("Flood Duration requires a declared temporal resolution and reject-on-gap policy")
+        if (self.module == "satellite_preprocessing") != (self.satellite_options is not None):
+            raise ValueError("Satellite preprocessing requires explicit alignment/interpolation policies")
         return self
 
 

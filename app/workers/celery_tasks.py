@@ -57,6 +57,8 @@ def _mark_failed(db, task: Task, error: Exception) -> None:
     # Raw exceptions remain server-side for diagnosis.  API responses expose
     # only this stable, non-sensitive summary.
     task.error_message = str(error)
+    if isinstance(getattr(error, "quality_record", None), dict):
+        task.result_payload = {"quality": error.quality_record}
     task.error_summary = "Analysis execution failed. Please retry or contact support with the request ID."
     task.completed_at = datetime.now(timezone.utc)
     db.commit()
@@ -297,7 +299,11 @@ def execute_engine_task(db, task_id: uuid.UUID) -> None:
             result_snapshots = params.get("result_snapshot") or {}
             if result_snapshots != {role: upstream.lineage() for role, upstream in resolved.upstream.items()}:
                 raise ValueError("Upstream Result approval, version or artifact changed after submission")
-            if request.module == "hazard":
+            if request.module == "satellite_preprocessing":
+                from app.services.source_data.satellite_preprocessing import execute_satellite_preprocessing
+                execution = execute_satellite_preprocessing(resolved, mapping(to_shape(aoi.geometry)),
+                    output_directory, next_version, task_id=str(task.id))
+            elif request.module == "hazard":
                 execution = execute_hazard_module(
                     resolved, mapping(to_shape(aoi.geometry)), output_directory,
                     next_version, task_id=str(task.id),
@@ -383,6 +389,13 @@ def execute_engine_task(db, task_id: uuid.UUID) -> None:
     except Exception as exc:  # noqa: BLE001 - worker boundary normalizes failures
         logger.exception("Engine task failed task_id=%s", task_id)
         db.rollback()
+        if result is not None and isinstance(getattr(exc, "quality_record", None), dict):
+            persisted = db.get(Result, result.id)
+            if persisted is not None and not persisted.output_files:
+                # Progress commits may have persisted a running placeholder.
+                # A failed acquisition must never leave a deliverable Result.
+                db.delete(persisted)
+
         task = db.get(Task, task_id)
         if task is not None:
             _mark_failed(db, task, exc)

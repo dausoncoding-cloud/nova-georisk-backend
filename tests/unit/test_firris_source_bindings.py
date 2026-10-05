@@ -64,7 +64,12 @@ def test_explicit_module_contracts_do_not_substitute_risk_formula():
     assert set(contract) == {"hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience",
                              "flood_depth", "flood_velocity", "flood_hazard_product",
                              "flood_aep", "flood_return_period", "flood_duration",
-                             "flood_susceptibility", "flood_hazard_zonation"}
+                             "flood_susceptibility", "flood_hazard_zonation", "satellite_preprocessing"}
+    assert contract["satellite_preprocessing"]["source_roles"] == {}
+    assert contract["satellite_preprocessing"]["optional_source_roles"] == {
+        "climate": "rainfall_stations", "soil": "soil_permeability", "population": "population_density",
+        "roads": "roads", "rivers": "river_drainage_network", "land_cover": "land_cover", "terrain": "terrain_dem"}
+    assert contract["satellite_preprocessing"]["upstream_result_roles"] == {}
     assert contract["flood_depth"]["source_roles"] == {"water_surface": "water_surface_elevation", "terrain": "terrain_dem"}
     assert contract["flood_velocity"]["source_roles"] == {"model_velocity": "hydraulic_model_velocity"}
     assert contract["flood_hazard_product"]["upstream_result_roles"] == {

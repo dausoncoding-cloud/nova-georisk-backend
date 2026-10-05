@@ -17,7 +17,7 @@ def test_gee_pipeline_rejects_unregistered_dataset_before_execution(mock_initial
             {"type": "Polygon", "coordinates": [[[36, -2], [37, -2], [37, -1], [36, -2]]]},
             tmp_path,
         )
-    mock_initialize.assert_called_once()
+    mock_initialize.assert_not_called()
 
 
 @patch("app.services.gee.firris_pipeline.auth.initialize_gee")
@@ -32,7 +32,7 @@ def test_gee_pipeline_requires_complete_firris_dataset_set(mock_initialize, tmp_
             {"type": "Polygon", "coordinates": [[[36, -2], [37, -2], [37, -1], [36, -2]]]},
             tmp_path,
         )
-    mock_initialize.assert_called_once()
+    mock_initialize.assert_not_called()
 
 
 @pytest.mark.parametrize("safeguard", ["cloud_mask", "sar_speckle_filter", "normalize_projection", "clip_to_aoi"])
@@ -48,4 +48,4 @@ def test_gee_pipeline_rejects_disabled_required_preprocessing(mock_initialize, s
             {"type": "Polygon", "coordinates": [[[36, -2], [37, -2], [37, -1], [36, -2]]]},
             tmp_path,
         )
-    mock_initialize.assert_called_once()
+    mock_initialize.assert_not_called()

@@ -18,6 +18,7 @@ from app.services.source_data.temporal_sources import validate_annual_sources, v
 
 
 MODULE_SOURCE_ROLES: dict[str, dict[str, str]] = {
+    "satellite_preprocessing": {},
     "hazard": {"rainfall": "rainfall_stations", "terrain": "terrain_dem", "river_network": "river_drainage_network", "land_cover": "land_cover", "soil": "soil_permeability"},
     "exposure": {"population": "population_density", "buildings": "buildings", "roads": "roads", "critical_infrastructure": "critical_infrastructure", "cropland": "cropland_fraction", "livestock": "livestock_density"},
     "vulnerability": {"indicators": "vulnerability_indicators", "boundaries": "administrative_boundaries"},
@@ -42,8 +43,8 @@ MODULE_RESULT_ROLES: dict[str, dict[str, str]] = {
     "flood_susceptibility": {"hazard": "source_bound_hazard"},
     "flood_hazard_zonation": {"depth": "source_bound_flood_depth", "velocity": "source_bound_flood_velocity"},
 }
-OPTIONAL_SOURCE_ROLES: dict[str, dict[str, str]] = {"exposure": {"economic_assets": "economic_assets"}}
-EXECUTABLE_MODULES = frozenset({"hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"})
+OPTIONAL_SOURCE_ROLES: dict[str, dict[str, str]] = {"satellite_preprocessing": {"climate": "rainfall_stations", "soil": "soil_permeability", "population": "population_density", "roads": "roads", "rivers": "river_drainage_network", "land_cover": "land_cover", "terrain": "terrain_dem"}, "exposure": {"economic_assets": "economic_assets"}}
+EXECUTABLE_MODULES = frozenset({"satellite_preprocessing", "hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"})
 
 
 @dataclass(frozen=True)
@@ -85,7 +86,7 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
         raise SourceNotReady("Source/result roles do not match the FIRRIS module binding contract")
     if len(set(request.sources.values())) != len(request.sources):
         raise SourceNotReady("The same source dataset cannot fill multiple distinct roles")
-    if request.module in {"hazard", "exposure", "risk", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"} and request.target_grid is None:
+    if request.module in {"satellite_preprocessing", "hazard", "exposure", "risk", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"} and request.target_grid is None:
         raise SourceNotReady("Raster-backed modules require an explicit target grid")
     if request.module in {"vulnerability", "insecurity", "resilience"} and request.target_grid is not None:
         raise SourceNotReady("Survey modules use reviewed boundary spatial units, not a raster target grid")
@@ -221,4 +222,21 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
             raise SourceNotReady("Susceptibility predictor period must exactly match approved Hazard period")
     if request.module == "flood_hazard_zonation":
         upstream.update(load_physical_results(db, request, aoi_geometry=aoi_geometry, root=root))
+    if request.module == "satellite_preprocessing":
+        if not sources:
+            raise SourceNotReady("Preprocessing requires explicitly bound sources")
+        crs = CRS.from_user_input(request.target_grid.crs)
+        if not crs.is_projected or len(crs.axis_info) < 2 or any(abs(axis.unit_conversion_factor - 1) > 1e-9 for axis in crs.axis_info[:2]):
+            raise SourceNotReady("Preprocessing requires a projected metric target grid")
+        if request.target_grid.width * request.target_grid.height > 25_000:
+            raise SourceNotReady("Preprocessing grid exceeds bounded 25,000-cell policy")
+        if bool(request.satellite_options.terrain_products) != ("terrain" in sources):
+            raise SourceNotReady("Requested terrain metrics require one explicitly bound DEM")
+        for role in ("roads", "rivers"):
+            if role in sources and not sources[role].evidence.get("checks", {}).get("coverage_complete_verified"):
+                raise SourceNotReady("Network covariates require reviewed complete coverage")
+        if "terrain" in sources:
+            checks = sources["terrain"].evidence.get("checks", {})
+            if not checks.get("hydrologic_coverage_verified") or not checks.get("dem_conditioning_verified"):
+                raise SourceNotReady("Terrain metrics require reviewed conditioning and upstream coverage")
     return ResolvedBindings(request, sources, alignment, upstream)
