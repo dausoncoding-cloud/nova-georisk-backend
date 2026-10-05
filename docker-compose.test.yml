@@ -1,0 +1,146 @@
+name: nova-georisk-integration-test
+
+services:
+  postgis-test:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: nova_test_user
+      POSTGRES_PASSWORD: nova_test_password_not_for_production
+      POSTGRES_DB: nova_georisk_app
+    ports:
+      - "127.0.0.1:${NOVA_TEST_DB_PORT:-55432}:5432"
+    volumes:
+      - ./docker/postgres/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nova_test_user -d nova_georisk_app"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+
+  integration-test:
+    build: .
+    environment:
+      APP_ENV: development
+      DEBUG: "false"
+      INTERNAL_API_SECRET: integration-test-secret-not-for-production
+
+      DATABASE_URL: postgresql+psycopg2://nova_test_user:nova_test_password_not_for_production@postgis-test:5432/nova_georisk_app
+
+      TEST_DATABASE_URL: postgresql+psycopg2://nova_test_user:nova_test_password_not_for_production@postgis-test:5432/nova_georisk_test
+
+      REDIS_URL: redis://redis-test:6379/0
+
+      PROJ_DATA: /usr/local/lib/python3.11/site-packages/rasterio/proj_data
+
+      PYTHONPATH: /app
+
+    depends_on:
+      postgis-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+
+    working_dir: /app
+
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        echo "Waiting for PostgreSQL..."
+
+        until python -c "import psycopg2; psycopg2.connect('postgresql://nova_test_user:nova_test_password_not_for_production@postgis-test:5432/nova_georisk_app')" 2>/dev/null; do
+          sleep 2
+        done
+
+        echo "PostgreSQL ready"
+
+        DATABASE_URL=$${TEST_DATABASE_URL} alembic upgrade eb3a25ef583f
+        DATABASE_URL=$${TEST_DATABASE_URL} python scripts/seed_pre_phase0_fixture.py
+        DATABASE_URL=$${TEST_DATABASE_URL} alembic upgrade head
+        DATABASE_URL=$${TEST_DATABASE_URL} python scripts/verify_phase05_schema.py
+
+        pytest tests/integration -q
+  redis-test:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  smoke-migrate:
+    build: .
+    environment: &smoke-environment
+      APP_ENV: development
+      DEBUG: "false"
+      INTERNAL_API_SECRET: celery-smoke-secret-not-for-production
+      DATABASE_URL: postgresql+psycopg2://nova_test_user:nova_test_password_not_for_production@postgis-test:5432/nova_georisk_app
+      REDIS_URL: redis://redis-test:6379/0
+      CELERY_BROKER_URL: redis://redis-test:6379/0
+      CELERY_RESULT_BACKEND: redis://redis-test:6379/1
+      ARTIFACT_STORAGE_BACKEND: filesystem
+      OUTPUT_STORAGE_DIR: /app/outputs
+      PYTHONPATH: /app
+    depends_on:
+      postgis-test:
+        condition: service_healthy
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        until python -c "import psycopg2; psycopg2.connect('postgresql://nova_test_user:nova_test_password_not_for_production@postgis-test:5432/nova_georisk_app')" 2>/dev/null; do
+          sleep 1
+        done
+        alembic upgrade head
+
+  api-smoke:
+    build: .
+    environment: *smoke-environment
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      smoke-migrate:
+        condition: service_completed_successfully
+      redis-test:
+        condition: service_healthy
+    volumes:
+      - smoke-artifacts:/app/outputs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  worker-smoke:
+    build: .
+    environment: *smoke-environment
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info --concurrency=1
+    depends_on:
+      smoke-migrate:
+        condition: service_completed_successfully
+      redis-test:
+        condition: service_healthy
+    volumes:
+      - smoke-artifacts:/app/outputs
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'from app.core.artifact_storage import require_artifact_storage_ready; require_artifact_storage_ready()' && celery -A app.core.celery_app.celery_app inspect ping --destination celery@$$HOSTNAME --timeout 5"]
+      interval: 3s
+      timeout: 8s
+      retries: 30
+      start_period: 10s
+
+  celery-smoke:
+    build: .
+    environment: *smoke-environment
+    command: python scripts/smoke_firris_celery.py
+    depends_on:
+      api-smoke:
+        condition: service_healthy
+      worker-smoke:
+        condition: service_healthy
+
+volumes:
+  smoke-artifacts:

@@ -1,0 +1,56 @@
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+secrets/
+**/*service_account*.json
+**/*credential*.json
+**/*secret*.json
+*.pem
+*.key
+*.p12
+*.pfx
+cookies.txt
+
+# Runtime data and private source material
+outputs/
+artifacts/
+data/
+datasets/
+raw-data/
+private-data/
+docx-files/
+docker-data/
+*.shp
+*.shx
+*.dbf
+*.gpkg
+*.tif
+*.tiff
+*.zip
+deploy/certbot/conf/
+deploy/certbot/www/
+*.sqlite
+*.db
+
+# Python and local tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+.venv*/
+venv/
+*.egg-info/
+
+# Build/editor state
+build/
+dist/
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

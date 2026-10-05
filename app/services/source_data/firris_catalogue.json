@@ -1,0 +1,85 @@
+{
+  "catalogue_version": "1.0",
+  "status": "contracts_only_no_source_data_supplied",
+  "global_manifest_requirements": [
+    "project_id", "category", "source_id", "crs", "temporal_coverage", "geographic_coverage",
+    "spatial_resolution", "quality_assessment", "licence", "provenance",
+    "uncertainty", "sha256"
+  ],
+  "quality_flags": ["valid", "suspect", "rejected", "missing"],
+  "ingestion_rule": "Only records flagged valid are accepted; schema validation is not independent scientific approval.",
+  "profiles": {
+    "independent_flood_observations": {
+      "format": "geojson", "geometry": ["Polygon", "MultiPolygon"], "crs": "EPSG:4326", "vertical_datum": "not_applicable", "unit": "flooded_polygon", "temporal_mode": "observation", "spatial_resolution": "positional_uncertainty_m", "required_fields": {"event_id": "string", "observed_at": "datetime", "reference_method": "string", "independence_evidence": "string", "quality_flag": "quality_flag"}, "downstream_rows": ["U26", "F10", "F22", "F23", "M01", "M05", "M06"]
+    },
+    "historical_flood_events": {
+      "format": "geojson", "geometry": ["Polygon", "MultiPolygon"], "crs": "EPSG:4326", "vertical_datum": "not_applicable", "unit": "event_polygon", "temporal_mode": "event", "spatial_resolution": "positional_uncertainty_m", "required_fields": {"event_id": "string", "start_at": "datetime", "end_at": "datetime", "source_record_id": "string", "quality_flag": "quality_flag"}, "downstream_rows": ["F10", "M06", "M11"]
+    },
+    "rainfall_stations": {
+      "format": "csv", "geometry": ["longitude_latitude_columns"], "crs": "EPSG:4326", "vertical_datum": "not_applicable", "unit": "mm", "temporal_mode": "series", "spatial_resolution": "station_spacing_not_raster_resolution", "required_fields": {"station_id": "string", "longitude": "longitude", "latitude": "latitude", "observed_at": "datetime", "rainfall_mm": "nonnegative_number", "quality_flag": "quality_flag"}, "downstream_rows": ["F01", "F02", "F11", "M11"]
+    },
+    "river_stage_stations": {
+      "format": "csv", "geometry": ["longitude_latitude_columns"], "crs": "EPSG:4326", "vertical_datum": "required", "unit": "m", "temporal_mode": "series", "spatial_resolution": "station_spacing_not_raster_resolution", "required_fields": {"station_id": "string", "longitude": "longitude", "latitude": "latitude", "observed_at": "datetime", "stage_m": "number", "quality_flag": "quality_flag"}, "downstream_rows": ["F03", "F11", "M02", "M04"]
+    },
+    "river_discharge_stations": {
+      "format": "csv", "geometry": ["longitude_latitude_columns"], "crs": "EPSG:4326", "vertical_datum": "not_applicable", "unit": "m3/s", "temporal_mode": "series", "spatial_resolution": "station_spacing_not_raster_resolution", "required_fields": {"station_id": "string", "longitude": "longitude", "latitude": "latitude", "observed_at": "datetime", "discharge_m3_s": "nonnegative_number", "quality_flag": "quality_flag"}, "downstream_rows": ["F01", "F10", "M03", "M06"]
+    },
+    "hydraulic_cross_sections": {
+      "format": "csv", "geometry": ["longitude_latitude_columns"], "crs": "EPSG:4326", "vertical_datum": "required", "unit": "m2", "temporal_mode": "observation", "spatial_resolution": "survey_spacing_not_raster_resolution", "required_fields": {"section_id": "string", "longitude": "longitude", "latitude": "latitude", "observed_at": "datetime", "area_m2": "positive_number", "quality_flag": "quality_flag"}, "downstream_rows": ["M03", "M04"]
+    },
+    "water_surface_elevation": {
+      "format": "geotiff", "geometry": ["raster"], "crs": "declared_matching_epsg", "vertical_datum": "required", "unit": "m", "temporal_mode": "snapshot", "spatial_resolution": "pixel_x_y_with_crs_unit", "required_fields": {}, "downstream_rows": ["F03", "M02", "M04"]
+    },
+    "hydraulic_model_velocity": {
+      "format": "geotiff", "geometry": ["raster"], "crs": "declared_matching_epsg", "vertical_datum": "not_applicable", "unit": "m/s", "temporal_mode": "snapshot", "spatial_resolution": "pixel_x_y_with_crs_unit", "required_fields": {}, "downstream_rows": ["M03", "M04"]
+    },
+    "terrain_dem": {
+      "format": "geotiff", "geometry": ["raster"], "crs": "declared_matching_epsg", "vertical_datum": "required", "unit": "m", "temporal_mode": "snapshot", "spatial_resolution": "pixel_x_y_with_crs_unit", "required_fields": {}, "downstream_rows": ["U17", "F04", "F06", "M02", "M11"]
+    },
+    "soil_permeability": {
+      "format": "geotiff", "geometry": ["raster"], "crs": "declared_matching_epsg", "vertical_datum": "not_applicable", "unit": "mm/h", "temporal_mode": "snapshot", "spatial_resolution": "pixel_x_y_with_crs_unit", "required_fields": {}, "downstream_rows": ["U18", "F09", "F11", "M11"]
+    },
+    "river_drainage_network": {
+      "format": "geojson", "geometry": ["LineString", "MultiLineString"], "crs": "EPSG:4326", "vertical_datum": "not_applicable", "unit": "network_line", "temporal_mode": "snapshot", "spatial_resolution": "positional_uncertainty_m", "required_fields": {"feature_id": "string", "network_type": "string", "observed_at": "datetime", "quality_flag": "quality_flag"}, "downstream_rows": ["F05", "F06", "M11"]
+    },
+    "land_cover": {
+      "format": "geotiff", "geometry": ["raster"], "crs": "declared_matching_epsg", "vertical_datum": "not_applicable", "unit": "source_class_code", "temporal_mode": "snapshot", "spatial_resolution": "pixel_x_y_with_crs_unit", "required_fields": {}, "downstream_rows": ["U18", "F08", "F11", "M11"]
+    },
+    "inundation_time_slice": {
+      "format": "geotiff", "geometry": ["raster"], "crs": "declared_matching_epsg", "vertical_datum": "not_applicable", "unit": "binary_0_1", "temporal_mode": "snapshot", "spatial_resolution": "pixel_x_y_with_crs_unit", "required_fields": {}, "downstream_rows": ["U25", "F10", "M06", "M07"]
+    },
+    "annual_inundation_observation": {
+      "format": "geotiff", "geometry": ["raster"], "crs": "declared_matching_epsg", "vertical_datum": "not_applicable", "unit": "annual_exceedance_0_1", "temporal_mode": "complete_year", "spatial_resolution": "pixel_x_y_with_crs_unit", "required_fields": {}, "downstream_rows": ["M05", "M06"]
+    },
+    "population_density": {
+      "format": "geotiff", "geometry": ["raster"], "crs": "declared_matching_epsg", "vertical_datum": "not_applicable", "unit": "people/km2", "temporal_mode": "snapshot", "spatial_resolution": "pixel_x_y_with_crs_unit", "required_fields": {}, "downstream_rows": ["F12", "F13", "M08", "M09"]
+    },
+    "buildings": {
+      "format": "geojson", "geometry": ["Polygon", "MultiPolygon"], "crs": "EPSG:4326", "vertical_datum": "not_applicable", "unit": "building_count", "temporal_mode": "snapshot", "spatial_resolution": "positional_uncertainty_m", "required_fields": {"asset_id": "string", "building_use": "string", "observed_at": "datetime", "quality_flag": "quality_flag"}, "downstream_rows": ["F12", "M08"]
+    },
+    "roads": {
+      "format": "geojson", "geometry": ["LineString", "MultiLineString"], "crs": "EPSG:4326", "vertical_datum": "not_applicable", "unit": "road_length_m", "temporal_mode": "snapshot", "spatial_resolution": "positional_uncertainty_m", "required_fields": {"asset_id": "string", "road_class": "string", "observed_at": "datetime", "quality_flag": "quality_flag"}, "downstream_rows": ["F12", "M08"]
+    },
+    "critical_infrastructure": {
+      "format": "geojson", "geometry": ["Point", "Polygon", "MultiPolygon"], "crs": "EPSG:4326", "vertical_datum": "not_applicable", "unit": "asset_count", "temporal_mode": "snapshot", "spatial_resolution": "positional_uncertainty_m", "required_fields": {"asset_id": "string", "asset_type": "string", "observed_at": "datetime", "quality_flag": "quality_flag"}, "downstream_rows": ["F12", "M08"]
+    },
+    "economic_assets": {
+      "format": "geojson", "geometry": ["Point", "Polygon", "MultiPolygon"], "crs": "EPSG:4326", "vertical_datum": "not_applicable", "unit": "asset_count", "temporal_mode": "snapshot", "spatial_resolution": "positional_uncertainty_m", "required_fields": {"asset_id": "string", "asset_type": "string", "observed_at": "datetime", "quality_flag": "quality_flag"}, "downstream_rows": ["F12", "M08"]
+    },
+    "cropland_fraction": {
+      "format": "geotiff", "geometry": ["raster"], "crs": "declared_matching_epsg", "vertical_datum": "not_applicable", "unit": "fraction_0_1", "temporal_mode": "snapshot", "spatial_resolution": "pixel_x_y_with_crs_unit", "required_fields": {}, "downstream_rows": ["F12", "M08"]
+    },
+    "livestock_density": {
+      "format": "geotiff", "geometry": ["raster"], "crs": "declared_matching_epsg", "vertical_datum": "not_applicable", "unit": "animals/km2", "temporal_mode": "snapshot", "spatial_resolution": "pixel_x_y_with_crs_unit", "required_fields": {}, "downstream_rows": ["F12", "M08"]
+    },
+    "vulnerability_indicators": {
+      "format": "csv", "geometry": ["spatial_unit_id_join"], "crs": "EPSG:4326", "vertical_datum": "not_applicable", "unit": "declared_per_indicator", "temporal_mode": "observation", "spatial_resolution": "linked_admin_boundary", "required_fields": {"spatial_unit_id": "string", "indicator_key": "string", "value": "number", "unit": "string", "observed_at": "datetime", "sample_n": "positive_integer", "quality_flag": "quality_flag"}, "required_indicators": ["population_density", "elderly_population", "children_population", "disability_prevalence", "education_level", "poverty_level", "housing_quality", "building_materials", "infrastructure_condition", "household_income", "livelihood_dependence", "crop_dependence", "health_facility_accessibility", "early_warning_access", "age_dependency", "safe_water_sanitation_access"], "downstream_rows": ["F13", "M09"]
+    },
+    "community_capacity_indicators": {
+      "format": "csv", "geometry": ["spatial_unit_id_join"], "crs": "EPSG:4326", "vertical_datum": "not_applicable", "unit": "declared_per_indicator", "temporal_mode": "observation", "spatial_resolution": "linked_admin_boundary", "required_fields": {"spatial_unit_id": "string", "indicator_key": "string", "value": "number", "unit": "string", "observed_at": "datetime", "sample_n": "positive_integer", "quality_flag": "quality_flag"}, "required_indicators": ["emergency_plans", "community_training", "evacuation_preparedness", "resource_availability", "warning_timeliness", "warning_accuracy", "warning_accessibility", "flood_awareness", "previous_experience", "understanding_of_risk", "response_speed", "relief_distribution", "coordination", "economic_recovery", "infrastructure_recovery", "social_recovery"], "downstream_rows": ["F14", "F16", "M10"]
+    },
+    "administrative_boundaries": {
+      "format": "geojson", "geometry": ["Polygon", "MultiPolygon"], "crs": "EPSG:4326", "vertical_datum": "not_applicable", "unit": "boundary_polygon", "temporal_mode": "snapshot", "spatial_resolution": "positional_uncertainty_m", "required_fields": {"spatial_unit_id": "string", "name": "string", "level": "string", "observed_at": "datetime", "quality_flag": "quality_flag"}, "downstream_rows": ["U06", "F13", "F14"]
+    }
+  }
+}

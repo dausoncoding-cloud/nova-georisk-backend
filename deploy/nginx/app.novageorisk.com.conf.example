@@ -1,0 +1,104 @@
+# Activate only after DNS and TLS exist for app.novageorisk.com and the
+# React production build is available at /usr/share/nginx/html.
+limit_req_zone $binary_remote_addr zone=nova_browser_api:10m rate=10r/s;
+
+server {
+    listen 80;
+    server_name app.novageorisk.com;
+
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name app.novageorisk.com;
+    resolver 127.0.0.11 ipv6=off;
+
+    ssl_certificate /etc/letsencrypt/live/app.novageorisk.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/app.novageorisk.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    client_max_body_size 21m;
+    limit_req_status 429;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; connect-src 'self'; font-src 'self' data:; worker-src 'self' blob:; frame-src 'none'; frame-ancestors 'none'; object-src 'none'; form-action 'self'" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Request-Id $request_id always;
+
+    error_page 413 = @payload_too_large;
+    error_page 429 = @rate_limited;
+    location @payload_too_large {
+        default_type application/json;
+        return 413 '{"detail":"Payload too large.","error":{"code":"http_413","message":"Payload too large.","request_id":"$request_id","details":null}}';
+    }
+    location @rate_limited {
+        default_type application/json;
+        return 429 '{"detail":"Too many requests.","error":{"code":"http_429","message":"Too many requests.","request_id":"$request_id","details":null}}';
+    }
+
+    location ^~ /outputs/ {
+        return 404;
+    }
+
+    location = /healthz/frontend {
+        access_log off;
+        root /usr/share/nginx/html;
+        add_header Cache-Control "no-store" always;
+        try_files /index.html =503;
+    }
+
+    # Authentication stays in the BFF. Cookies and OIDC state are not handled
+    # by Nginx.
+    location ^~ /auth/ {
+        limit_req zone=nova_browser_api burst=30 nodelay;
+        set $bff_upstream bff:8001;
+        proxy_pass http://$bff_upstream;
+        proxy_http_version 1.1;
+        # Preserve incremental protected artifact delivery and COG byte ranges.
+        proxy_buffering off;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Request-Id $request_id;
+        proxy_set_header Connection "";
+        proxy_set_header X-Internal-Secret "";
+        proxy_set_header X-Nova-User-Id "";
+        proxy_set_header X-Nova-Organization-Id "";
+        proxy_set_header X-Nova-Role "";
+        proxy_read_timeout 330s;
+        proxy_send_timeout 330s;
+    }
+
+    # Browser API traffic deliberately traverses the BFF. The BFF validates
+    # the opaque session and CSRF token, then adds trusted internal headers.
+    location ^~ /api/ {
+        limit_req zone=nova_browser_api burst=30 nodelay;
+        set $bff_upstream bff:8001;
+        proxy_pass http://$bff_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Request-Id $request_id;
+        proxy_set_header Connection "";
+        proxy_set_header X-Internal-Secret "";
+        proxy_set_header X-Nova-User-Id "";
+        proxy_set_header X-Nova-Organization-Id "";
+        proxy_set_header X-Nova-Role "";
+        proxy_read_timeout 330s;
+        proxy_send_timeout 330s;
+    }
+
+    location / {
+        root /usr/share/nginx/html;
+        try_files $uri $uri/ /index.html;
+    }
+}

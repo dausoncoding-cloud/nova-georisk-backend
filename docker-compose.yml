@@ -1,0 +1,138 @@
+services:
+  api:
+    build: .
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - nova_artifacts:/app/outputs
+      # Mount the GEE service-account key read-only from OUTSIDE the repo.
+      - type: bind
+        source: ${GEE_SERVICE_ACCOUNT_HOST_PATH:?Set a host path to the GEE service-account JSON outside this repository}
+        target: /run/secrets/gee_service_account.json
+        read_only: true
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-1}
+    env_file: .env
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'from app.core.artifact_storage import require_artifact_storage_ready; require_artifact_storage_ready()' && celery -A app.core.celery_app.celery_app inspect ping --destination celery@$$HOSTNAME --timeout 5"]
+      interval: 15s
+      timeout: 8s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - nova_artifacts:/app/outputs
+      - type: bind
+        source: ${GEE_SERVICE_ACCOUNT_HOST_PATH:?Set a host path to the GEE service-account JSON outside this repository}
+        target: /run/secrets/gee_service_account.json
+        read_only: true
+    restart: unless-stopped
+
+  bff:
+    build: .
+    command: uvicorn app.bff.main:app --host 0.0.0.0 --port 8001
+    expose:
+      - "8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    env_file: .env
+    depends_on:
+      api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    # No host port published in production — only 'api'/'worker' reach it, over the
+    # compose network. Uncomment below only if you need direct DB access from the host.
+    # ports:
+    #   - "5432:5432"
+    volumes:
+      - nova_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # ports:
+    #   - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # --- Reverse proxy + TLS (production only) ---------------------------
+  # Fronts the browser BFF/API gateway, terminates TLS with a cert Certbot
+  # renews automatically. See deploy/README.md for the one-time bootstrap step.
+  nginx:
+    # Built and versioned in nova-georisk-frontend; no source checkout is needed here.
+    image: ${NOVA_FRONTEND_IMAGE:-nova-georisk-frontend:local}
+    ports:
+      - "80:80"
+      - "443:443"
+      # Local/staging same-origin gateway. Set NOVA_GATEWAY_PORT to override.
+      - "127.0.0.1:${NOVA_GATEWAY_PORT:-8000}:8080"
+    volumes:
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./deploy/certbot/conf:/etc/letsencrypt:ro
+      - ./deploy/certbot/www:/var/www/certbot:ro
+    depends_on:
+      api:
+        condition: service_healthy
+      bff:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz && wget -q -O /dev/null http://127.0.0.1:8080/healthz/frontend || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - ./deploy/certbot/conf:/etc/letsencrypt
+      - ./deploy/certbot/www:/var/www/certbot
+    # Renews twice a day if due; a no-op the rest of the time.
+    entrypoint: sh -c "trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done"
+
+volumes:
+  nova_postgres_data:
+  nova_artifacts:
