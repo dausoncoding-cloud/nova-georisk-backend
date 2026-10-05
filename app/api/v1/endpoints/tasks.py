@@ -14,10 +14,12 @@ from app.core.entitlements import active_engine_keys, require_active_membership,
 from app.core.security import OrganizationRole, RequestContext, get_request_context, require_project_access, require_role, verify_internal_secret
 from app.db.session import get_db
 from app.models.project import Project
+from app.models.aoi import AOI
+from app.services.tasks.execution import initialize_execution, append_event, admit_task, execution_record, redact_snapshot, fingerprint, verify_events
 from app.models.result import Result
 from app.models.task import Task
 from app.models.task import TaskStatus, TaskType
-from app.schemas.common import TaskPage, TaskStatusResponse
+from app.schemas.common import TaskPage, TaskStatusResponse, TaskArchiveResponse
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"], dependencies=[Depends(verify_internal_secret)])
 
@@ -25,7 +27,7 @@ router = APIRouter(prefix="/tasks", tags=["Tasks"], dependencies=[Depends(verify
 def _latest_result(db: Session, task_id: uuid.UUID) -> Result | None:
     return (
         db.query(Result)
-        .filter(Result.task_id == task_id)
+        .filter(Result.task_id == task_id, Result.summary["status"].astext.is_distinct_from("running"))
         .order_by(Result.created_at.desc())
         .first()
     )
@@ -88,7 +90,7 @@ def cancel_task(
     db: Session = Depends(get_db),
     context: RequestContext = Depends(get_request_context),
 ) -> TaskStatusResponse:
-    task = db.get(Task, task_id)
+    task = db.query(Task).filter(Task.id == task_id).populate_existing().with_for_update().first()
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found.")
     require_active_membership(db, context)
@@ -100,6 +102,12 @@ def cancel_task(
     task.status = TaskStatus.CANCELED
     task.completed_at = datetime.now(timezone.utc)
     task.error_summary = None
+    if execution_record(task) is None:
+        initialize_execution(task, db.get(AOI, task.aoi_id))
+    try:
+        append_event(task, "canceled", actor_id=context.user_id)
+    except (ValueError, TypeError, KeyError):
+        task.result_payload = {**(task.result_payload or {}), "execution_integrity_error": True}
     db.commit()
     if task.celery_task_id:
         try:
@@ -119,13 +127,18 @@ def retry_task(
     db: Session = Depends(get_db),
     context: RequestContext = Depends(get_request_context),
 ) -> TaskStatusResponse:
-    original = db.get(Task, task_id)
+    original = db.query(Task).filter(Task.id == task_id).populate_existing().with_for_update().first()
     if original is None:
         raise HTTPException(status_code=404, detail="Task not found.")
     require_active_membership(db, context)
     require_project_access(original.project, context)
     require_engine_entitlement(db, context, original.engine_key)
     require_role(context, OrganizationRole.OWNER, OrganizationRole.ADMIN, OrganizationRole.ANALYST)
+    if execution_record(original) is not None:
+        try:
+            verify_events(execution_record(original))
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(status_code=409, detail="Execution history is inconsistent; explicitly submit a new request.") from exc
     if original.status not in {TaskStatus.FAILED, TaskStatus.CANCELED}:
         raise HTTPException(status_code=409, detail="Only failed or canceled tasks can be retried.")
     retried = Task(
@@ -136,6 +149,11 @@ def retry_task(
         status=TaskStatus.QUEUED,
         input_params=deepcopy(original.input_params),
     )
+    admit_task(db, original.project)
+    initialize_execution(retried, db.get(AOI, retried.aoi_id), context=context, retry_of=original.id)
+    if execution_record(original) is None:
+        initialize_execution(original, db.get(AOI, original.aoi_id))
+    append_event(original, "retry_created", actor_id=context.user_id)
     db.add(retried)
     db.commit()
     db.refresh(retried)
@@ -150,13 +168,46 @@ def retry_task(
             queued = run_flood_screening_atlas.delay(str(retried.id))
         else:
             raise RuntimeError("This task type does not have a retry dispatcher.")
+        db.refresh(retried, with_for_update=True)
         if isinstance(getattr(queued, "id", None), str):
             retried.celery_task_id = queued.id
+        append_event(retried, "enqueued", actor_id=context.user_id)
         db.commit()
     except Exception as exc:
+        db.refresh(retried, with_for_update=True)
+        if retried.status != TaskStatus.QUEUED:
+            db.rollback()
+            raise HTTPException(status_code=503, detail="Queue acknowledgement failed; check the persisted task status.") from exc
         retried.status = TaskStatus.FAILED
         retried.error_summary = "The retry could not be queued. Please retry later."
         retried.completed_at = datetime.now(timezone.utc)
+        append_event(retried, "failed", actor_id=context.user_id)
         db.commit()
         raise HTTPException(status_code=503, detail=retried.error_summary) from exc
     return serialize_task(retried)
+
+
+@router.get("/{task_id}/archive", response_model=TaskArchiveResponse)
+def get_task_archive(task_id: uuid.UUID, db: Session = Depends(get_db),
+                     context: RequestContext = Depends(get_request_context)) -> TaskArchiveResponse:
+    task = db.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found.")
+    require_active_membership(db, context)
+    require_project_access(task.project, context)
+    require_engine_entitlement(db, context, task.engine_key)
+    record = execution_record(task)
+    if record:
+        try:
+            verify_events(record)
+        except (ValueError, TypeError, KeyError) as exc:
+            raise HTTPException(status_code=409, detail="Archived execution history is inconsistent.") from exc
+    if record and record["parameters_sha256"] != fingerprint(task.input_params or {}):
+        raise HTTPException(status_code=409, detail="Archived input fingerprint is inconsistent.")
+    results = db.query(Result).filter(Result.task_id == task.id, Result.summary["status"].astext.is_distinct_from("running")).order_by(Result.version).all()
+    return TaskArchiveResponse(task=serialize_task(task, results[-1] if results else None),
+        submitted_parameters=redact_snapshot(task.input_params or {}),
+        results=[{"id": str(result.id), "result_type": result.result_type, "version": result.version,
+                  "created_at": result.created_at.isoformat()} for result in results if (result.output_files or {})],
+        limitations=["Legacy jobs may have no historical actor/AOI/code fingerprint; missing history is never invented.",
+                     "Consistency hashes are not cryptographic proof against privileged database administrators."])

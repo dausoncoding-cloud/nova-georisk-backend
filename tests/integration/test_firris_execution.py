@@ -168,6 +168,13 @@ def test_owner_submits_firris_job_worker_persists_and_protects_result(
         "result_metadata",
         "provenance",
         "report_package",
+        "quantitative_data",
+        "evidence_interpretation",
+        "complete_report_pdf",
+        "complete_report_excel",
+        "complete_report_csv",
+        "complete_report_word",
+        "execution_archive",
     }
     assert {item["product_key"] for item in detail.json()["layers"]} == {
         "flood_depth",

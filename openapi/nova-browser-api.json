@@ -963,6 +963,82 @@
         "title": "CapacitySubindexResponse",
         "type": "object"
       },
+      "ClassArea": {
+        "additionalProperties": false,
+        "properties": {
+          "area_ha": {
+            "minimum": 0.0,
+            "title": "Area Ha",
+            "type": "number"
+          },
+          "area_km2": {
+            "minimum": 0.0,
+            "title": "Area Km2",
+            "type": "number"
+          },
+          "area_m2": {
+            "minimum": 0.0,
+            "title": "Area M2",
+            "type": "number"
+          },
+          "area_method": {
+            "title": "Area Method",
+            "type": "string"
+          },
+          "cells": {
+            "minimum": 0.0,
+            "title": "Cells",
+            "type": "integer"
+          },
+          "class_value": {
+            "title": "Class Value",
+            "type": "integer"
+          },
+          "classification_basis": {
+            "title": "Classification Basis",
+            "type": "string"
+          },
+          "denominator_area_m2": {
+            "exclusiveMinimum": 0.0,
+            "title": "Denominator Area M2",
+            "type": "number"
+          },
+          "evidence_ref": {
+            "title": "Evidence Ref",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "percent_of_valid": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Percent Of Valid",
+            "type": "number"
+          },
+          "product_key": {
+            "title": "Product Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_key",
+          "class_value",
+          "label",
+          "cells",
+          "area_m2",
+          "area_ha",
+          "area_km2",
+          "percent_of_valid",
+          "denominator_area_m2",
+          "area_method",
+          "classification_basis",
+          "evidence_ref"
+        ],
+        "title": "ClassArea",
+        "type": "object"
+      },
       "ClassificationValidationRequest": {
         "properties": {
           "positive_label": {
@@ -1559,6 +1635,200 @@
           "error"
         ],
         "title": "ErrorEnvelope",
+        "type": "object"
+      },
+      "EvidenceStatement": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "evidence_refs"
+        ],
+        "title": "EvidenceStatement",
+        "type": "object"
+      },
+      "ExecutionEvent": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "submitted",
+              "initialized",
+              "enqueued",
+              "started",
+              "progress",
+              "sources_revalidated",
+              "completed",
+              "failed",
+              "canceled",
+              "retry_created"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "at": {
+            "format": "date-time",
+            "title": "At",
+            "type": "string"
+          },
+          "previous_sha256": {
+            "title": "Previous Sha256",
+            "type": "string"
+          },
+          "progress_pct": {
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Progress Pct",
+            "type": "integer"
+          },
+          "sequence": {
+            "minimum": 1.0,
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sequence",
+          "action",
+          "at",
+          "actor_id",
+          "progress_pct",
+          "previous_sha256",
+          "sha256"
+        ],
+        "title": "ExecutionEvent",
+        "type": "object"
+      },
+      "ExecutionRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "aoi_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aoi Sha256"
+          },
+          "aoi_snapshot": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aoi Snapshot"
+          },
+          "aoi_source_lineage": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aoi Source Lineage"
+          },
+          "cache_policy": {
+            "const": "revalidate_registered_sources_no_automatic_result_or_gee_reuse",
+            "enum": [
+              "revalidate_registered_sources_no_automatic_result_or_gee_reuse"
+            ],
+            "title": "Cache Policy",
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/ExecutionEvent"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "implementation_sha256": {
+            "title": "Implementation Sha256",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "api",
+              "legacy_worker"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "parameters_sha256": {
+            "title": "Parameters Sha256",
+            "type": "string"
+          },
+          "retry_of": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry Of"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "enum": [
+              "1.0"
+            ],
+            "title": "Schema Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "origin",
+          "parameters_sha256",
+          "aoi_sha256",
+          "aoi_snapshot",
+          "aoi_source_lineage",
+          "implementation_sha256",
+          "cache_policy",
+          "retry_of",
+          "events"
+        ],
+        "title": "ExecutionRecord",
         "type": "object"
       },
       "ExposureDensityRequest": {
@@ -2782,6 +3052,56 @@
         "title": "ProjectUpdateRequest",
         "type": "object"
       },
+      "QuantitativeSeries": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "class_area",
+              "histogram",
+              "observed_time_series"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "product_key": {
+            "title": "Product Key",
+            "type": "string"
+          },
+          "units": {
+            "title": "Units",
+            "type": "string"
+          }
+        },
+        "required": [
+          "product_key",
+          "kind",
+          "units",
+          "points",
+          "basis",
+          "evidence_refs"
+        ],
+        "title": "QuantitativeSeries",
+        "type": "object"
+      },
       "RasterGrid": {
         "additionalProperties": false,
         "properties": {
@@ -2932,6 +3252,97 @@
         "title": "RegressionValidationResponse",
         "type": "object"
       },
+      "ResultAnalytics": {
+        "additionalProperties": false,
+        "properties": {
+          "class_areas": {
+            "items": {
+              "$ref": "#/components/schemas/ClassArea"
+            },
+            "title": "Class Areas",
+            "type": "array"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "schema_version": {
+            "const": "1.0",
+            "default": "1.0",
+            "enum": [
+              "1.0"
+            ],
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/QuantitativeSeries"
+            },
+            "title": "Series",
+            "type": "array"
+          }
+        },
+        "required": [
+          "limitations"
+        ],
+        "title": "ResultAnalytics",
+        "type": "object"
+      },
+      "ResultInterpretation": {
+        "additionalProperties": false,
+        "properties": {
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceStatement"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "independent_scientific_validation": {
+            "const": false,
+            "default": false,
+            "enum": [
+              false
+            ],
+            "title": "Independent Scientific Validation",
+            "type": "boolean"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "method": {
+            "const": "deterministic_evidence_rules_v1",
+            "default": "deterministic_evidence_rules_v1",
+            "enum": [
+              "deterministic_evidence_rules_v1"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "recommendations": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceStatement"
+            },
+            "title": "Recommendations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "findings",
+          "recommendations",
+          "limitations"
+        ],
+        "title": "ResultInterpretation",
+        "type": "object"
+      },
       "ResultLayerResponse": {
         "properties": {
           "artifact_keys": {
@@ -2972,6 +3383,20 @@
               }
             ],
             "title": "Crs"
+          },
+          "display_bounds_wgs84": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Bounds Wgs84"
           },
           "key": {
             "title": "Key",
@@ -3057,6 +3482,17 @@
               }
             ],
             "title": "Spatial Resolution"
+          },
+          "temporal_metadata": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temporal Metadata"
           },
           "units": {
             "anyOf": [
@@ -3260,6 +3696,16 @@
       },
       "ResultResponse": {
         "properties": {
+          "analytics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResultAnalytics"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "aoi_id": {
             "anyOf": [
               {
@@ -3292,6 +3738,16 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "interpretation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResultInterpretation"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "layers": {
             "items": {
@@ -4129,6 +4585,39 @@
         "title": "SusceptibilityRequest",
         "type": "object"
       },
+      "TaskArchiveResponse": {
+        "properties": {
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "results": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "submitted_parameters": {
+            "title": "Submitted Parameters",
+            "type": "object"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskStatusResponse"
+          }
+        },
+        "required": [
+          "task",
+          "submitted_parameters",
+          "results",
+          "limitations"
+        ],
+        "title": "TaskArchiveResponse",
+        "type": "object"
+      },
       "TaskPage": {
         "properties": {
           "items": {
@@ -4238,6 +4727,16 @@
               }
             ],
             "title": "Error Summary"
+          },
+          "execution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExecutionRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "id": {
             "format": "uuid",
@@ -9715,6 +10214,99 @@
           }
         },
         "summary": "Get Task Status",
+        "tags": [
+          "Tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{task_id}/archive": {
+      "get": {
+        "operationId": "get_task_archive_api_v1_tasks__task_id__archive_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskArchiveResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authorization failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Get Task Archive",
         "tags": [
           "Tasks"
         ]

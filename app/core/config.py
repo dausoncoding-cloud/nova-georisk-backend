@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     celery_worker_max_tasks_per_child: int = 1
     celery_worker_max_memory_per_child_kb: int = 3145728
 
+    # --- FIRRIS bounded queue/input policy ---
+    firris_max_pending_tasks_per_organization: int = 32
+    firris_max_request_bytes: int = 16777216
+    firris_max_prepared_cells: int = 1000000
+    firris_max_feature_layers: int = 32
+
     # --- Google Earth Engine ---
     gee_service_account_email: str = ""
     gee_service_account_key_path: str = ""
@@ -119,6 +125,9 @@ class Settings(BaseSettings):
             or self.celery_worker_max_memory_per_child_kb <= 0
         ):
             raise ValueError("Celery task and worker resource limits must be positive and ordered.")
+        if min(self.firris_max_pending_tasks_per_organization, self.firris_max_request_bytes,
+               self.firris_max_prepared_cells, self.firris_max_feature_layers) <= 0:
+            raise ValueError("FIRRIS admission/input capacity limits must be positive")
         if self.artifact_storage_backend.strip().lower() != "filesystem":
             raise ValueError("ARTIFACT_STORAGE_BACKEND currently supports only filesystem.")
         if self.membership_provisioning_policy.lower() not in {"strict", "optional_invite"}:

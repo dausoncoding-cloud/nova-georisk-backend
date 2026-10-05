@@ -449,11 +449,12 @@ class FIRRISEngineAdapter(EngineAdapter):
             **(workflow.provenance if workflow is not None else {"workflow": "direct product calculation"}),
         }
         outputs.update(reports)
+        summary, provenance = _json_value(summary), _json_value(provenance)
         outputs.update(build_result_exports(
             context.output_directory, task_id=str(context.task_id), project_id=str(context.project_id),
             aoi_id=str(context.aoi_id), engine_key=self.key, engine_version=self.version,
-            result_type="flood_mapping", result_version=context.result_version, summary=_json_value(summary),
-            provenance=_json_value(provenance), gis_metadata=context.gis_metadata,
+            result_type="flood_mapping", result_version=context.result_version, summary=summary,
+            provenance=provenance, gis_metadata=context.gis_metadata,
             product_entries={key: entry for key, entry in outputs.items() if entry.get("role") == "product"},
             supplemental_entries=reports,
         ))

@@ -29,6 +29,8 @@ from app.models.project import Project
 from app.models.task import Task, TaskStatus, TaskType
 from app.schemas.ingestion import ScreeningAtlasRequest, TaskTriggerResponse
 
+from app.services.tasks.execution import initialize_execution, append_event, admit_task, validate_workload
+
 router = APIRouter(prefix="/ingestion", tags=["Ingestion"], dependencies=[Depends(verify_internal_secret)])
 
 
@@ -75,6 +77,12 @@ def trigger_screening_atlas(
             "baseline_end": payload.baseline_end.isoformat(),
         },
     )
+    try:
+        validate_workload(task.input_params)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    admit_task(db, project)
+    initialize_execution(task, aoi, context=context)
     db.add(task)
     db.commit()
     db.refresh(task)
@@ -85,13 +93,20 @@ def trigger_screening_atlas(
 
     try:
         celery_result = run_flood_screening_atlas.delay(str(task.id))
+        db.refresh(task, with_for_update=True)
         celery_task_id = getattr(celery_result, "id", None)
         if isinstance(celery_task_id, str):
             task.celery_task_id = celery_task_id
+        append_event(task, "enqueued", actor_id=context.user_id)
         db.commit()
     except Exception:
+        db.refresh(task, with_for_update=True)
+        if task.status != TaskStatus.QUEUED:
+            db.rollback()
+            raise HTTPException(status_code=503, detail="Queue acknowledgement failed; check the persisted task status.")
         task.status = TaskStatus.FAILED
         task.error_summary = "The atlas job could not be queued. Please retry."
+        append_event(task, "failed", actor_id=context.user_id)
         db.commit()
         raise HTTPException(status_code=503, detail=task.error_summary)
 

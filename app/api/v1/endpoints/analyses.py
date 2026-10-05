@@ -29,6 +29,8 @@ from app.services.source_data.bindings import EXECUTABLE_MODULES, binding_contra
 from app.services.source_data.readiness import SourceNotReady
 from app.services.source_data.boundaries import revalidate_boundary_aoi
 
+from app.services.tasks.execution import initialize_execution, append_event, admit_task, validate_workload
+
 router = APIRouter(prefix="/analyses", tags=["Analyses"], dependencies=[Depends(verify_internal_secret)])
 
 
@@ -92,25 +94,42 @@ def submit_source_bound_analysis(
         from app.services.source_data.change import comparison_source_fingerprint
         for role, source in bindings.sources.items():
             source_snapshot[role]["comparison_manifest_sha256"] = comparison_source_fingerprint(source)
+    from app.services.source_data.change import comparison_source_fingerprint
+    for role, source in bindings.sources.items():
+        source_snapshot[role]["manifest_sha256"] = comparison_source_fingerprint(source)
     result_snapshot = {role: result.lineage() for role, result in bindings.upstream.items()}
     task = Task(
         project_id=payload.project_id, engine_key="firris", aoi_id=payload.aoi_id,
         task_type=TaskType.ANALYSIS, status=TaskStatus.QUEUED,
         input_params={"operation": f"source_bound_{payload.module}", "source_binding": payload.model_dump(mode="json"), "source_snapshot": source_snapshot, "result_snapshot": result_snapshot},
     )
+    try:
+        validate_workload(task.input_params)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    project = db.get(Project, task.project_id)
+    admit_task(db, project)
+    initialize_execution(task, db.get(AOI, task.aoi_id), context=context)
     db.add(task)
     db.commit()
     db.refresh(task)
     from app.workers.celery_tasks import run_engine_analysis
     try:
         queued = run_engine_analysis.delay(str(task.id))
+        db.refresh(task, with_for_update=True)
         if isinstance(getattr(queued, "id", None), str):
             task.celery_task_id = queued.id
+        append_event(task, "enqueued", actor_id=context.user_id)
         db.commit()
     except Exception as exc:
+        db.refresh(task, with_for_update=True)
+        if task.status != TaskStatus.QUEUED:
+            db.rollback()
+            raise HTTPException(status_code=503, detail="Queue acknowledgement failed; check the persisted task status.") from exc
         task.status = TaskStatus.FAILED
         task.error_summary = "The analysis job could not be queued. Please retry."
         task.completed_at = datetime.now(timezone.utc)
+        append_event(task, "failed", actor_id=context.user_id)
         db.commit()
         raise HTTPException(status_code=503, detail=task.error_summary) from exc
     return AnalysisSubmitResponse(task=serialize_task(task))
@@ -173,6 +192,13 @@ def submit_analysis(
         status=TaskStatus.QUEUED,
         input_params=payload.model_dump(mode="json"),
     )
+    try:
+        validate_workload(task.input_params)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    project = db.get(Project, task.project_id)
+    admit_task(db, project)
+    initialize_execution(task, db.get(AOI, task.aoi_id), context=context)
     db.add(task)
     db.commit()
     db.refresh(task)
@@ -181,13 +207,20 @@ def submit_analysis(
 
     try:
         queued = run_engine_analysis.delay(str(task.id))
+        db.refresh(task, with_for_update=True)
         if isinstance(getattr(queued, "id", None), str):
             task.celery_task_id = queued.id
+        append_event(task, "enqueued", actor_id=context.user_id)
         db.commit()
     except Exception as exc:
+        db.refresh(task, with_for_update=True)
+        if task.status != TaskStatus.QUEUED:
+            db.rollback()
+            raise HTTPException(status_code=503, detail="Queue acknowledgement failed; check the persisted task status.") from exc
         task.status = TaskStatus.FAILED
         task.error_summary = "The analysis job could not be queued. Please retry."
         task.completed_at = datetime.now(timezone.utc)
+        append_event(task, "failed", actor_id=context.user_id)
         db.commit()
         raise HTTPException(status_code=503, detail=task.error_summary) from exc
     return AnalysisSubmitResponse(task=serialize_task(task))

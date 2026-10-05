@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel
+from app.schemas.result_delivery import ResultAnalytics, ResultInterpretation
 
 
 class ResultProductResponse(BaseModel):
@@ -41,6 +42,8 @@ class ResultLayerResponse(BaseModel):
     available_delivery_types: list[str]
     planned_delivery_types: list[str]
     artifact_keys: list[str]
+    display_bounds_wgs84: dict[str, float] | None = None
+    temporal_metadata: dict[str, Any] | None = None
 
 
 class ResultResponse(BaseModel):
@@ -52,6 +55,8 @@ class ResultResponse(BaseModel):
     result_type: str
     version: int
     summary: dict | None
+    analytics: ResultAnalytics | None = None
+    interpretation: ResultInterpretation | None = None
     provenance: dict | None
     products: list[ResultProductResponse]
     layers: list[ResultLayerResponse]

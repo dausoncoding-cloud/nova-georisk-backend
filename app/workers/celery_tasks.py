@@ -8,6 +8,7 @@ Result row(s), flip status -> Completed/Failed.
 from __future__ import annotations
 
 import logging
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,10 +24,65 @@ from app.platform.engines import get_engine_adapter
 from app.platform.engines.base import EngineExecutionContext
 from app.platform.result_exports import artifact_fingerprint
 from sqlalchemy import func
+from app.services.tasks.execution import (append_event, execution_record, claim_task,
+    validate_execution, validate_workload, validate_source_snapshots)
 from geoalchemy2.shape import to_shape
 from shapely.geometry import mapping
+from celery.worker.request import Request
+from celery.exceptions import Ignore, Reject, Retry
+from billiard.einfo import ExceptionWithTraceback
 
 logger = logging.getLogger(__name__)
+
+
+def persist_worker_failure(task_id, error):
+    """Parent-process failure bridge for a hard timeout or lost worker child.
+
+    A database/broker outage still requires operational recovery; this callback
+    never invents a completion or silently reuses a partially produced result.
+    """
+    db = SessionLocal()
+    try:
+        task = db.query(Task).filter(Task.id == uuid.UUID(str(task_id))).with_for_update().first()
+        if task is None or task.engine_key != "firris" or task.status not in {TaskStatus.QUEUED, TaskStatus.RUNNING}:
+            return
+        reserved = db.query(Result).filter(Result.task_id == task.id,
+            Result.summary["status"].astext == "running").all()
+        paths = [Path(str(task.project_id)) / str(task.aoi_id) / str(result.id) for result in reserved]
+        for result in reserved:
+            db.delete(result)
+        _mark_failed(db, task, error)
+        from app.core.config import get_settings
+        root = Path(get_settings().output_storage_dir)
+        for relative in paths:
+            directory = root / relative
+            if directory.is_dir():
+                shutil.rmtree(directory)
+    except Exception:
+        db.rollback()
+        logger.exception("Could not persist worker failure task_id=%s", task_id)
+    finally:
+        db.close()
+
+
+class FIRRISRequest(Request):
+    """Keep the authoritative database lifecycle aligned with Celery failures."""
+    def on_timeout(self, soft, timeout):
+        try:
+            return super().on_timeout(soft, timeout)
+        finally:
+            if not soft and self.args:
+                persist_worker_failure(self.args[0], RuntimeError("Worker hard time limit exceeded"))
+
+    def on_failure(self, exc_info, send_failed_event=True, return_ok=False):
+        try:
+            return super().on_failure(exc_info, send_failed_event, return_ok)
+        finally:
+            error = exc_info.exception
+            if isinstance(error, ExceptionWithTraceback):
+                error = error.exc
+            if self.args and not isinstance(error, (Ignore, Reject, Retry)):
+                persist_worker_failure(self.args[0], error)
 
 
 def _mark_running(db, task: Task) -> None:
@@ -35,6 +91,7 @@ def _mark_running(db, task: Task) -> None:
     task.status = TaskStatus.RUNNING
     task.started_at = datetime.now(timezone.utc)
     task.error_summary = None
+    append_event(task, "started")
     db.commit()
 
 
@@ -44,27 +101,35 @@ def _mark_completed(db, task: Task, result_payload: dict) -> None:
         return
     task.status = TaskStatus.COMPLETED
     task.progress_pct = 100
-    task.result_payload = result_payload
+    record = execution_record(task)
+    task.result_payload = {**result_payload, **({"execution_record": record} if record else {})}
     task.completed_at = datetime.now(timezone.utc)
+    append_event(task, "completed")
     db.commit()
 
 
 def _mark_failed(db, task: Task, error: Exception) -> None:
-    db.refresh(task)
-    if task.status == TaskStatus.CANCELED:
+    db.refresh(task, with_for_update=True)
+    if task.status in {TaskStatus.CANCELED, TaskStatus.COMPLETED, TaskStatus.FAILED}:
         return
     task.status = TaskStatus.FAILED
     # Raw exceptions remain server-side for diagnosis.  API responses expose
     # only this stable, non-sensitive summary.
     task.error_message = str(error)
     if isinstance(getattr(error, "quality_record", None), dict):
-        task.result_payload = {"quality": error.quality_record}
+        task.result_payload = {**(task.result_payload or {}), "quality": error.quality_record}
     task.error_summary = "Analysis execution failed. Please retry or contact support with the request ID."
+    try:
+        append_event(task, "failed")
+    except (ValueError, TypeError, KeyError):
+        # Preserve the rejected record in storage; expose only an integrity flag.
+        task.result_payload = {**(task.result_payload or {}), "execution_integrity_error": True}
     task.completed_at = datetime.now(timezone.utc)
     db.commit()
 
 
-@celery_app.task(name="nova.tasks.run_flood_screening_atlas", bind=True)
+@celery_app.task(name="nova.tasks.run_flood_screening_atlas", bind=True,
+                 Request="app.workers.celery_tasks:FIRRISRequest")
 def run_flood_screening_atlas(self, task_id: str) -> None:
     """
     Generates the flood screening atlas (true colour, NDVI, MNDWI,
@@ -87,10 +152,13 @@ def run_flood_screening_atlas(self, task_id: str) -> None:
     db = SessionLocal()
     task = None
     result = None
+    output_directory = None
     try:
-        task = db.get(Task, uuid.UUID(task_id))
+        task = claim_task(db, uuid.UUID(task_id))
         if task is None:
             return
+        validate_execution(task, db.get(AOI, task.aoi_id))
+        validate_workload(task.input_params or {})
         _mark_running(db, task)
 
         params = task.input_params or {}
@@ -100,9 +168,16 @@ def run_flood_screening_atlas(self, task_id: str) -> None:
             raise ValueError(f"Missing required input_params: {missing}")
 
         def _progress(pct: int) -> None:
-            task.progress_pct = pct
+            db.refresh(task, with_for_update=True)
+            if task.status == TaskStatus.RUNNING:
+                next_pct = max(task.progress_pct, max(0, min(99, int(pct))))
+                if task.progress_pct != next_pct:
+                    task.progress_pct = next_pct
+                    append_event(task, "progress")
             db.commit()
 
+        # Serialize version reservation per persisted AOI across worker processes.
+        db.query(AOI).filter(AOI.id == task.aoi_id).with_for_update().first()
         next_version = (
             db.query(func.max(Result.version))
             .filter(
@@ -126,7 +201,10 @@ def run_flood_screening_atlas(self, task_id: str) -> None:
         )
         db.add(result)
         db.flush()
+        db.commit()
+        result_id = result.id
         output_root = require_artifact_storage_ready()
+        output_directory = output_root / str(task.project_id) / str(task.aoi_id) / str(result_id)
         manifest = generate_flood_screening_atlas(
             project_id=params["project_id"],
             aoi_id=params["aoi_id"],
@@ -141,6 +219,16 @@ def run_flood_screening_atlas(self, task_id: str) -> None:
             version=next_version,
         )
 
+        db.expire_all()
+        db.refresh(task, with_for_update=True)
+        if task.status != TaskStatus.RUNNING:
+            persisted = db.get(Result, result_id)
+            if persisted is not None:
+                db.delete(persisted)
+            db.commit()
+            shutil.rmtree(output_directory, ignore_errors=True)
+            return
+        validate_execution(task, db.get(AOI, task.aoi_id))
         manifest_dict = manifest.to_dict()
         result.summary = manifest_dict
         result.provenance = manifest.provenance
@@ -205,24 +293,26 @@ def run_flood_screening_atlas(self, task_id: str) -> None:
         if result is not None:
             persisted_result = db.get(Result, result.id)
             if persisted_result is not None:
-                persisted_result.summary = {
-                    "status": "failed",
-                    "message": "Atlas generation failed.",
-                }
+                db.delete(persisted_result)
                 db.commit()
         if task:
             _mark_failed(db, task, exc)
+        if output_directory:
+            shutil.rmtree(output_directory, ignore_errors=True)
     finally:
         db.close()
 
 
 def execute_engine_task(db, task_id: uuid.UUID) -> None:
     """Execute one persisted engine job; kept session-injectable for integration tests."""
-    task = db.get(Task, task_id)
-    if task is None or task.status == TaskStatus.CANCELED:
+    task = claim_task(db, task_id)
+    if task is None:
         return
     result = None
+    output_directory = None
     try:
+        validate_execution(task, db.get(AOI, task.aoi_id))
+        validate_workload(task.input_params or {})
         _mark_running(db, task)
         params = task.input_params or {}
         aoi = db.get(AOI, task.aoi_id)
@@ -234,6 +324,7 @@ def execute_engine_task(db, task_id: uuid.UUID) -> None:
         metadata["producer"] = "NOVA GeoRisk"
         metadata["engine_version"] = adapter.version
 
+        db.query(AOI).filter(AOI.id == task.aoi_id).with_for_update().first()
         next_version = (
             db.query(func.max(Result.version))
             .filter(
@@ -257,15 +348,20 @@ def execute_engine_task(db, task_id: uuid.UUID) -> None:
         )
         db.add(result)
         db.flush()
+        db.commit()  # Persist the reserved version before releasing its AOI lock.
+        result_id = result.id
 
         relative_directory = Path(str(task.project_id)) / str(task.aoi_id) / str(result.id)
         output_directory = require_artifact_storage_ready() / relative_directory
 
         def _progress(value: int) -> None:
-            db.refresh(task)
-            if task.status != TaskStatus.CANCELED:
-                task.progress_pct = max(0, min(99, value))
-                db.commit()
+            db.refresh(task, with_for_update=True)
+            if task.status == TaskStatus.RUNNING:
+                next_pct = max(task.progress_pct, max(0, min(99, int(value))))
+                if next_pct != task.progress_pct:
+                    task.progress_pct = next_pct
+                    append_event(task, "progress")
+            db.commit()
 
         if "source_binding" in params and task.engine_key == "firris":
             from app.schemas.source_bindings import SourceBoundAnalysisRequest
@@ -287,22 +383,12 @@ def execute_engine_task(db, task_id: uuid.UUID) -> None:
             if aoi is None:
                 raise ValueError("Source-bound AOI is missing")
             resolved = resolve_bindings(db, request, aoi_geometry=mapping(to_shape(aoi.geometry)))
-            snapshots = params.get("source_snapshot") or {}
-            if set(snapshots) != set(resolved.sources):
-                raise ValueError("Source snapshot roles changed after submission")
-            for role, source in resolved.sources.items():
-                pinned = snapshots[role]
-                if (pinned.get("dataset_id") != str(source.dataset.id)
-                    or pinned.get("sha256") != source.manifest.sha256.lower()
-                    or pinned.get("reviewed_at") != source.evidence.get("reviewed_at")):
-                    raise ValueError("Source approval or version changed after submission")
-                if request.module == "flood_change":
-                    from app.services.source_data.change import comparison_source_fingerprint
-                    if pinned.get("comparison_manifest_sha256") != comparison_source_fingerprint(source):
-                        raise ValueError("Comparison source metadata changed after submission")
-            result_snapshots = params.get("result_snapshot") or {}
-            if result_snapshots != {role: upstream.lineage() for role, upstream in resolved.upstream.items()}:
-                raise ValueError("Upstream Result approval, version or artifact changed after submission")
+            validate_source_snapshots(resolved, params)
+            _progress(10)
+            db.refresh(task, with_for_update=True)
+            if task.status == TaskStatus.RUNNING:
+                append_event(task, "sources_revalidated")
+            db.commit()
             if request.module == "satellite_preprocessing":
                 from app.services.source_data.satellite_preprocessing import execute_satellite_preprocessing
                 execution = execute_satellite_preprocessing(resolved, mapping(to_shape(aoi.geometry)),
@@ -380,36 +466,57 @@ def execute_engine_task(db, task_id: uuid.UUID) -> None:
                 ),
                 _progress,
             )
-        db.refresh(task)
-        if task.status == TaskStatus.CANCELED:
-            db.delete(result)
+        db.expire_all()
+        db.refresh(task, with_for_update=True)
+        if task.status != TaskStatus.RUNNING:
+            persisted = db.get(Result, result_id)
+            if persisted is not None:
+                db.delete(persisted)
             db.commit()
+            if output_directory and output_directory.is_dir():
+                shutil.rmtree(output_directory)
             return
+        db.refresh(aoi)
+        validate_execution(task, aoi)
+        if "source_binding" in params:
+            published = resolve_bindings(db, request, aoi_geometry=mapping(to_shape(aoi.geometry)))
+            validate_source_snapshots(published, params)
+            append_event(task, "sources_revalidated")
         result.result_type = execution.result_type
         result.summary = execution.summary
         result.provenance = execution.provenance
+        task.status = TaskStatus.COMPLETED
+        task.progress_pct = 100
+        task.completed_at = datetime.now(timezone.utc)
+        record = execution_record(task)
+        task.result_payload = {**execution.summary, "execution_record": record}
+        append_event(task, "completed")
+        from app.services.tasks.archive import completion_archive
+        scientific_outputs = dict(execution.output_files)
+        scientific_outputs["execution_archive"] = completion_archive(output_directory, task, result, scientific_outputs)
         result.output_files = {
             key: {**entry, "path": str(relative_directory / entry["path"])}
-            for key, entry in execution.output_files.items()
+            for key, entry in scientific_outputs.items()
         }
         db.commit()
-        _mark_completed(db, task, execution.summary)
     except Exception as exc:  # noqa: BLE001 - worker boundary normalizes failures
         logger.exception("Engine task failed task_id=%s", task_id)
         db.rollback()
-        if result is not None and isinstance(getattr(exc, "quality_record", None), dict):
+        if result is not None:
             persisted = db.get(Result, result.id)
             if persisted is not None and not persisted.output_files:
-                # Progress commits may have persisted a running placeholder.
-                # A failed acquisition must never leave a deliverable Result.
+                # A failed job must never leave its reserved/running Result.
                 db.delete(persisted)
 
         task = db.get(Task, task_id)
         if task is not None:
             _mark_failed(db, task, exc)
+        if output_directory and output_directory.is_dir():
+            shutil.rmtree(output_directory)
 
 
-@celery_app.task(name="nova.tasks.run_engine_analysis", bind=True)
+@celery_app.task(name="nova.tasks.run_engine_analysis", bind=True,
+                 Request="app.workers.celery_tasks:FIRRISRequest")
 def run_engine_analysis(self, task_id: str) -> None:
     db = SessionLocal()
     try:

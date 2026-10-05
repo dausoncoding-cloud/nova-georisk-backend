@@ -7,7 +7,7 @@ from typing import Iterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.api.v1.serializers import serialize_result
@@ -111,7 +111,9 @@ def list_results(
     db: Session = Depends(get_db),
     context: RequestContext = Depends(get_request_context),
 ) -> ResultPage:
-    query = db.query(Result).join(Project, Result.project_id == Project.id)
+    query = db.query(Result).join(Project, Result.project_id == Project.id).filter(
+        or_(Result.summary.is_(None), Result.summary["status"].astext.is_(None),
+            Result.summary["status"].astext != "running"))
     if not context.is_service:
         require_active_membership(db, context)
         query = query.filter(
@@ -151,7 +153,7 @@ def get_result(
     context: RequestContext = Depends(get_request_context),
 ) -> ResultResponse:
     result = db.get(Result, result_id)
-    if result is None:
+    if result is None or (result.summary or {}).get("status") == "running":
         raise HTTPException(status_code=404, detail="Result not found.")
     project = db.get(Project, result.project_id)
     if project is None:
@@ -171,7 +173,7 @@ def get_result_product(
     context: RequestContext = Depends(get_request_context),
 ):
     result = db.get(Result, result_id)
-    if result is None or result.project_id is None:
+    if result is None or result.project_id is None or (result.summary or {}).get("status") == "running":
         raise HTTPException(status_code=404, detail="Result not found.")
     project = db.get(Project, result.project_id)
     if project is None:
@@ -192,6 +194,11 @@ def get_result_product(
         raise HTTPException(status_code=404, detail="Result product not found.") from exc
     if not output_path.is_file():
         raise HTTPException(status_code=404, detail="Result product file is missing.")
+    if entry.get("checksum_sha256"):
+        from app.platform.result_exports import artifact_fingerprint
+        size, digest = artifact_fingerprint(output_path)
+        if digest != entry["checksum_sha256"] or (entry.get("file_size_bytes") is not None and entry["file_size_bytes"] != size):
+            raise HTTPException(status_code=404, detail="Result product integrity check failed.")
     return _protected_file_response(
         request,
         output_path,

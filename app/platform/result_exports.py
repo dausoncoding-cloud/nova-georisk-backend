@@ -102,6 +102,34 @@ def build_result_exports(
         if engine_key == "firris" else {}
     )
 
+    delivery_entries = {}
+    if engine_key == "firris":
+        from app.services.reporting.evidence import quantitative_delivery, interpret_evidence
+        from app.services.reporting.complete_report import complete_report
+        from app.services.maps.vector_formats import export_vector_formats
+        analytics = quantitative_delivery(output_directory, product_entries, summary, provenance)
+        interpretation = interpret_evidence(analytics, summary, provenance)
+        summary["delivery"] = analytics
+        summary["interpretation"] = interpretation
+        for name, value in (("quantitative_data", analytics), ("evidence_interpretation", interpretation)):
+            path = output_directory / (name + ".json")
+            _write_json(path, value)
+            delivery_entries[name] = artifact_entry(path, label=name.replace("_", " ").title(),
+                media_type="application/json", artifact_type="report", result_version=result_version, role="export")
+        for name, (path, media) in complete_report(output_directory, common, gis_metadata, summary,
+                provenance, analytics, interpretation).items():
+            delivery_entries[name] = artifact_entry(path, label=name.replace("_", " ").title(),
+                media_type=media, artifact_type="report", result_version=result_version, role="export")
+        for name, entry in {**product_entries, **(supplemental_entries or {})}.items():
+            if entry.get("artifact_type") == "vector" and entry.get("format") == "geojson":
+                for format_name, (path, metadata) in export_vector_formats(output_directory, name, entry, provenance).items():
+                    delivery_entries[name + "_" + format_name] = artifact_entry(path,
+                        label=entry.get("label", name) + " " + format_name,
+                        media_type={"gpkg": "application/geopackage+sqlite3", "kml": "application/vnd.google-earth.kml+xml", "shapefile_zip": "application/zip"}[format_name],
+                        artifact_type="vector", result_version=result_version, role="export",
+                        product_key=entry.get("product_key"), delivery_type=format_name, format_name=format_name,
+                        gis_metadata=metadata)
+
     _write_json(summary_path, {**common, "summary": summary})
     _write_json(
         metadata_path,
@@ -110,7 +138,7 @@ def build_result_exports(
             "gis_metadata": gis_metadata,
             "artifacts": [
                 {key: value for key, value in entry.items() if key != "path"}
-                for entry in [*product_entries.values(), *map_entries.values()]
+                for entry in [*product_entries.values(), *map_entries.values(), *delivery_entries.values(), *(supplemental_entries or {}).values()]
             ],
         },
     )
@@ -119,13 +147,14 @@ def build_result_exports(
     with zipfile.ZipFile(package_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in [summary_path, metadata_path, provenance_path]:
             archive.write(path, arcname=path.name)
-        for entry in [*product_entries.values(), *map_entries.values(), *(supplemental_entries or {}).values()]:
+        for entry in [*product_entries.values(), *map_entries.values(), *delivery_entries.values(), *(supplemental_entries or {}).values()]:
             product_path = output_directory / str(entry["path"])
             folder = "products" if entry.get("role") == "product" else "reports"
             archive.write(product_path, arcname=f"{folder}/{product_path.name}")
 
     return {
         **map_entries,
+        **delivery_entries,
         "analysis_summary": artifact_entry(
             summary_path,
             label="Analysis summary",

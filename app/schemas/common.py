@@ -11,6 +11,7 @@ from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, Field
+from app.schemas.execution import ExecutionRecord
 
 
 class AOISourceType(str, Enum):
@@ -156,6 +157,7 @@ class TaskStatusResponse(BaseModel):
     error_message: str | None = None
     result_payload: dict | None = None
     result_reference: ResultReference | None = None
+    execution: ExecutionRecord | None = None
 
 
 class TaskPage(BaseModel):
@@ -163,3 +165,10 @@ class TaskPage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class TaskArchiveResponse(BaseModel):
+    task: TaskStatusResponse
+    submitted_parameters: dict
+    results: list[dict]
+    limitations: list[str]

@@ -40,6 +40,15 @@ def serialize_task(task: Task, result: Result | None = None) -> TaskStatusRespon
             created_at=result.created_at,
         )
     safe_error = task.error_summary
+    payload = task.result_payload
+    execution = (payload or {}).get("execution_record")
+    if execution is not None:
+        from app.services.tasks.execution import verify_events
+        try:
+            verify_events(execution)
+        except (ValueError, TypeError, KeyError):
+            execution = None
+            payload = {**payload, "execution_record": None, "execution_integrity_error": True}
     return TaskStatusResponse(
         id=task.id,
         task_id=task.id,
@@ -54,8 +63,9 @@ def serialize_task(task: Task, result: Result | None = None) -> TaskStatusRespon
         completed_at=task.completed_at,
         error_summary=safe_error,
         error_message=safe_error,
-        result_payload=task.result_payload,
+        result_payload=payload,
         result_reference=result_reference,
+        execution=execution,
     )
 
 
@@ -101,6 +111,11 @@ def serialize_result(result: Result) -> ResultResponse:
             available = set(layer.get("available_delivery_types") or [])
             planned = set(layer.get("planned_delivery_types") or [])
             if existing is None:
+                from app.services.reporting.evidence import display_bounds
+                geographic_bounds = None
+                if layer.get("renderable") and layer.get("crs") and layer.get("bounding_box"):
+                    geographic_bounds = display_bounds(layer["crs"], layer["bounding_box"])
+                meta = entry.get("gis_metadata") or {}
                 layer_groups[group_key] = {
                     "key": f"{product_key}_{layer_type}",
                     "label": artifact.label,
@@ -117,6 +132,8 @@ def serialize_result(result: Result) -> ResultResponse:
                     "available_delivery_types": available,
                     "planned_delivery_types": planned,
                     "artifact_keys": [key],
+                    "display_bounds_wgs84": geographic_bounds,
+                    "temporal_metadata": {name: meta[name] for name in ("target_period", "baseline_period", "before_timestamp", "after_timestamp", "observation_definition", "timestamps", "temporal_resolution_hours") if meta.get(name) is not None} or None,
                 }
             else:
                 existing["renderable"] = existing["renderable"] or bool(layer.get("renderable", False))
@@ -144,6 +161,8 @@ def serialize_result(result: Result) -> ResultResponse:
         result_type=result.result_type,
         version=result.version,
         summary=result.summary,
+        analytics=(result.summary or {}).get("delivery"),
+        interpretation=(result.summary or {}).get("interpretation"),
         provenance=result.provenance,
         products=products,
         layers=layers,
