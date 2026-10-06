@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.source_data import TemporalCoverage, ProximityPolicy
+from app.schemas.map_methods import ReviewedMapOptions
 
 
 FIRRISModule = Literal["hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation", "satellite_preprocessing", "flood_change", "rainfall_interpolation", "river_stage", "feature_proximity", "watershed", "historical_frequency", "predictor_mlr", "soil_infiltration", "continuous_validation", "classification_validation", "decision_support", "prediction_outputs"]
@@ -115,6 +116,8 @@ class SourceBoundAnalysisRequest(BaseModel):
     rainfall_options: RainfallInterpolationOptions | None = None
     predictor_options: PredictorModelOptions | None = None
     proximity_options: ProximityProcessingOptions | None = None
+    susceptibility_options: ReviewedMapOptions | None = None
+    zonation_options: ReviewedMapOptions | None = None
 
     @model_validator(mode="after")
     def check_module_options(self):
@@ -132,6 +135,10 @@ class SourceBoundAnalysisRequest(BaseModel):
             raise ValueError("Predictor MLR requires explicit response, ordering, VIF and holdout policies")
         if (self.module == "feature_proximity") != (self.proximity_options is not None):
             raise ValueError("Feature proximity requires explicit reviewed normalization and directions")
+        if self.susceptibility_options is not None and self.module != "flood_susceptibility":
+            raise ValueError("Reviewed susceptibility options only apply to susceptibility")
+        if self.zonation_options is not None and self.module != "flood_hazard_zonation":
+            raise ValueError("Reviewed zonation options only apply to hazard zonation")
         return self
 
 

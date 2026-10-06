@@ -60,13 +60,17 @@ def manifest(category: str, data: bytes, **overrides) -> SourceDatasetManifest:
         fields["dss_metric_definitions"] = {"fixture": {"domain": "kpi", "units": "declared-unit", "definition": "Synthetic fixture measurement", "evidence_reference": "fixture:synthetic"}}
     if category == "sensor_registry":
         fields["live_feed_policy"] = {"policy_reference": "fixture:synthetic", "max_lateness_seconds": 60, "max_future_skew_seconds": 0, "max_nowcast_horizon_seconds": 0}
+    if category == "flood_predictor_raster":
+        fields["raster_predictor"] = {"name":"synthetic_predictor","catalogue_reference":"fixture:synthetic","variable":{"role":"predictor","family":"terrain","unit":"synthetic_unit","definition":"Synthetic measured terrain predictor","evidence_ref":"fixture:synthetic"}}
+    if category == "flood_zonation_policy":
+        fields["zonation_policy"] = {"method":"reviewed_interval_decision_table","method_reference":"fixture:synthetic","method_version":"synthetic-v1","definition":"Synthetic sourced interval policy, not scientifically approved", "factor_units":{"depth":"m","velocity":"m/s","duration":"hours"},"classes":{"1":{"label":"Synthetic A","color":"#000000"},"2":{"label":"Synthetic B","color":"#FFFFFF"}}}
     fields.update(overrides)
     return SourceDatasetManifest.model_validate(fields)
 
 
 def test_catalogue_has_explicit_contract_for_every_handoff_category():
     catalogue = get_catalogue()
-    assert len(catalogue["profiles"]) == 38
+    assert len(catalogue["profiles"]) == 40
     assert get_profile("hydraulic_model_velocity")["unit"] == "m/s"
     assert get_profile("annual_inundation_observation")["unit"] == "annual_exceedance_0_1"
     assert all({"format", "geometry", "crs", "vertical_datum", "unit", "temporal_mode", "spatial_resolution", "required_fields", "downstream_rows"} <= set(p) for p in catalogue["profiles"].values())
@@ -165,6 +169,7 @@ def test_every_catalogue_category_has_a_validatable_structural_fixture(category)
         rows = []
         for indicator in profile.get("required_indicators", [None]):
             row = {key: value(key, kind) for key, kind in fields.items()}
+            if category == "flood_zonation_policy": row.update(factor="depth",lower_bound=0,upper_bound=1,class_code=1)
             if indicator:
                 row["indicator_key"] = indicator
             rows.append(row)

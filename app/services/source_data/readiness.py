@@ -48,7 +48,7 @@ class ReadySource:
             **({"observation_definition": self.manifest.observation_definition}
                if self.manifest.observation_definition is not None else {}),
             **{field: getattr(self.manifest, field).model_dump(mode="json")
-               for field in ("validation_definition", "impact_definition", "live_feed_policy") if getattr(self.manifest, field) is not None},
+               for field in ("validation_definition", "impact_definition", "live_feed_policy", "susceptibility_method", "raster_predictor", "zonation_policy") if getattr(self.manifest, field) is not None},
             **({"dss_metric_definitions": {key: definition.model_dump(mode="json") for key, definition in self.manifest.dss_metric_definitions.items()}} if self.manifest.dss_metric_definitions else {}),
             "readiness_evidence": self.evidence,
         }

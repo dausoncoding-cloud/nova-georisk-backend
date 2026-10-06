@@ -10,7 +10,7 @@ from shapely.ops import unary_union
 MAX_SCENES = 500
 
 
-def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_cloud=100):
+def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_cloud=100, collection_id=None):
     count = int(collection.size().getInfo())
     if not 1 <= count <= MAX_SCENES:
         raise ValueError("Required collection is empty or exceeds bounded per-scene QA limit")
@@ -20,16 +20,28 @@ def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_c
     records, footprints = [], []
     identifiers = set()
     for image in images:
-        properties = image.get("properties", {})
+        if not isinstance(image,dict) or not isinstance(image.get("properties"),dict):
+            raise ValueError("Scene metadata/properties are malformed")
+        properties = image["properties"]
         identifier = image.get("id")
         timestamp = properties.get("system:time_start")
-        if not identifier or identifier in identifiers or not isinstance(timestamp, (int, float)) or not math.isfinite(timestamp):
+        if not isinstance(identifier,str) or not identifier or identifier in identifiers or isinstance(timestamp,bool) or not isinstance(timestamp, (int, float)) or not math.isfinite(timestamp):
             raise ValueError("Scene identity/acquisition provenance is missing or duplicated")
+        if collection_id is not None and not identifier.startswith(collection_id+"/"):
+            raise ValueError("Scene identity is outside the selected source collection")
         identifiers.add(identifier)
-        acquired = datetime.fromtimestamp(timestamp / 1000, timezone.utc).date().isoformat()
+        try:
+            acquisition=datetime.fromtimestamp(timestamp/1000,timezone.utc)
+        except (OSError,OverflowError,ValueError) as exc:
+            raise ValueError("Scene acquisition timestamp is invalid") from exc
+        acquired = acquisition.date().isoformat()
         if not period["start"] <= acquired < period["end"]:
             raise ValueError("Scene acquisition is outside requested period")
-        bands = {band["id"]: band for band in image.get("bands", [])}
+        native=image.get("bands", [])
+        if not isinstance(native,list) or any(not isinstance(band,dict) or not band.get("id") for band in native):
+            raise ValueError("Scene band identities are invalid")
+        bands = {band["id"]: band for band in native}
+        if len(bands)!=len(native): raise ValueError("Scene band identities are duplicated")
         if not set(required_bands).issubset(bands):
             raise ValueError("Scene lacks required sensor bands for FIRRIS")
         projections = {}
@@ -81,7 +93,7 @@ def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_c
                 raise ValueError("SAR sensor/mode/polarization/orbit QA requirements are unmet")
             checks = {"relative_orbit": properties["relativeOrbitNumber_start"], "pass": "ASCENDING",
                       "sensor_fault_check": "finite backscatter and provider mask; no independent hardware diagnostics available"}
-        records.append({"scene_id": identifier, "acquired_at": acquired, "native_bands": projections,
+        records.append({"scene_id": identifier, "collection_id": collection_id, "acquired_at": acquired, "acquired_at_utc": acquisition.isoformat(), **metadata_identity(image), "native_bands": projections,
                         "status": "passed", "footprint": properties["system:footprint"],
                         "qa_scope": "provider metadata and required bands/grid; pixel mask applied before composite", **checks})
     missing = shape(aoi).difference(unary_union(footprints))
@@ -89,3 +101,33 @@ def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_c
         raise ValueError("Missing scene tiles: collection footprints do not cover AOI")
     return {"scene_count": count, "scenes": records, "footprint_coverage": "complete",
             "missing_tile_policy": "reject uncovered AOI; pixel gaps separately assessed"}
+
+
+def metadata_identity(metadata):
+    """Hash metadata actually returned by the provider, not unavailable source pixels."""
+    import hashlib
+    import json
+    encoded=json.dumps(metadata,sort_keys=True,separators=(',',':'),allow_nan=False).encode()
+    properties=metadata.get('properties') or {}
+    return {'provider_metadata':json.loads(encoded),'metadata_sha256':hashlib.sha256(encoded).hexdigest(),
+            'provider_version':properties.get('system:version'),
+            'provider_source_byte_sha256':None,
+            'source_byte_checksum_availability':'unavailable; provider scene metadata does not expose original source-byte checksums'}
+
+
+def inspect_static_image(image, *, asset_id, required_band):
+    """A named provider image is rechecked before deriving terrain/water products."""
+    metadata=image.getInfo()
+    if not isinstance(metadata,dict) or metadata.get('id')!=asset_id:
+        raise ValueError('Static source identity differs from the selected provider asset')
+    bands=metadata.get('bands')
+    if not isinstance(bands,list) or any(not isinstance(band,dict) or not band.get('id') for band in bands) or len({band.get('id') for band in bands})!=len(bands):
+        raise ValueError('Static source band identity is missing or duplicated')
+    band=next((band for band in bands if band.get('id')==required_band),None)
+    if band is None: raise ValueError('Static source required band is unavailable')
+    from rasterio import Affine
+    from app.services.gee.firris_contracts import validate_grid
+    try: validate_grid(band['crs'],Affine(*band['crs_transform']))
+    except (KeyError,TypeError,ValueError) as exc: raise ValueError('Static source native CRS/grid is invalid') from exc
+    return {'asset_id':asset_id,'native_band':band,'status':'passed',**metadata_identity(metadata),
+            'temporal_coverage':'static provider product; event observation time not inferred'}

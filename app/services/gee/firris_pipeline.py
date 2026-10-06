@@ -8,8 +8,9 @@ and its validation/export code do not depend on Earth Engine objects.
 from __future__ import annotations
 
 import shutil
+import hashlib
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +21,7 @@ from rasterio.crs import CRS
 
 from app.services.gee import auth, indices, ingestion, preprocessing, screening_pipeline
 from app.services.gee.firris_contracts import INDEX_BANDS, CORRECTIONS, periods, validate_aoi, validate_grid, assess_pixels
-from app.services.gee.scene_qa import inspect_collection
+from app.services.gee.scene_qa import inspect_collection, inspect_static_image
 from pyproj import CRS as ProjectionCRS
 from pyproj.exceptions import CRSError
 
@@ -47,6 +48,8 @@ class GEEFeatureStack:
     crs: str
     quality: dict[str, Any]
     provenance: dict[str, Any]
+    source_artifacts: dict[str, Path] = field(default_factory=dict)
+    source_rasters: dict[str, np.ndarray] = field(default_factory=dict)
 
 
 def _download_image(image, aoi, output_path: Path, *, scale: float, crs: str) -> Path:
@@ -60,19 +63,24 @@ def _download_image(image, aoi, output_path: Path, *, scale: float, crs: str) ->
         }
     )
     response = requests.get(url, stream=True, timeout=(30, 300))
-    response.raise_for_status()
-    declared_size = int(response.headers.get("content-length", "0") or 0)
-    if declared_size > MAX_DOWNLOAD_BYTES:
-        raise ValueError("GEE export exceeds the 512 MiB synchronous download limit.")
-    downloaded = 0
-    with output_path.open("wb") as target:
-        for chunk in response.iter_content(chunk_size=1024 * 1024):
-            if not chunk:
-                continue
-            downloaded += len(chunk)
-            if downloaded > MAX_DOWNLOAD_BYTES:
-                raise ValueError("GEE export exceeds the 512 MiB synchronous download limit.")
-            target.write(chunk)
+    try:
+        response.raise_for_status()
+        declared_size = int(response.headers.get("content-length", "0") or 0)
+        if not 0 <= declared_size <= MAX_DOWNLOAD_BYTES:
+            raise ValueError("GEE export exceeds the bounded synchronous download limit.")
+        downloaded = 0
+        with output_path.open("wb") as target:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if not chunk:
+                    continue
+                downloaded += len(chunk)
+                if downloaded > MAX_DOWNLOAD_BYTES:
+                    raise ValueError("GEE export exceeds the bounded synchronous download limit.")
+                target.write(chunk)
+        if not downloaded or (declared_size and declared_size != downloaded):
+            raise ValueError("Received GEE export is empty or differs from its declared byte length.")
+    finally:
+        response.close()
     return output_path
 
 
@@ -86,6 +94,8 @@ def _resolve_tiff(downloaded: Path) -> Path:
         if len(candidates) != 1:
             raise ValueError("GEE must return one multiband GeoTIFF for the FIRRIS feature stack.")
         member = candidates[0]
+        if member.file_size > MAX_DOWNLOAD_BYTES or member.flag_bits & 1:
+            raise ValueError("GEE archive member exceeds protected capacity or is encrypted")
         safe_name = Path(member.filename).name
         extracted = extraction_dir / safe_name
         with archive.open(member) as source, extracted.open("wb") as target:
@@ -170,16 +180,21 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
     optical_bands = sorted({"SCL"} | {band for name in requested if name in INDEX_BANDS for band in INDEX_BANDS[name]})
     scene_qa = {
         "sentinel_2_target": inspect_collection(s2, sensor="Sentinel-2", period=target,
-            aoi=aoi_geometry, required_bands=optical_bands, max_cloud=max_cloud),
+            aoi=aoi_geometry, required_bands=optical_bands, max_cloud=max_cloud, collection_id=ingestion.SENTINEL2_COLLECTION),
         "sentinel_1_target": inspect_collection(s1_target, sensor="Sentinel-1", period=target,
-            aoi=aoi_geometry, required_bands=["VV"]),
+            aoi=aoi_geometry, required_bands=["VV"], collection_id=ingestion.SENTINEL1_COLLECTION),
         "sentinel_1_baseline": inspect_collection(s1_baseline, sensor="Sentinel-1", period=baseline,
-            aoi=aoi_geometry, required_bands=["VV"]),
+            aoi=aoi_geometry, required_bands=["VV"], collection_id=ingestion.SENTINEL1_COLLECTION),
     }
     orbit_sets = [{record["relative_orbit"] for record in scene_qa[key]["scenes"]}
                   for key in ("sentinel_1_target", "sentinel_1_baseline")]
     if orbit_sets[0] != orbit_sets[1] or len(orbit_sets[0]) != 1:
         raise ValueError("SAR change requires one matching relative orbit in both periods")
+    def pin(collection_record):
+        return ingestion.ee.ImageCollection.fromImages([ingestion.ee.Image(record["scene_id"]) for record in collection_record["scenes"]])
+    s2=pin(scene_qa["sentinel_2_target"])
+    s1_target=pin(scene_qa["sentinel_1_target"])
+    s1_baseline=pin(scene_qa["sentinel_1_baseline"])
     s2_composite = preprocessing.clip_to_aoi(
         preprocessing.median_composite(s2.map(preprocessing.mask_sentinel2_clouds)), aoi
     )
@@ -190,14 +205,52 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
         screening_pipeline.build_sar_vv_composite(s1_baseline), radius=speckle_radius
     )
     sar_change = screening_pipeline.compute_sar_change(vv_baseline, vv_target)
-    dem = ingestion.get_dem(aoi, source=dem_source)
+    static_sources={}
+    if dem_source=="SRTM":
+        original_dem=ingestion.ee.Image(ingestion.SRTM_DEM_ASSET)
+        static_sources["dem"]=inspect_static_image(original_dem,asset_id=ingestion.SRTM_DEM_ASSET,required_band="elevation")
+        dem=original_dem.clip(aoi)
+    else:
+        # ALOS is a static tile mosaic. Its native tile lineage is required;
+        # acquisition dates are not falsely interpreted as event observations.
+        collection=ingestion.ee.ImageCollection(ingestion.ALOS_DEM_COLLECTION).filterBounds(aoi).select("DSM")
+        count=int(collection.size().getInfo())
+        if not 1<=count<=500: raise ValueError("ALOS source tile collection is empty or exceeds bounded capacity")
+        tile_metadata=collection.toList(count).getInfo()
+        if not isinstance(tile_metadata,list) or len(tile_metadata)!=count: raise ValueError("ALOS tile lineage is incomplete")
+        tiles=[]
+        identifiers=set()
+        for item in tile_metadata:
+            if not isinstance(item,dict) or not isinstance(item.get("id"),str): raise ValueError("ALOS tile metadata/identity is malformed")
+            asset_id=item["id"]
+            if not asset_id.startswith(ingestion.ALOS_DEM_COLLECTION+"/") or asset_id in identifiers: raise ValueError("ALOS tile identity is invalid or duplicated")
+            identifiers.add(asset_id)
+            image=ingestion.ee.Image(asset_id)
+            tiles.append(inspect_static_image(image,asset_id=asset_id,required_band="DSM"))
+        from shapely.geometry import shape
+        from shapely.ops import unary_union
+        footprints=[]
+        for item in tile_metadata:
+            footprint=item.get("properties",{}).get("system:footprint")
+            if not isinstance(footprint,dict): raise ValueError("ALOS native footprint is unavailable")
+            if footprint.get("type")=="LinearRing": footprint={"type":"Polygon","coordinates":[footprint["coordinates"]]}
+            polygon=shape(footprint)
+            if polygon.is_empty or not polygon.is_valid: raise ValueError("ALOS native footprint is invalid")
+            footprints.append(polygon)
+        if not unary_union(footprints).covers(shape(aoi_geometry)): raise ValueError("ALOS source tiles do not cover AOI")
+        pinned=ingestion.ee.ImageCollection.fromImages([ingestion.ee.Image(item["asset_id"]) for item in tiles])
+        dem=pinned.mosaic().setDefaultProjection(pinned.first().projection()).clip(aoi)
+        static_sources["dem"]={"collection_id":ingestion.ALOS_DEM_COLLECTION,"tiles":tiles,"status":"passed"}
     slope = screening_pipeline.compute_slope_degrees(dem)
     # Do not use the screening helper's historical unmask(0): unknown is nodata.
-    water = ingestion.ee.Image(JRC_WATER_ASSET).select("occurrence").clip(aoi)
+    original_water=ingestion.ee.Image(JRC_WATER_ASSET)
+    static_sources["water_occurrence"]=inspect_static_image(original_water,asset_id=JRC_WATER_ASSET,required_band="occurrence")
+    water = original_water.select("occurrence").clip(aoi)
     label = screening_pipeline.screen_binary_flood_extent(sar_change, slope, water).rename("label")
     rainfall_collection = ingestion.get_chirps_rainfall(aoi, target["start"], target["end"])
     scene_qa["chirps_target"] = inspect_collection(rainfall_collection, sensor="CHIRPS", period=target,
-        aoi=aoi_geometry, required_bands=["precipitation"])
+        aoi=aoi_geometry, required_bands=["precipitation"], collection_id=ingestion.CHIRPS_COLLECTION)
+    rainfall_collection=pin(scene_qa["chirps_target"])
     from datetime import date, timedelta
     days = {record["acquired_at"] for record in scene_qa["chirps_target"]["scenes"]}
     day = date.fromisoformat(target["start"])
@@ -238,7 +291,10 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
     stack = available[requested[0]]
     for name in requested[1:]:
         stack = stack.addBands(available[name])
-    stack = stack.addBands(label).clip(aoi).reproject(crs=crs, scale=scale)
+    stack = stack.addBands(vv_baseline.rename("source_sar_baseline")).addBands(vv_target.rename("source_sar_target")).addBands(label).clip(aoi).reproject(crs=crs, scale=scale)
+    expected_bands=requested+["source_sar_baseline","source_sar_target","label"]
+    if stack.bandNames().getInfo()!=expected_bands:
+        raise ValueError("Materialized remote band identities/order differ from the source contract")
 
     workspace.mkdir(parents=True, exist_ok=True)
     downloaded = _download_image(stack, aoi, workspace / "gee-feature-stack.download", scale=scale, crs=crs)
@@ -250,7 +306,9 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
             raise ValueError("GEE export requires a north-up, nonrotated grid.")
         validate_grid(source.crs, source.transform, scale)
         values = source.read(masked=True).astype(np.float32)
-        if values.shape[0] != len(requested) + 1:
+        if list(source.descriptions)!=expected_bands:
+            raise ValueError("Downloaded feature stack lacks exact named-band fidelity")
+        if values.shape[0] != len(expected_bands):
             raise ValueError("GEE feature stack band count does not match the requested feature contract.")
         feature_layers = {name: np.asarray(values[index].filled(np.nan), dtype=np.float32) for index, name in enumerate(requested)}
         valid_mask, pixel_qa = assess_pixels(values, aoi_geometry, source.transform, source.crs,
@@ -258,6 +316,10 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
         label_layer = np.where(valid_mask, values[-1].filled(0), 0).astype(np.uint8)
         transform = source.transform
         output_crs = source.crs.to_string()
+        source_rasters={name:np.asarray(values[len(requested)+index].filled(np.nan),dtype=np.float32) for index,name in enumerate(("source_sar_baseline","source_sar_target"))}
+    source_artifacts={"acquired_feature_stack":downloaded}
+    if raster_path!=downloaded: source_artifacts["extracted_feature_stack"]=raster_path
+    acquisition_artifacts={key:{"sha256":hashlib.sha256(path.read_bytes()).hexdigest(),"size_bytes":path.stat().st_size,"filename":path.name} for key,path in source_artifacts.items()}
 
     target_count = scene_qa["sentinel_1_target"]["scene_count"]
     baseline_count = scene_qa["sentinel_1_baseline"]["scene_count"]
@@ -282,7 +344,13 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
         transform=transform,
         crs=output_crs,
         quality=quality,
+        source_artifacts=source_artifacts,
+        source_rasters=source_rasters,
         provenance={
+            "per_scene_lineage":scene_qa, "static_source_lineage":static_sources,
+            "acquisition_artifacts":acquisition_artifacts,
+            "band_identity":expected_bands,
+            "source_fidelity_scope":"Inspected scene IDs pinned before composition; provider metadata and received export bytes verified. Original provider source-byte checksums remain unavailable; metadata hashes are not pixel checksums.",
             "provider": "Google Earth Engine",
             "datasets": sorted(selected_datasets),
             "date_mode": date_mode,
@@ -324,3 +392,5 @@ def fetch_feature_stack(config, aoi_geometry, workspace):
         return _fetch_feature_stack(config, aoi_geometry, workspace)
     except (ValueError, CRSError) as exc:
         raise FIRRISQualityError(str(exc)) from exc
+    except (rasterio.errors.RasterioError, requests.RequestException, zipfile.BadZipFile, OSError, TypeError, KeyError) as exc:
+        raise FIRRISQualityError("Remote source metadata/export could not be verified; analysis inputs not released") from exc

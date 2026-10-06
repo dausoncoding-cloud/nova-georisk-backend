@@ -117,7 +117,11 @@ def _csv(data: bytes, profile: dict, manifest: SourceDatasetManifest) -> tuple[i
             if bounds is not None:
                 lon, lat = float(row["longitude"]), float(row["latitude"])
                 bounds = [min(bounds[0], lon), min(bounds[1], lat), max(bounds[2], lon), max(bounds[3], lat)]
-            if manifest.category == "flood_predictor_observations":
+            if manifest.category == "flood_zonation_policy":
+                if row["factor"] not in manifest.zonation_policy.factor_units or row["class_code"] not in manifest.zonation_policy.classes or float(row["lower_bound"]) >= float(row["upper_bound"]):
+                    _fail("Decision rule factor/class/bounds contradict the reviewed policy")
+                unique_key = (row["rule_id"], row["factor"])
+            elif manifest.category == "flood_predictor_observations":
                 definition = manifest.predictor_definitions.get(row["variable"])
                 if definition is None or definition.unit != row["unit"]:
                     _fail("Predictor variable or unit differs from its reviewed definition")

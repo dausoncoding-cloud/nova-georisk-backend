@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +54,8 @@ class FIRRISWorkflowOutput:
     valid_mask: np.ndarray
     enhancement_preview: np.ndarray | None = None
     generalized_extent: np.ndarray | None = None
+    source_artifacts: dict[str,Path] = field(default_factory=dict)
+    source_rasters: dict[str,np.ndarray] = field(default_factory=dict)
 
 
 def _epsg_code(crs: str) -> int:
@@ -327,6 +329,7 @@ def run_satellite_workflow(
             "source_sha256": _array_fingerprint(preview_source), "display_limits": [float(low), float(high)]})
     provenance = {
         **source_provenance,
+        "materialized_source_raster_checksums": {key:_array_fingerprint(values) for key,values in getattr(acquired,"source_rasters",{}).items()} if provider=="gee" else {},
         "enhancement": enhancement_record,
         "postprocessing": cleanup_record,
         "model_selection": {"algorithm": algorithm, "configuration": classifier_configuration(trained.model),
@@ -378,4 +381,6 @@ def run_satellite_workflow(
         valid_mask=valid_mask,
         enhancement_preview=enhanced,
         generalized_extent=generalized,
+        source_artifacts=getattr(acquired,"source_artifacts",{}) if provider=="gee" else {},
+        source_rasters=getattr(acquired,"source_rasters",{}) if provider=="gee" else {},
     )

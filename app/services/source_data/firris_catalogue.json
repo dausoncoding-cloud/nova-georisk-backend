@@ -352,6 +352,46 @@
       "downstream_rows": [
         "F18"
       ]
+    },
+    "flood_predictor_raster": {
+      "format": "geotiff",
+      "geometry": [
+        "raster_grid"
+      ],
+      "crs": "declared_epsg",
+      "vertical_datum": "optional",
+      "unit": "declared_predictor_variable",
+      "temporal_mode": "declared_coverage",
+      "spatial_resolution": "required",
+      "required_fields": {},
+      "downstream_rows": [
+        "M11",
+        "M13"
+      ]
+    },
+    "flood_zonation_policy": {
+      "format": "csv",
+      "geometry": [
+        "nonspatial_policy_table"
+      ],
+      "crs": "EPSG:4326",
+      "vertical_datum": "optional",
+      "unit": "reviewed_interval_decision_table",
+      "temporal_mode": "declared_coverage",
+      "spatial_resolution": "not_applicable",
+      "required_fields": {
+        "rule_id": "string",
+        "factor": "string",
+        "lower_bound": "number",
+        "upper_bound": "number",
+        "class_code": "positive_integer",
+        "observed_at": "datetime",
+        "quality_flag": "quality_flag"
+      },
+      "downstream_rows": [
+        "M12",
+        "M13"
+      ]
     }
   }
 }

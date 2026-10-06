@@ -52,8 +52,8 @@ def load_module_result(db, result_id, request, role, aoi_geometry, *, root=None)
                 or (result.provenance or {}).get('source_bindings', {}) != resolved.lineage()
                 or (result.provenance or {}).get('analysis_readiness_rechecked_at_execution') is not True):
             raise SourceNotReady('Six-module map provenance is incompatible')
-        expected_formula = {'hazard':'compute_hazard_index','exposure':'compute_exposure_index','vulnerability':'compute_fvi','insecurity':'compute_fii','risk':'compute_fri','resilience':'compute_cri'}[role]
-        if ((result.provenance or {}).get('formula_implementation') != 'app.services.firas.'+role+'.'+expected_formula
+        expected_formula = {'flood_duration':'sum(valid inundated interval-start states) × verified temporal resolution in hours','hazard':'compute_hazard_index','exposure':'compute_exposure_index','vulnerability':'compute_fvi','insecurity':'compute_fii','risk':'compute_fri','resilience':'compute_cri'}[role]
+        if ((result.provenance or {}).get('formula_implementation') != (expected_formula if role=='flood_duration' else 'app.services.firas.'+role+'.'+expected_formula)
                 or (result.provenance or {}).get('upstream_results', {}) != {key: ready.lineage() for key,ready in resolved.upstream.items()}):
             raise SourceNotReady('Six-module formula or upstream lineage differs from reviewed execution')
         artifacts = {}

@@ -337,7 +337,7 @@ def test_legacy_source_fingerprints_remain_compatible_but_supplied_definitions_a
     _,_,legacy=_fixture()
     source=legacy['terrain']
     historical=source.manifest.model_dump(mode='json')
-    for field in ('validation_definition','impact_definition','dss_metric_definitions','live_feed_policy'): historical.pop(field)
+    for field in ('validation_definition','impact_definition','dss_metric_definitions','live_feed_policy','susceptibility_method','raster_predictor','zonation_policy'): historical.pop(field)
     expected=hashlib.sha256(json.dumps(historical,sort_keys=True,separators=(',',':')).encode()).hexdigest()
     assert comparison_source_fingerprint(source)==expected
     _,_,sources=fixture('continuous_validation')

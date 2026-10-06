@@ -84,6 +84,8 @@ def binding_contract() -> dict:
                                     else "slice_<zero-based index> (at least 3 fixed-cadence snapshots)" if module == "flood_duration"
                                     else None),
             "executable": module in EXECUTABLE_MODULES,
+            **({"reviewed_mode": {"option":"susceptibility_options", "source_roles":{"observations":"flood_predictor_observations", "predictor_<catalogue_name>":"flood_predictor_raster"}, "upstream_result_roles":{}, "method":"existing explicitly selected classifier on reviewed historical labels"}} if module=="flood_susceptibility" else {}),
+            **({"reviewed_mode": {"option":"zonation_options", "source_roles":{"policy":"flood_zonation_policy"}, "upstream_result_roles":"all exact policy factors: depth, velocity and at least one of duration/aep/exposure", "method":"reviewed interval decision table; no invented weights or cutoffs"}} if module=="flood_hazard_zonation" else {}),
         }
         for module, roles in MODULE_SOURCE_ROLES.items()
     }
@@ -96,9 +98,19 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
         required = {role: "annual_inundation_observation" for role in request.sources}
     elif request.module == "flood_duration":
         required = {role: "inundation_time_slice" for role in request.sources}
+    expected_results=MODULE_RESULT_ROLES.get(request.module,{})
+    if request.susceptibility_options is not None:
+        required={"observations":"flood_predictor_observations", **{role:"flood_predictor_raster" for role in request.sources if role.startswith("predictor_")}}
+        expected_results={}
+    if request.zonation_options is not None:
+        if "policy" not in request.sources: raise SourceNotReady("Reviewed zonation requires a registered policy")
+        policy=load_registered_source(db,request.sources["policy"],request.project_id,root=root)
+        if policy.manifest.category!="flood_zonation_policy": raise SourceNotReady("Reviewed zonation requires a registered decision-table policy")
+        required={"policy":"flood_zonation_policy"}
+        expected_results={role:"source_bound_"+role for role in policy.manifest.zonation_policy.factor_units}
     optional = OPTIONAL_SOURCE_ROLES.get(request.module, {})
     if (not set(required).issubset(request.sources) or not set(request.sources).issubset(set(required) | set(optional))
-            or set(request.upstream_results) != set(MODULE_RESULT_ROLES.get(request.module, {}))):
+            or set(request.upstream_results) != set(expected_results)):
         raise SourceNotReady("Source/result roles do not match the FIRRIS module binding contract")
     if len(set(request.sources.values())) != len(request.sources):
         raise SourceNotReady("The same source dataset cannot fill multiple distinct roles")
@@ -121,7 +133,8 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
         manifest = source.manifest
         if manifest.category != category:
             raise SourceNotReady(f"Source role {role} requires category {category}")
-        if (not (request.module in {"continuous_validation", "classification_validation"} and role == "baseline")
+        if (not (request.susceptibility_options is not None and role=="observations")
+                and not (request.module in {"continuous_validation", "classification_validation"} and role == "baseline")
                 and request.module not in {"flood_change", "flood_aep", "flood_duration"}
                 and (manifest.temporal_coverage.start > request.period.start
                      or manifest.temporal_coverage.end < request.period.end)):
@@ -240,7 +253,7 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
         _, _, alignment["duration_series"] = validate_duration_sources(request, sources, aoi_geometry)
     if request.module == "flood_return_period":
         upstream["aep"] = load_aep_result(db, request, aoi_geometry=aoi_geometry, root=root)
-    if request.module == "flood_susceptibility":
+    if request.module == "flood_susceptibility" and request.susceptibility_options is None:
         upstream["hazard"] = load_hazard_result(db, request.upstream_results["hazard"], request, root=root)
         from app.schemas.source_data import TemporalCoverage
         meta = upstream["hazard"].result.output_files["flood_hazard"]["gis_metadata"]
@@ -248,6 +261,16 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
             raise SourceNotReady("Susceptibility predictor period must exactly match approved Hazard period")
     if request.module == "flood_hazard_zonation":
         upstream.update(load_physical_results(db, request, aoi_geometry=aoi_geometry, root=root))
+        if request.zonation_options is not None:
+            definition=sources["policy"].manifest.zonation_policy
+            from app.services.source_data.module_results import load_module_result
+            for role in set(definition.factor_units)-{"depth","velocity"}:
+                if role=="aep":
+                    reference=definition.reference_periods[role]
+                    if reference.end>=request.period.start: raise SourceNotReady("AEP reference period must precede the event analysis period")
+                    upstream[role]=load_aep_result(db,request.model_copy(update={"period":reference}),aoi_geometry=aoi_geometry,root=root)
+                else:
+                    upstream[role]=load_module_result(db,request.upstream_results[role],request,"flood_duration" if role=="duration" else role,aoi_geometry,root=root)
     if request.module == "satellite_preprocessing":
         if not sources:
             raise SourceNotReady("Preprocessing requires explicitly bound sources")
@@ -273,4 +296,7 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
     if request.module in EVIDENCE_MODULES:
         from app.services.source_data.evidence_products import validate_evidence_products
         validate_evidence_products(resolved, aoi_geometry)
+    if request.susceptibility_options is not None or request.zonation_options is not None:
+        from app.services.source_data.reviewed_maps import validate_reviewed_map
+        validate_reviewed_map(resolved,aoi_geometry)
     return resolved

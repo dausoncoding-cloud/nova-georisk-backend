@@ -212,23 +212,28 @@ def fake_collection(image_record):
     return collection
 
 
-@pytest.mark.parametrize("failure", [None, "orbit", "rainfall_day", "export_crs", "feature", "conflicting_dem"])
-def test_full_gee_acquisition_contract_and_provenance(tmp_path, monkeypatch, failure):
+@pytest.mark.parametrize("failure", [None, "orbit", "rainfall_day", "export_crs", "feature", "conflicting_dem", "band_order", "scene_collection", "static_asset"])
+@pytest.mark.parametrize("dem_source", ["SRTM", "ALOS"])
+def test_full_gee_acquisition_contract_and_provenance(tmp_path, monkeypatch, failure, dem_source):
     from app.services.gee import firris_pipeline as pipeline
     image = MagicMock()
     for method in ("rename", "clip", "reproject", "addBands", "select", "sum", "normalizedDifference",
-                   "subtract", "lte", "lt", "And", "neq", "updateMask", "focal_median", "mask"):
+                   "subtract", "lte", "lt", "And", "neq", "updateMask", "focal_median", "mask", "setDefaultProjection"):
         getattr(image, method).return_value = image
     image.projection.return_value.getInfo.return_value = {"crs": "EPSG:4326", "transform": [1, 0, 0, 0, -1, 2]}
     s2_record = scene()
     for name in ("B4", "B11"):
         s2_record["bands"].append({"id": name, "crs": "EPSG:32631", "crs_transform": [20 if name == "B11" else 10, 0, 0, 0, -20 if name == "B11" else -10, 100]})
+    s2_record["id"] = pipeline.ingestion.SENTINEL2_COLLECTION+"/synthetic-optical"
     s1_record = scene("Sentinel-1")
+    s1_record["id"] = pipeline.ingestion.SENTINEL1_COLLECTION+"/synthetic-sar"
+    if failure == "scene_collection": s1_record["id"] = "unknown/scene"
     baseline_record = copy.deepcopy(s1_record)
-    baseline_record["id"] = "fixture/baseline"
+    baseline_record["id"] = pipeline.ingestion.SENTINEL1_COLLECTION+"/synthetic-baseline"
     baseline_record["properties"]["system:time_start"] -= 86400000
     if failure == "orbit": baseline_record["properties"]["relativeOrbitNumber_start"] = 8
     rainfall_record = copy.deepcopy(s1_record)
+    rainfall_record["id"] = pipeline.ingestion.CHIRPS_COLLECTION+"/synthetic-day"
     rainfall_record["bands"][0]["id"] = "precipitation"
     if failure == "rainfall_day": rainfall_record["properties"]["system:time_start"] -= 86400000
     s2, target, baseline, rainfall = map(fake_collection, (s2_record, s1_record, baseline_record, rainfall_record))
@@ -241,9 +246,23 @@ def test_full_gee_acquisition_contract_and_provenance(tmp_path, monkeypatch, fai
     monkeypatch.setattr(pipeline.ingestion, "get_sentinel1_collection", lambda aoi, start, end: baseline if start == "2024-03-04" else target)
     monkeypatch.setattr(pipeline.ingestion, "get_chirps_rainfall", lambda *args: rainfall)
     monkeypatch.setattr(pipeline.ingestion, "get_dem", lambda *args, **kwargs: image)
-    monkeypatch.setattr(pipeline.ingestion.ee, "Image", lambda *args: image)
+    def provider_image(identifier):
+        native_band = "elevation" if identifier == pipeline.ingestion.SRTM_DEM_ASSET else "DSM" if identifier.startswith(pipeline.ingestion.ALOS_DEM_COLLECTION+"/") else "occurrence"
+        image.getInfo.return_value = {"id": "unknown" if failure == "static_asset" else identifier, "bands":[{"id": native_band,"crs":"EPSG:4326","crs_transform":[1,0,0,0,-1,2]}]}
+        return image
+    monkeypatch.setattr(pipeline.ingestion.ee, "Image", provider_image)
+    alos_record = {"id":pipeline.ingestion.ALOS_DEM_COLLECTION+"/synthetic-tile","properties":{"system:footprint":AOI}}
+    alos_collection = fake_collection(alos_record)
+    alos_collection.filterBounds.return_value.select.return_value = alos_collection
+    alos_collection.mosaic.return_value = image
+    alos_collection.first.return_value = image
+    constructor = MagicMock(return_value=alos_collection)
+    from_images = MagicMock(side_effect=[s2,target,baseline,*([alos_collection] if dem_source=="ALOS" else []),rainfall])
+    constructor.fromImages = from_images
+    monkeypatch.setattr(pipeline.ingestion.ee,"ImageCollection",constructor)
+    monkeypatch.setattr(pipeline.ingestion.ee.ImageCollection, "fromImages", from_images)
     monkeypatch.setattr(pipeline.screening_pipeline, "compute_slope_degrees", lambda dem: image)
-    config = {"date_mode": "pre-post", "target_period": {"start": "2024-03-05", "end": "2024-03-06"},
+    config = {"dem_source":dem_source,"date_mode": "pre-post", "target_period": {"start": "2024-03-05", "end": "2024-03-06"},
               "baseline_period": {"start": "2024-03-04", "end": "2024-03-05"},
               "features": pipeline.DEFAULT_FEATURES + ["ndwi", "ndmi"]}
     if failure == "feature": config["features"] = ["nbr"]
@@ -251,11 +270,14 @@ def test_full_gee_acquisition_contract_and_provenance(tmp_path, monkeypatch, fai
         config["datasets"] = [pipeline.ingestion.SENTINEL1_COLLECTION, pipeline.ingestion.SENTINEL2_COLLECTION,
             pipeline.ingestion.CHIRPS_COLLECTION, pipeline.ingestion.SRTM_DEM_ASSET,
             pipeline.ingestion.ALOS_DEM_COLLECTION, pipeline.JRC_WATER_ASSET]
+    bands = config["features"]+["source_sar_baseline","source_sar_target","label"]
+    image.bandNames.return_value.getInfo.return_value = bands
     def download(stack, aoi, path, **kwargs):
-        with rasterio.open(path, "w", driver="GTiff", width=2, height=2, count=len(config["features"]) + 1,
+        with rasterio.open(path, "w", driver="GTiff", width=2, height=2, count=len(bands),
                            dtype="float32", transform=from_origin(0, 2, 1, 1), nodata=-9999,
                            crs="EPSG:3857" if failure == "export_crs" else "EPSG:4326") as raster:
-            raster.write(np.ones((len(config["features"]) + 1, 2, 2), dtype="float32"))
+            raster.write(np.ones((len(bands), 2, 2), dtype="float32"))
+            raster.descriptions = tuple(reversed(bands)) if failure == "band_order" else tuple(bands)
         return path
     monkeypatch.setattr(pipeline, "_download_image", download)
     if failure:
@@ -266,8 +288,12 @@ def test_full_gee_acquisition_contract_and_provenance(tmp_path, monkeypatch, fai
         result = pipeline.fetch_feature_stack(config, AOI, tmp_path)
         assert set(result.feature_layers) == set(config["features"])
         assert result.quality["valid_pixel_coverage_pct"] == 100
-        assert result.quality["per_collection"]["sentinel_2_target"]["scenes"][0]["scene_id"] == "fixture/scene"
+        assert result.quality["per_collection"]["sentinel_2_target"]["scenes"][0]["scene_id"] == pipeline.ingestion.SENTINEL2_COLLECTION+"/synthetic-optical"
         assert result.provenance["date_mode"] == "pre-post"
+        assert set(result.source_rasters) == {"source_sar_baseline","source_sar_target"}
+        import hashlib
+        assert result.provenance["acquisition_artifacts"]["acquired_feature_stack"]["sha256"] == hashlib.sha256(result.source_artifacts["acquired_feature_stack"].read_bytes()).hexdigest()
+        assert from_images.call_count == (5 if dem_source=="ALOS" else 4)
         assert result.provenance["indices"]["ndmi"]["bands"] == ("B8", "B11")
         image.normalizedDifference.assert_any_call(["B3", "B8"])
         image.normalizedDifference.assert_any_call(["B8", "B11"])

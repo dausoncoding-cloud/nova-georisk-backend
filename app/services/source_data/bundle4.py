@@ -368,10 +368,10 @@ def frequency_tables(request, sources, aoi):
             "limitations": ["No parametric tail fit or extrapolation beyond observed discharge thresholds", "Daily maxima are not instantaneous flood peaks", "Inventory recurrence applies to any vetted AOI event, not per-pixel inundation", "Station discharges and inventory events are not assumed causally matched"]}, inventory
 
 
-def predictor_tables(request, source, aoi):
+def predictor_observation_frame(request, source, aoi, *, options=None):
     reviewed_policy(source, source.manifest.predictor_catalogue_reference, "predictor_catalogue_verified")
     definitions = source.manifest.predictor_definitions
-    options = request.predictor_options
+    options = options or request.predictor_options
     required = {options.response, *options.predictor_order}
     if set(definitions) != required or definitions[options.response].role != "response" or any(definitions[key].role != "predictor" for key in options.predictor_order):
         raise SourceNotReady("MLR selection must account for every reviewed declared predictor and response")
@@ -393,6 +393,13 @@ def predictor_tables(request, source, aoi):
     frame = pd.DataFrame([samples[key] for key in order], index=order)
     if not np.isfinite(frame.to_numpy()).all() or any(frame[key].nunique() < 2 for key in required):
         raise SourceNotReady("MLR requires finite nonconstant predictors and response")
+    return frame, identities, order, definitions
+
+
+def predictor_tables(request, source, aoi):
+    frame, identities, order, definitions = predictor_observation_frame(request,source,aoi)
+    options = request.predictor_options
+    required = {options.response,*options.predictor_order}
     split = int(len(frame)*(1-options.holdout_fraction))
     if len(frame)-split < 2 or identities[order[split-1]][0] >= identities[order[split]][0]:
         raise SourceNotReady("Chronological holdout needs disjoint observed times; no split within the same instant")
@@ -431,7 +438,7 @@ def predictor_tables(request, source, aoi):
     ss_total = np.sum((holdout[options.response]-holdout[options.response].mean())**2)
     metrics = {"rmse": np.sqrt(np.mean(errors**2)), "mae": np.abs(errors).mean(),
                "r_squared": 1-np.sum(errors**2)/ss_total if ss_total else None}
-    return {"raw_observations": [{"sample_id": key, "observed_at": identities[key][0].isoformat(), "longitude": identities[key][1], "latitude": identities[key][2], **samples[key]} for key in order],
+    return {"raw_observations": [{"sample_id": key, "observed_at": identities[key][0].isoformat(), "longitude": identities[key][1], "latitude": identities[key][2], **frame.loc[key].to_dict()} for key in order],
             "training_fit": [{"sample_id": key, "fitted": fitted.fitted_values[index], "residual": fitted.residuals[index]} for index, key in enumerate(train.index)],
             "coefficients": [{**asdict(coefficient), "units": definitions[options.response].unit if coefficient.variable == "Intercept"
                               else f"{definitions[options.response].unit} / {definitions[coefficient.variable].unit}"} for coefficient in fitted.coefficients],

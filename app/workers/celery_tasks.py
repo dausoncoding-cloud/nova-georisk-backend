@@ -390,7 +390,10 @@ def execute_engine_task(db, task_id: uuid.UUID) -> None:
                 append_event(task, "sources_revalidated")
             db.commit()
             from app.services.source_data.bindings import BUNDLE4_MODULES, EVIDENCE_MODULES
-            if request.module in EVIDENCE_MODULES:
+            if request.susceptibility_options is not None or request.zonation_options is not None:
+                from app.services.source_data.reviewed_maps import execute_reviewed_map
+                execution = execute_reviewed_map(resolved,mapping(to_shape(aoi.geometry)),output_directory,next_version,task_id=str(task.id))
+            elif request.module in EVIDENCE_MODULES:
                 from app.services.source_data.evidence_products import execute_evidence_products
                 execution = execute_evidence_products(resolved, mapping(to_shape(aoi.geometry)), output_directory,
                                                       next_version, task_id=str(task.id))

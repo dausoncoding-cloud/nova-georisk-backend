@@ -4304,6 +4304,22 @@
         "title": "ReturnPeriodFromProbabilityRequest",
         "type": "object"
       },
+      "ReviewedMapOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "method_reference": {
+            "maxLength": 512,
+            "minLength": 3,
+            "title": "Method Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "method_reference"
+        ],
+        "title": "ReviewedMapOptions",
+        "type": "object"
+      },
       "RiskMapRequest": {
         "properties": {
           "exposure": {
@@ -4774,6 +4790,16 @@
             "title": "Sources",
             "type": "object"
           },
+          "susceptibility_options": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewedMapOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "target_grid": {
             "anyOf": [
               {
@@ -4791,6 +4817,16 @@
             },
             "title": "Upstream Results",
             "type": "object"
+          },
+          "zonation_options": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewedMapOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -5030,6 +5066,11 @@
             "title": "Scoring Policy Verified",
             "type": "boolean"
           },
+          "susceptibility_method_verified": {
+            "default": false,
+            "title": "Susceptibility Method Verified",
+            "type": "boolean"
+          },
           "temporal_coverage_verified": {
             "const": true,
             "enum": [
@@ -5049,6 +5090,11 @@
           "validation_definition_verified": {
             "default": false,
             "title": "Validation Definition Verified",
+            "type": "boolean"
+          },
+          "zonation_method_verified": {
+            "default": false,
+            "title": "Zonation Method Verified",
             "type": "boolean"
           }
         },

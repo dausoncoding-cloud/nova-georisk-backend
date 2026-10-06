@@ -8,6 +8,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 from app.schemas.strict import StrictModel
+from app.schemas.map_methods import SusceptibilityMethod, ZonationDefinition
 from app.schemas.firris_evidence import ValidationDefinition, ImpactDefinition, DSSMetricDefinition, LiveFeedPolicy
 
 from app.services.source_data.catalogue import get_profile
@@ -111,6 +112,28 @@ class ProximityPolicy(StrictModel):
     policy_reference: str = Field(min_length=3)
 
 
+class RasterPredictorDefinition(StrictModel):
+    name: str = Field(pattern=r'^[A-Za-z][A-Za-z0-9_]{0,63}$')
+    catalogue_reference: str = Field(min_length=3,max_length=512)
+    variable: PredictorDefinition
+
+    @model_validator(mode="after")
+    def predictor_only(self):
+        if self.variable.role != "predictor":
+            raise ValueError("Prediction raster must identify a sourced predictor, not a response")
+        return self
+
+
+class ZonationPolicyDefinition(ZonationDefinition):
+    reference_periods: dict[str,TemporalCoverage] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def reference_supports(self):
+        if set(self.reference_periods) - {"aep"} or ("aep" in self.factor_units) != ("aep" in self.reference_periods):
+            raise ValueError("AEP needs an explicit historical reference period; event factors use the analysis period")
+        return self
+
+
 class SourceDatasetManifest(StrictModel):
     project_id: uuid.UUID
     category: str
@@ -150,6 +173,9 @@ class SourceDatasetManifest(StrictModel):
     impact_definition: ImpactDefinition | None = None
     dss_metric_definitions: dict[str, DSSMetricDefinition] | None = None
     live_feed_policy: LiveFeedPolicy | None = None
+    susceptibility_method: SusceptibilityMethod | None = None
+    raster_predictor: RasterPredictorDefinition | None = None
+    zonation_policy: ZonationPolicyDefinition | None = None
     observation_definition: str | None = Field(default=None, min_length=10, max_length=512)
 
     @model_validator(mode="after")
@@ -255,6 +281,12 @@ class SourceDatasetManifest(StrictModel):
             raise ValueError("Proximity policy only applies to sourced river/service geometries")
         if self.historical_record_definition is not None and self.category not in {"river_discharge_stations", "historical_flood_events"}:
             raise ValueError("Historical definitions only apply to discharge/event records")
+        if self.susceptibility_method is not None and self.category != "flood_predictor_observations":
+            raise ValueError("Susceptibility methods are bound to historical predictor observations")
+        if (self.category == "flood_predictor_raster") != (self.raster_predictor is not None):
+            raise ValueError("Predictor raster requires its exact sourced catalogue variable definition")
+        if (self.category == "flood_zonation_policy") != (self.zonation_policy is not None):
+            raise ValueError("Zonation decision table requires an explicit sourced method/factor/class definition")
         if self.category.startswith('validation_'):
             definition = self.validation_definition
             if definition is None:
@@ -315,6 +347,8 @@ class SourceReadinessReview(StrictModel):
     impact_definition_verified: bool = False
     dss_definitions_verified: bool = False
     live_policy_verified: bool = False
+    susceptibility_method_verified: bool = False
+    zonation_method_verified: bool = False
 
     @model_validator(mode="after")
     def check_evidence(self):

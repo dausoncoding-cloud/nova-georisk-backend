@@ -25,7 +25,7 @@ def comparison_source_fingerprint(source):
     manifest = source.manifest.model_dump(mode="json")
     # New optional evidence fields do not invalidate fingerprints of unchanged
     # pre-Bundle-5 registrations. Every supplied definition remains in the hash.
-    for field in ("validation_definition", "impact_definition", "dss_metric_definitions", "live_feed_policy"):
+    for field in ("validation_definition", "impact_definition", "dss_metric_definitions", "live_feed_policy", "susceptibility_method", "raster_predictor", "zonation_policy"):
         if manifest.get(field) is None:
             manifest.pop(field, None)
     encoded = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()

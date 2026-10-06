@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import shutil
 import tempfile
 import zipfile
 from dataclasses import asdict, is_dataclass, replace
@@ -18,7 +20,7 @@ from shapely.geometry import Point
 from app.platform.engines.base import EngineAdapter, EngineExecutionContext, EngineExecutionOutput
 from app.platform.result_exports import artifact_entry, build_result_exports
 from app.schemas.analyses import FIRRISProduct
-from app.services.firris.workflow import FIRRISWorkflowOutput, run_satellite_workflow
+from app.services.firris.workflow import FIRRISWorkflowOutput, run_satellite_workflow, _array_fingerprint
 from app.services.firris.area_statistics import raster_area_statistics
 from app.services.maps import flood_products
 from app.services.maps.export import export_flood_extent_geojson, write_cog, write_continuous_png, write_geotiff
@@ -289,6 +291,28 @@ class FIRRISEngineAdapter(EngineAdapter):
             version=context.result_version)
         workflow.validation_metrics["dashboard"] = dashboard
         reports.update(diagnostics)
+        pinned=workflow.provenance.get("acquisition_artifacts",{})
+        if set(pinned)!=set(workflow.source_artifacts):
+            raise ValueError("Acquired source artifact inventory changed before publication")
+        for key,source in getattr(workflow,"source_artifacts",{}).items():
+            record=pinned.get(key)
+            if not record or not source.is_file() or source.stat().st_size!=record["size_bytes"] or hashlib.sha256(source.read_bytes()).hexdigest()!=record["sha256"]:
+                raise ValueError("Acquired source bytes changed before protected publication")
+            target=context.output_directory/("source-"+source.name)
+            shutil.copyfile(source,target)
+            reports[key]=artifact_entry(target,label="Received GEE source export; not original provider scene bytes",media_type="application/octet-stream",artifact_type="metadata",role="export",result_version=context.result_version,format_name="zip" if zipfile.is_zipfile(target) else "geotiff",
+                gis_metadata={"source_sha256":record["sha256"],"band_identity":workflow.provenance.get("band_identity"),"source_fidelity_scope":workflow.provenance.get("source_fidelity_scope")})
+        for key,values in getattr(workflow,"source_rasters",{}).items():
+            if values.shape != next(iter(workflow.product_arrays.values())).shape or _array_fingerprint(values) != workflow.provenance.get("materialized_source_raster_checksums",{}).get(key):
+                raise ValueError("Acquired SAR grid or values changed before protected publication")
+            valid=np.isfinite(values)
+            data=np.where(valid,values,-9999).astype("float32")
+            if (data[valid]==-9999).any(): raise ValueError("Acquired SAR values collide with protected export nodata")
+            path=context.output_directory/(key+".cog.tif")
+            write_cog(str(path),data,workflow.raster_spec,nodata=-9999)
+            metadata=_actual_raster_metadata(workflow,context.gis_metadata)
+            metadata.update(nodata=-9999,units="dB",target_period=workflow.provenance.get("baseline_period" if key=="source_sar_baseline" else "target_period"),methodology="Actual downloaded SAR period composite after declared speckle filter; original provider scene pixels are not claimed",producer="NOVA GeoRisk")
+            reports[key]=artifact_entry(path,label=key.replace("_"," "),media_type="image/tiff",artifact_type="raster",role="export",result_version=context.result_version,format_name="cog",gis_metadata=metadata)
         if workflow.enhancement_preview is not None:
             from PIL import Image
             preview_path = context.output_directory / "enhanced-display.png"
