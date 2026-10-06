@@ -113,6 +113,12 @@ def compute_classification_metrics(
     positive_label=1,
 ) -> ClassificationMetrics:
     confusion = confusion_counts_from_labels(y_true, y_pred, positive_label=positive_label)
+    auc = roc_auc_score(y_true, y_score, positive_label=positive_label) if y_score is not None else None
+    return classification_metrics_from_counts(confusion, roc_auc=auc)
+
+
+def classification_metrics_from_counts(confusion: ConfusionCounts, *, roc_auc=None) -> ClassificationMetrics:
+    """The same approved formulas, shared with cumulative threshold counts."""
     tp, tn, fp, fn = confusion.tp, confusion.tn, confusion.fp, confusion.fn
     n = confusion.n
     if n == 0:
@@ -146,10 +152,6 @@ def compute_classification_metrics(
     error_rate = (fp + fn) / n
     prevalence = (tp + fn) / n
 
-    auc = None
-    if y_score is not None:
-        auc = roc_auc_score(y_true, y_score, positive_label=positive_label)
-
     return ClassificationMetrics(
         confusion=confusion,
         overall_accuracy=overall_accuracy,
@@ -164,5 +166,5 @@ def compute_classification_metrics(
         mcc=mcc,
         error_rate=error_rate,
         prevalence=prevalence,
-        roc_auc=auc,
+        roc_auc=roc_auc,
     )

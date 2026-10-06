@@ -163,6 +163,8 @@ def serialize_result(result: Result) -> ResultResponse:
         summary=result.summary,
         analytics=(result.summary or {}).get("delivery"),
         interpretation=(result.summary or {}).get("interpretation"),
+        validation_dashboard=(result.summary or {}).get("validation_dashboard"),
+        decision_support=(result.summary or {}).get("decision_support"),
         provenance=result.provenance,
         products=products,
         layers=layers,

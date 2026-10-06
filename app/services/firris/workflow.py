@@ -274,6 +274,8 @@ def run_satellite_workflow(
             split_labels[index] = "train"
     xs, ys = raster_xy(raster_spec.transform, samples.rows, samples.cols, offset="center")
     sample_frame = build_feature_dataframe(feature_layers, samples)
+    sample_frame["predicted_label"] = predict_flood_class(trained, sample_frame[trained.feature_names]).to_numpy()
+    sample_frame["conditional_score"] = predict_flood_probability(trained, sample_frame[trained.feature_names]).to_numpy()
     sample_frame.insert(0, "sample_split", split_labels)
     sample_frame.insert(0, "observed_label", samples.labels)
     sample_frame.insert(0, "coordinate_y", ys)

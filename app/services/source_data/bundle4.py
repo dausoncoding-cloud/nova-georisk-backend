@@ -531,6 +531,20 @@ def execute_bundle4(bindings, aoi_geometry, output_directory, result_version, *,
         entries[key] = artifact_entry(path, label=key.replace("_", " "), media_type="application/geo+json", artifact_type="vector", role="product", product_key=key, format_name="geojson", result_version=result_version, gis_metadata={"crs": "EPSG:4326", "units": "event_polygon", "target_period": period})
     summary = {"status": "completed", "module": request.module, "processing": processing,
                "limitations": LIMITATIONS, "products": {key: {"units": units, "min": float(values[context[1]].min()) if values.ndim == 2 else float(values.min()), "max": float(values[context[1]].max()) if values.ndim == 2 else float(values.max()), "mean": float(values[context[1]].mean()) if values.ndim == 2 else float(values.mean())} for key, (values, units) in products.items()}}
+    if request.module == "predictor_mlr":
+        from app.services.validation.diagnostics import write_diagnostic_artifacts
+        holdout = tables["holdout_predictions"]
+        units = bindings.sources["observations"].manifest.predictor_definitions[request.predictor_options.response].unit
+        if len(holdout) >= 3:
+            dashboard, diagnostics = write_diagnostic_artifacts(output_directory,
+                [row["observed"] for row in holdout], [row["predicted"] for row in holdout], kind="continuous", units=units,
+                scope="chronological declared holdout; not independent scientific certification", version=result_version)
+            entries.update(diagnostics)
+            summary["validation_dashboard"] = dashboard
+        else:
+            summary["validation_dashboard"] = {"kind": "continuous", "metrics": processing["holdout_metrics"],
+                "availability": {"full_regression_metrics": {"available": False, "reason": "Approved full regression diagnostics require at least three pairs"}},
+                "plots": [], "units": units, "scope": "chronological declared holdout", "limitations": LIMITATIONS}
     provenance = {"engine_key": "firris", "module": request.module, "source_bindings": bindings.lineage(),
                   "processing": processing, "analysis_readiness_rechecked_at_execution": True,
                   "raw_source_policy": "registered immutable source bytes retained; raw observations/distances/surfaces retained alongside derived indices",

@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel
+from app.schemas.firris_evidence import ValidationDashboard, DecisionSupportDashboard
 from app.schemas.result_delivery import ResultAnalytics, ResultInterpretation
 
 
@@ -57,6 +58,8 @@ class ResultResponse(BaseModel):
     summary: dict | None
     analytics: ResultAnalytics | None = None
     interpretation: ResultInterpretation | None = None
+    validation_dashboard: ValidationDashboard | None = None
+    decision_support: DecisionSupportDashboard | None = None
     provenance: dict | None
     products: list[ResultProductResponse]
     layers: list[ResultLayerResponse]

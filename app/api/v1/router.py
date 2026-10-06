@@ -8,6 +8,7 @@ from app.api.v1.endpoints import (
     firas,
     ingestion,
     maps,
+    live,
     organizations,
     projects,
     results,
@@ -35,3 +36,5 @@ api_router.include_router(results.router)
 # from app.api.v1.endpoints import sampling, ml
 # api_router.include_router(sampling.router)
 # api_router.include_router(ml.router)
+
+api_router.include_router(live.router)

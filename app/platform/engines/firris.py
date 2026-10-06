@@ -280,6 +280,15 @@ class FIRRISEngineAdapter(EngineAdapter):
 
     def _workflow_reports(self, context: EngineExecutionContext, workflow: FIRRISWorkflowOutput, summaries: dict[str, Any]) -> dict[str, dict[str, Any]]:
         reports: dict[str, dict[str, Any]] = {}
+        from app.services.validation.diagnostics import write_diagnostic_artifacts
+        holdout = workflow.samples[workflow.samples["sample_split"] == "test"]
+        dashboard, diagnostics = write_diagnostic_artifacts(context.output_directory,
+            holdout["observed_label"].to_numpy(), holdout["predicted_label"].to_numpy(),
+            scores=holdout["conditional_score"].to_numpy(), kind="binary", units="binary_class_0_1",
+            scope="declared_holdout; label-source provenance retained; independent scientific validation not asserted",
+            version=context.result_version)
+        workflow.validation_metrics["dashboard"] = dashboard
+        reports.update(diagnostics)
         if workflow.enhancement_preview is not None:
             from PIL import Image
             preview_path = context.output_directory / "enhanced-display.png"
@@ -442,7 +451,7 @@ class FIRRISEngineAdapter(EngineAdapter):
         reports = self._workflow_reports(context, workflow, summaries) if workflow is not None else {}
         summary: dict[str, Any] = {"status": "completed", "products": summaries}
         if workflow is not None:
-            summary.update({"quality": workflow.quality, "validation": workflow.validation_metrics, "model": workflow.model_metadata})
+            summary.update({"quality": workflow.quality, "validation": workflow.validation_metrics, "model": workflow.model_metadata, "validation_dashboard": workflow.validation_metrics["dashboard"]})
         provenance = {
             "producer": context.gis_metadata["producer"], "engine_key": self.key, "engine_version": self.version,
             "operation": context.operation, "artifact_schema_version": "1.0",

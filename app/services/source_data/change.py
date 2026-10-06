@@ -22,7 +22,13 @@ COLORS = ["#D9D9D9", "#0077BB", "#EE7733", "#009988"]
 
 def comparison_source_fingerprint(source):
     """Pin comparison semantics and all source metadata alongside protected bytes."""
-    encoded = json.dumps(source.manifest.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode()
+    manifest = source.manifest.model_dump(mode="json")
+    # New optional evidence fields do not invalidate fingerprints of unchanged
+    # pre-Bundle-5 registrations. Every supplied definition remains in the hash.
+    for field in ("validation_definition", "impact_definition", "dss_metric_definitions", "live_feed_policy"):
+        if manifest.get(field) is None:
+            manifest.pop(field, None)
+    encoded = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
 
 

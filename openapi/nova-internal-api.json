@@ -1287,6 +1287,39 @@
         "title": "CurrentUserResponse",
         "type": "object"
       },
+      "DecisionSupportDashboard": {
+        "additionalProperties": false,
+        "properties": {
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "source_identity": {
+            "title": "Source Identity",
+            "type": "object"
+          },
+          "tables": {
+            "additionalProperties": {
+              "items": {
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "title": "Tables",
+            "type": "object"
+          }
+        },
+        "required": [
+          "tables",
+          "source_identity",
+          "limitations"
+        ],
+        "title": "DecisionSupportDashboard",
+        "type": "object"
+      },
       "DeliveryRepresentation": {
         "properties": {
           "format": {
@@ -2581,6 +2614,275 @@
         "title": "IndicatorMatrixRequest",
         "type": "object"
       },
+      "LiveEventPage": {
+        "additionalProperties": false,
+        "properties": {
+          "external_delivery": {
+            "const": "unavailable_not_configured",
+            "default": "unavailable_not_configured",
+            "enum": [
+              "unavailable_not_configured"
+            ],
+            "title": "External Delivery",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LiveEventResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "title": "Next Cursor",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "LiveEventPage",
+        "type": "object"
+      },
+      "LiveEventRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "event_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Event Id",
+            "type": "string"
+          },
+          "issued_at": {
+            "format": "date-time",
+            "title": "Issued At",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "observation",
+              "nowcast"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "model_reference": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Reference"
+          },
+          "policy_dataset_id": {
+            "format": "uuid",
+            "title": "Policy Dataset Id",
+            "type": "string"
+          },
+          "quality_flag": {
+            "const": "valid",
+            "enum": [
+              "valid"
+            ],
+            "title": "Quality Flag",
+            "type": "string"
+          },
+          "sensor_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Sensor Id",
+            "type": "string"
+          },
+          "source_record_reference": {
+            "maxLength": 512,
+            "minLength": 3,
+            "title": "Source Record Reference",
+            "type": "string"
+          },
+          "units": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Units",
+            "type": "string"
+          },
+          "valid_at": {
+            "format": "date-time",
+            "title": "Valid At",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "policy_dataset_id",
+          "event_id",
+          "sensor_id",
+          "kind",
+          "quality_flag",
+          "value",
+          "units",
+          "valid_at",
+          "issued_at",
+          "source_record_reference"
+        ],
+        "title": "LiveEventRequest",
+        "type": "object"
+      },
+      "LiveEventResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "alerts": {
+            "items": {
+              "type": "object"
+            },
+            "title": "Alerts",
+            "type": "array"
+          },
+          "delivery_status": {
+            "const": "protected_feed_only",
+            "default": "protected_feed_only",
+            "enum": [
+              "protected_feed_only"
+            ],
+            "title": "Delivery Status",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "payload": {
+            "title": "Payload",
+            "type": "object"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "source_snapshot": {
+            "title": "Source Snapshot",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "sequence",
+          "payload",
+          "received_at",
+          "source_snapshot",
+          "alerts"
+        ],
+        "title": "LiveEventResponse",
+        "type": "object"
+      },
+      "LiveFeedbackRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "evidence_references": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Evidence References",
+            "type": "array"
+          },
+          "notes": {
+            "maxLength": 2000,
+            "minLength": 3,
+            "title": "Notes",
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "confirmed",
+              "rejected",
+              "inconclusive"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "verdict",
+          "notes",
+          "evidence_references"
+        ],
+        "title": "LiveFeedbackRequest",
+        "type": "object"
+      },
+      "LiveFeedbackResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "evidence_references": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence References",
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "notes": {
+            "title": "Notes",
+            "type": "string"
+          },
+          "verdict": {
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "event_id",
+          "verdict",
+          "notes",
+          "evidence_references",
+          "created_at",
+          "actor_id"
+        ],
+        "title": "LiveFeedbackResponse",
+        "type": "object"
+      },
       "MembershipResponse": {
         "properties": {
           "created_at": {
@@ -3778,6 +4080,16 @@
             "title": "Created At",
             "type": "string"
           },
+          "decision_support": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DecisionSupportDashboard"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "engine_key": {
             "title": "Engine Key",
             "type": "string"
@@ -3858,6 +4170,16 @@
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
+          },
+          "validation_dashboard": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ValidationDashboard"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "version": {
             "title": "Version",
@@ -4147,7 +4469,11 @@
               "watershed",
               "historical_frequency",
               "predictor_mlr",
-              "soil_infiltration"
+              "soil_infiltration",
+              "continuous_validation",
+              "classification_validation",
+              "decision_support",
+              "prediction_outputs"
             ],
             "title": "Module",
             "type": "string"
@@ -4243,7 +4569,11 @@
               "watershed",
               "historical_frequency",
               "predictor_mlr",
-              "soil_infiltration"
+              "soil_infiltration",
+              "continuous_validation",
+              "classification_validation",
+              "decision_support",
+              "prediction_outputs"
             ],
             "title": "Module",
             "type": "string"
@@ -4488,6 +4818,11 @@
             "title": "Dem Conditioning Verified",
             "type": "boolean"
           },
+          "dss_definitions_verified": {
+            "default": false,
+            "title": "Dss Definitions Verified",
+            "type": "boolean"
+          },
           "evidence_refs": {
             "items": {
               "type": "string"
@@ -4506,12 +4841,27 @@
             "title": "Hydrologic Coverage Verified",
             "type": "boolean"
           },
+          "impact_definition_verified": {
+            "default": false,
+            "title": "Impact Definition Verified",
+            "type": "boolean"
+          },
+          "independent_observations_verified": {
+            "default": false,
+            "title": "Independent Observations Verified",
+            "type": "boolean"
+          },
           "licence_verified": {
             "const": true,
             "enum": [
               true
             ],
             "title": "Licence Verified",
+            "type": "boolean"
+          },
+          "live_policy_verified": {
+            "default": false,
+            "title": "Live Policy Verified",
             "type": "boolean"
           },
           "predictor_catalogue_verified": {
@@ -4554,6 +4904,11 @@
               true
             ],
             "title": "Uncertainty Reviewed",
+            "type": "boolean"
+          },
+          "validation_definition_verified": {
+            "default": false,
+            "title": "Validation Definition Verified",
             "type": "boolean"
           }
         },
@@ -4918,6 +5273,63 @@
           "end"
         ],
         "title": "TemporalCoverage",
+        "type": "object"
+      },
+      "ValidationDashboard": {
+        "additionalProperties": false,
+        "properties": {
+          "availability": {
+            "additionalProperties": {
+              "type": "object"
+            },
+            "title": "Availability",
+            "type": "object"
+          },
+          "kind": {
+            "enum": [
+              "continuous",
+              "binary"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "metrics": {
+            "title": "Metrics",
+            "type": "object"
+          },
+          "plots": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Plots",
+            "type": "array"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "units": {
+            "title": "Units",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "metrics",
+          "availability",
+          "plots",
+          "scope",
+          "units",
+          "limitations"
+        ],
+        "title": "ValidationDashboard",
         "type": "object"
       },
       "VulnerabilityMapRequest": {
@@ -9378,6 +9790,598 @@
         "summary": "List Project Aois",
         "tags": [
           "Projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/live/events": {
+      "get": {
+        "operationId": "events_api_v1_projects__project_id__live_events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "policy_dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Policy Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Cursor",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveEventPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authorization failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Events",
+        "tags": [
+          "FIRRIS live evidence"
+        ]
+      },
+      "post": {
+        "operationId": "ingest_api_v1_projects__project_id__live_events_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LiveEventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveEventResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authorization failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Ingest",
+        "tags": [
+          "FIRRIS live evidence"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/live/events/{event_id}/feedback": {
+      "get": {
+        "operationId": "feedback_history_api_v1_projects__project_id__live_events__event_id__feedback_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LiveFeedbackResponse"
+                  },
+                  "title": "Response Feedback History Api V1 Projects  Project Id  Live Events  Event Id  Feedback Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authorization failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Feedback History",
+        "tags": [
+          "FIRRIS live evidence"
+        ]
+      },
+      "post": {
+        "operationId": "feedback_api_v1_projects__project_id__live_events__event_id__feedback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Event Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LiveFeedbackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveFeedbackResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authorization failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Feedback",
+        "tags": [
+          "FIRRIS live evidence"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/live/stream": {
+      "get": {
+        "operationId": "stream_api_v1_projects__project_id__live_stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "policy_dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Policy Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Cursor",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "wait_seconds",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 30.0,
+              "minimum": 0.0,
+              "title": "Wait Seconds",
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Bounded resumable protected event stream"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authorization failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Stream",
+        "tags": [
+          "FIRRIS live evidence"
         ]
       }
     },

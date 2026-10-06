@@ -6,13 +6,11 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Literal
 
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import Field, model_validator
+from app.schemas.strict import StrictModel
+from app.schemas.firris_evidence import ValidationDefinition, ImpactDefinition, DSSMetricDefinition, LiveFeedPolicy
 
 from app.services.source_data.catalogue import get_profile
-
-
-class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, allow_inf_nan=False)
 
 
 class TemporalCoverage(StrictModel):
@@ -148,6 +146,10 @@ class SourceDatasetManifest(StrictModel):
     soil_scoring_policy: SoilScoringPolicy | None = None
     proximity_scoring_policy: ProximityPolicy | None = None
     historical_record_definition: str | None = Field(default=None, min_length=10, max_length=512)
+    validation_definition: ValidationDefinition | None = None
+    impact_definition: ImpactDefinition | None = None
+    dss_metric_definitions: dict[str, DSSMetricDefinition] | None = None
+    live_feed_policy: LiveFeedPolicy | None = None
     observation_definition: str | None = Field(default=None, min_length=10, max_length=512)
 
     @model_validator(mode="after")
@@ -253,6 +255,29 @@ class SourceDatasetManifest(StrictModel):
             raise ValueError("Proximity policy only applies to sourced river/service geometries")
         if self.historical_record_definition is not None and self.category not in {"river_discharge_stations", "historical_flood_events"}:
             raise ValueError("Historical definitions only apply to discharge/event records")
+        if self.category.startswith('validation_'):
+            definition = self.validation_definition
+            if definition is None:
+                raise ValueError('Validation sources require explicit quantity, units, comparison and evaluation definitions')
+            if self.category in {'validation_continuous_prediction', 'validation_binary_prediction', 'validation_probability'} and not definition.model_reference:
+                raise ValueError('Predictions/scores require a sourced model reference')
+            if self.category in {'validation_binary_observation', 'validation_binary_prediction', 'validation_probability'} and definition.class_labels is None:
+                raise ValueError('Binary validation requires source-declared class labels')
+            if self.category == 'validation_uncertainty' and definition.uncertainty_kind is None:
+                raise ValueError('Uncertainty requires an explicit sourced measure')
+            if self.category == 'validation_folds' and definition.fold_definitions is None:
+                raise ValueError('Fold assignments require a sourced fold plan')
+        elif self.validation_definition is not None:
+            raise ValueError('Validation definition is category-bound')
+        if (self.category == 'flood_impact_records') != (self.impact_definition is not None):
+            raise ValueError('Impact records require a sourced impact basis, currency and evidence definition')
+        if self.category == 'dss_records':
+            if not self.dss_metric_definitions or len(self.dss_metric_definitions) > 100:
+                raise ValueError('DSS records require sourced metric/domain/unit definitions')
+        elif self.dss_metric_definitions is not None:
+            raise ValueError('DSS metric definitions are category-bound')
+        if (self.category == 'sensor_registry') != (self.live_feed_policy is not None):
+            raise ValueError('Sensor registry requires an explicit live-feed policy')
         return self
 
 
@@ -285,6 +310,11 @@ class SourceReadinessReview(StrictModel):
     annual_record_complete_verified: bool = False
     predictor_catalogue_verified: bool = False
     scoring_policy_verified: bool = False
+    validation_definition_verified: bool = False
+    independent_observations_verified: bool = False
+    impact_definition_verified: bool = False
+    dss_definitions_verified: bool = False
+    live_policy_verified: bool = False
 
     @model_validator(mode="after")
     def check_evidence(self):

@@ -26,9 +26,10 @@ from app.services.source_data.validators import MAX_BYTES, SourceDataValidationE
 router = APIRouter(prefix="/source-datasets", tags=["Source datasets"], dependencies=[Depends(verify_internal_secret)])
 
 
-def _authorize(db: Session, context: RequestContext, project_id: uuid.UUID) -> None:
+def _authorize(db: Session, context: RequestContext, project_id: uuid.UUID, *, read_only: bool = False) -> None:
     require_active_membership(db, context)
-    require_role(context, OrganizationRole.OWNER, OrganizationRole.ADMIN, OrganizationRole.ANALYST)
+    if not read_only:
+        require_role(context, OrganizationRole.OWNER, OrganizationRole.ADMIN, OrganizationRole.ANALYST)
     project = db.get(Project, project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Project not found.")

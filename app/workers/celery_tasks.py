@@ -389,8 +389,12 @@ def execute_engine_task(db, task_id: uuid.UUID) -> None:
             if task.status == TaskStatus.RUNNING:
                 append_event(task, "sources_revalidated")
             db.commit()
-            from app.services.source_data.bindings import BUNDLE4_MODULES
-            if request.module in BUNDLE4_MODULES:
+            from app.services.source_data.bindings import BUNDLE4_MODULES, EVIDENCE_MODULES
+            if request.module in EVIDENCE_MODULES:
+                from app.services.source_data.evidence_products import execute_evidence_products
+                execution = execute_evidence_products(resolved, mapping(to_shape(aoi.geometry)), output_directory,
+                                                      next_version, task_id=str(task.id))
+            elif request.module in BUNDLE4_MODULES:
                 from app.services.source_data.bundle4 import execute_bundle4
                 execution = execute_bundle4(resolved, mapping(to_shape(aoi.geometry)), output_directory,
                                             next_version, task_id=str(task.id))

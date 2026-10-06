@@ -18,6 +18,10 @@ from app.services.source_data.temporal_sources import validate_annual_sources, v
 
 
 MODULE_SOURCE_ROLES: dict[str, dict[str, str]] = {
+    "continuous_validation": {"observed": "validation_continuous_observation", "predicted": "validation_continuous_prediction"},
+    "classification_validation": {"observed": "validation_binary_observation", "predicted": "validation_binary_prediction"},
+    "decision_support": {"records": "dss_records"},
+    "prediction_outputs": {"impacts": "flood_impact_records"},
     "rainfall_interpolation": {"rainfall": "rainfall_stations"},
     "river_stage": {"gauges": "river_stage_stations", "thresholds": "river_stage_thresholds"},
     "feature_proximity": {"rivers": "river_drainage_network", "services": "critical_infrastructure"},
@@ -43,6 +47,7 @@ MODULE_SOURCE_ROLES: dict[str, dict[str, str]] = {
     "flood_hazard_zonation": {},
 }
 MODULE_RESULT_ROLES: dict[str, dict[str, str]] = {
+    "prediction_outputs": {role: "source_bound_"+role for role in ("hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience")},
     "exposure": {"hazard": "source_bound_hazard"},
     "insecurity": {"vulnerability": "source_bound_vulnerability"},
     "risk": {"hazard": "source_bound_hazard", "exposure": "source_bound_exposure", "insecurity": "source_bound_insecurity"},
@@ -53,7 +58,9 @@ MODULE_RESULT_ROLES: dict[str, dict[str, str]] = {
 }
 OPTIONAL_SOURCE_ROLES: dict[str, dict[str, str]] = {"satellite_preprocessing": {"climate": "rainfall_stations", "soil": "soil_permeability", "population": "population_density", "roads": "roads", "rivers": "river_drainage_network", "land_cover": "land_cover", "terrain": "terrain_dem"}, "exposure": {"economic_assets": "economic_assets"}}
 BUNDLE4_MODULES = frozenset({'watershed', 'rainfall_interpolation', 'feature_proximity', 'predictor_mlr', 'river_stage', 'historical_frequency', 'soil_infiltration'})
-EXECUTABLE_MODULES = BUNDLE4_MODULES | frozenset({"flood_change", "satellite_preprocessing", "hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"})
+EVIDENCE_MODULES = frozenset({'continuous_validation', 'classification_validation', 'decision_support', 'prediction_outputs'})
+OPTIONAL_SOURCE_ROLES.update({'continuous_validation': {'uncertainty': 'validation_uncertainty', 'folds': 'validation_folds', 'baseline': 'validation_continuous_prediction'}, 'classification_validation': {'score': 'validation_probability', 'uncertainty': 'validation_uncertainty', 'folds': 'validation_folds', 'baseline': 'validation_binary_prediction'}})
+EXECUTABLE_MODULES = EVIDENCE_MODULES | BUNDLE4_MODULES | frozenset({"flood_change", "satellite_preprocessing", "hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"})
 
 
 @dataclass(frozen=True)
@@ -95,12 +102,12 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
         raise SourceNotReady("Source/result roles do not match the FIRRIS module binding contract")
     if len(set(request.sources.values())) != len(request.sources):
         raise SourceNotReady("The same source dataset cannot fill multiple distinct roles")
-    if (request.module in (BUNDLE4_MODULES - {"historical_frequency", "predictor_mlr"}) | {"flood_change", "satellite_preprocessing", "hazard", "exposure", "risk", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"}
+    if (request.module in (BUNDLE4_MODULES - {"historical_frequency", "predictor_mlr"}) | {"continuous_validation", "classification_validation", "flood_change", "satellite_preprocessing", "hazard", "exposure", "risk", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"}
             and request.target_grid is None):
         raise SourceNotReady("Raster-backed modules require an explicit target grid")
     if request.module in {"vulnerability", "insecurity", "resilience"} and request.target_grid is not None:
         raise SourceNotReady("Survey modules use reviewed boundary spatial units, not a raster target grid")
-    if request.module in {"historical_frequency", "predictor_mlr"} and request.target_grid is not None:
+    if request.module in {"historical_frequency", "predictor_mlr", "decision_support", "prediction_outputs"} and request.target_grid is not None:
         raise SourceNotReady("Statistical observations use sourced samples, not an invented spatial prediction grid")
     sources = {}
     if aoi_geometry is None:
@@ -114,7 +121,8 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
         manifest = source.manifest
         if manifest.category != category:
             raise SourceNotReady(f"Source role {role} requires category {category}")
-        if (request.module not in {"flood_change", "flood_aep", "flood_duration"}
+        if (not (request.module in {"continuous_validation", "classification_validation"} and role == "baseline")
+                and request.module not in {"flood_change", "flood_aep", "flood_duration"}
                 and (manifest.temporal_coverage.start > request.period.start
                      or manifest.temporal_coverage.end < request.period.end)):
             raise SourceNotReady(f"Source role {role} does not cover the requested analysis period")
@@ -257,4 +265,12 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
             checks = sources["terrain"].evidence.get("checks", {})
             if not checks.get("hydrologic_coverage_verified") or not checks.get("dem_conditioning_verified"):
                 raise SourceNotReady("Terrain metrics require reviewed conditioning and upstream coverage")
-    return ResolvedBindings(request, sources, alignment, upstream)
+    if request.module == 'prediction_outputs':
+        from app.services.source_data.module_results import load_module_result
+        for role in MODULE_RESULT_ROLES[request.module]:
+            upstream[role] = load_module_result(db, request.upstream_results[role], request, role, aoi_geometry, root=root)
+    resolved = ResolvedBindings(request, sources, alignment, upstream)
+    if request.module in EVIDENCE_MODULES:
+        from app.services.source_data.evidence_products import validate_evidence_products
+        validate_evidence_products(resolved, aoi_geometry)
+    return resolved

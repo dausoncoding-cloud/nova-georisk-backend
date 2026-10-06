@@ -47,13 +47,26 @@ def manifest(category: str, data: bytes, **overrides) -> SourceDatasetManifest:
         "predictor_catalogue_reference": "fixture:synthetic" if category == "flood_predictor_observations" else None,
         "soil_scoring_policy": {"classes": {str(i): {"label": f"Synthetic soil class {i}", "score": i} for i in range(1, 6)}, "specification_reference": "fixture:synthetic", "score_definition": "Synthetic lookup scores; no scientific calibration", "score_units": "synthetic_score"} if category == "soil_texture_classes" else None,
     }
+    if category.startswith("validation_"):
+        fields["validation_definition"] = {"quantity_id": "fixture", "definition": "Synthetic fixture quantity", "value_units": "declared-unit",
+            "comparison_reference": "fixture:synthetic", "evaluation_scope": "not_independent",
+            "model_reference": "fixture:synthetic-model" if category in {"validation_continuous_prediction", "validation_binary_prediction", "validation_probability", "validation_uncertainty"} else None,
+            "class_labels": {"0": "Synthetic absent", "1": "Synthetic present"} if category in {"validation_binary_observation", "validation_binary_prediction", "validation_probability"} else None,
+            "uncertainty_kind": "standard_deviation" if category == "validation_uncertainty" else None,
+            "fold_definitions": {"1": "Synthetic sourced fold"} if category == "validation_folds" else None}
+    if category == "flood_impact_records":
+        fields["impact_definition"] = {"basis": "observed", "definition": "Synthetic fixture impact record", "evidence_reference": "fixture:synthetic", "currency": "KES"}
+    if category == "dss_records":
+        fields["dss_metric_definitions"] = {"fixture": {"domain": "kpi", "units": "declared-unit", "definition": "Synthetic fixture measurement", "evidence_reference": "fixture:synthetic"}}
+    if category == "sensor_registry":
+        fields["live_feed_policy"] = {"policy_reference": "fixture:synthetic", "max_lateness_seconds": 60, "max_future_skew_seconds": 0, "max_nowcast_horizon_seconds": 0}
     fields.update(overrides)
     return SourceDatasetManifest.model_validate(fields)
 
 
 def test_catalogue_has_explicit_contract_for_every_handoff_category():
     catalogue = get_catalogue()
-    assert len(catalogue["profiles"]) == 28
+    assert len(catalogue["profiles"]) == 38
     assert get_profile("hydraulic_model_velocity")["unit"] == "m/s"
     assert get_profile("annual_inundation_observation")["unit"] == "annual_exceedance_0_1"
     assert all({"format", "geometry", "crs", "vertical_datum", "unit", "temporal_mode", "spatial_resolution", "required_fields", "downstream_rows"} <= set(p) for p in catalogue["profiles"].values())
@@ -142,8 +155,10 @@ def test_every_catalogue_category_has_a_validatable_structural_fixture(category)
                 return "valid"
             if kind in {"longitude", "latitude"}:
                 return 36 if kind == "longitude" else -1
-            if kind in {"number", "nonnegative_number", "positive_number", "positive_integer"}:
+            if kind in {"number", "nonnegative_number", "positive_number", "positive_integer", "nonnegative_integer"}:
                 return 1
+            if key == "currency": return "KES"
+            if key == "domain": return "kpi"
             if key == "unit":
                 return "declared-unit"
             return "fixture"

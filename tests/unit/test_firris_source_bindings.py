@@ -66,7 +66,8 @@ def test_explicit_module_contracts_do_not_substitute_risk_formula():
                              "flood_aep", "flood_return_period", "flood_duration", "flood_change",
                              "flood_susceptibility", "flood_hazard_zonation", "satellite_preprocessing",
                              "rainfall_interpolation", "river_stage", "feature_proximity", "watershed",
-                             "historical_frequency", "predictor_mlr", "soil_infiltration"}
+                             "historical_frequency", "predictor_mlr", "soil_infiltration", "continuous_validation",
+                             "classification_validation", "decision_support", "prediction_outputs"}
     assert contract["flood_change"]["source_roles"] == {"before": "inundation_time_slice", "after": "inundation_time_slice"}
     assert contract["flood_change"]["executable"] is True
     assert contract["satellite_preprocessing"]["source_roles"] == {}

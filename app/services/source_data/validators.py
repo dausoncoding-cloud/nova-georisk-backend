@@ -68,6 +68,8 @@ def _field(value: object, kind: str, manifest: SourceDatasetManifest) -> None:
             _fail("Non-positive required value")
         if kind == "positive_integer" and not number.is_integer():
             _fail("Sample count must be an integer")
+        if kind == "nonnegative_integer" and (number < 0 or not number.is_integer()):
+            _fail("Household count must be a nonnegative integer")
 
 
 def _properties(properties: dict, profile: dict, manifest: SourceDatasetManifest) -> None:
@@ -78,6 +80,16 @@ def _properties(properties: dict, profile: dict, manifest: SourceDatasetManifest
         _fail("Undeclared source fields are not accepted")
     for key, kind in required.items():
         _field(properties[key], kind, manifest)
+    if manifest.category in {'flood_impact_records', 'dss_records'}:
+        for key, kind in required.items():
+            if kind in {'number', 'nonnegative_number', 'nonnegative_integer'} and (not isinstance(properties[key], (int, float)) or isinstance(properties[key], bool)):
+                _fail('Domain GeoJSON measurements require numeric values, not strings or booleans')
+    if manifest.category == 'flood_impact_records' and properties['currency'] != manifest.impact_definition.currency:
+        _fail('Impact currency differs from the sourced definition; no currency conversion is permitted')
+    if manifest.category == 'dss_records':
+        definition = manifest.dss_metric_definitions.get(properties['metric_key'])
+        if definition is None or definition.units != properties['unit'] or definition.domain != properties['domain']:
+            _fail('DSS metric/domain/units differ from the sourced definition')
     if "start_at" in properties and "end_at" in properties:
         start = datetime.fromisoformat(properties["start_at"].replace("Z", "+00:00"))
         end = datetime.fromisoformat(properties["end_at"].replace("Z", "+00:00"))
@@ -143,6 +155,7 @@ def _geojson(data: bytes, profile: dict, manifest: SourceDatasetManifest) -> tup
     if not isinstance(features, list) or not 0 < len(features) <= MAX_RECORDS:
         _fail("GeoJSON requires a nonempty bounded feature collection")
     bounds = [180.0, 90.0, -180.0, -90.0]
+    identities = set()
     for feature in features:
         if not isinstance(feature, dict) or feature.get("type") != "Feature":
             _fail("Invalid GeoJSON feature")
@@ -160,6 +173,12 @@ def _geojson(data: bytes, profile: dict, manifest: SourceDatasetManifest) -> tup
             _fail("Geometry lies outside WGS84 coordinate range")
         bounds = [min(bounds[0], left), min(bounds[1], bottom), max(bounds[2], right), max(bounds[3], top)]
         _properties(feature.get("properties"), profile, manifest)
+        if manifest.category in {"sensor_registry", "dss_records", "flood_impact_records"}:
+            props = feature["properties"]
+            identity = (props.get("record_id", props.get("sensor_id")), props.get("metric_key"))
+            if identity in identities:
+                _fail("Duplicate sourced record identity")
+            identities.add(identity)
     return len(features), bounds
 
 
@@ -186,6 +205,14 @@ def _geotiff(data: bytes, manifest: SourceDatasetManifest) -> tuple[int, list[fl
             if not len(values) or not np.isfinite(values).all():
                 _fail("Raster has no finite valid observations")
             category = manifest.category
+            if category in {'validation_binary_observation', 'validation_binary_prediction'} and not np.isin(values, [0, 1]).all():
+                _fail('Binary validation requires explicit 0/1 classes')
+            if category == 'validation_probability' and ((values < 0) | (values > 1)).any():
+                _fail('Conditional classification scores must lie in [0,1]')
+            if category == 'validation_uncertainty' and (values < 0).any():
+                _fail('Uncertainty measure cannot be negative')
+            if category == 'validation_folds' and (not np.equal(values, np.floor(values)).all() or not set(map(str, np.unique(values.astype(int)))).issubset(manifest.validation_definition.fold_definitions)):
+                _fail('Fold codes are absent from the sourced plan')
             if category in {"inundation_time_slice", "annual_inundation_observation", "cropland_fraction"}:
                 if category in {"inundation_time_slice", "annual_inundation_observation"} and not np.isin(values, [0, 1]).all():
                     _fail("Inundation raster must be binary")

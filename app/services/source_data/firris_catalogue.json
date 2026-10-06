@@ -161,6 +161,197 @@
       "downstream_rows": [
         "F09"
       ]
+    },
+    "validation_continuous_observation": {
+      "format": "geotiff",
+      "geometry": [
+        "raster_grid"
+      ],
+      "crs": "declared_epsg",
+      "vertical_datum": "optional",
+      "unit": "declared_variable",
+      "temporal_mode": "declared_coverage",
+      "spatial_resolution": "required",
+      "required_fields": {},
+      "downstream_rows": [
+        "F22",
+        "F23",
+        "F24"
+      ]
+    },
+    "validation_continuous_prediction": {
+      "format": "geotiff",
+      "geometry": [
+        "raster_grid"
+      ],
+      "crs": "declared_epsg",
+      "vertical_datum": "optional",
+      "unit": "declared_variable",
+      "temporal_mode": "declared_coverage",
+      "spatial_resolution": "required",
+      "required_fields": {},
+      "downstream_rows": [
+        "F22",
+        "F23",
+        "F24"
+      ]
+    },
+    "validation_binary_observation": {
+      "format": "geotiff",
+      "geometry": [
+        "raster_grid"
+      ],
+      "crs": "declared_epsg",
+      "vertical_datum": "optional",
+      "unit": "binary_class_0_1",
+      "temporal_mode": "declared_coverage",
+      "spatial_resolution": "required",
+      "required_fields": {},
+      "downstream_rows": [
+        "F22",
+        "F23",
+        "F24"
+      ]
+    },
+    "validation_binary_prediction": {
+      "format": "geotiff",
+      "geometry": [
+        "raster_grid"
+      ],
+      "crs": "declared_epsg",
+      "vertical_datum": "optional",
+      "unit": "binary_class_0_1",
+      "temporal_mode": "declared_coverage",
+      "spatial_resolution": "required",
+      "required_fields": {},
+      "downstream_rows": [
+        "F22",
+        "F23",
+        "F24"
+      ]
+    },
+    "validation_probability": {
+      "format": "geotiff",
+      "geometry": [
+        "raster_grid"
+      ],
+      "crs": "declared_epsg",
+      "vertical_datum": "optional",
+      "unit": "conditional_class_probability_0_1",
+      "temporal_mode": "declared_coverage",
+      "spatial_resolution": "required",
+      "required_fields": {},
+      "downstream_rows": [
+        "F22",
+        "F23",
+        "F24"
+      ]
+    },
+    "validation_uncertainty": {
+      "format": "geotiff",
+      "geometry": [
+        "raster_grid"
+      ],
+      "crs": "declared_epsg",
+      "vertical_datum": "optional",
+      "unit": "declared_uncertainty",
+      "temporal_mode": "declared_coverage",
+      "spatial_resolution": "required",
+      "required_fields": {},
+      "downstream_rows": [
+        "F22",
+        "F23",
+        "F24"
+      ]
+    },
+    "validation_folds": {
+      "format": "geotiff",
+      "geometry": [
+        "raster_grid"
+      ],
+      "crs": "declared_epsg",
+      "vertical_datum": "optional",
+      "unit": "fold_code",
+      "temporal_mode": "declared_coverage",
+      "spatial_resolution": "required",
+      "required_fields": {},
+      "downstream_rows": [
+        "F22",
+        "F23",
+        "F24"
+      ]
+    },
+    "flood_impact_records": {
+      "format": "geojson",
+      "geometry": [
+        "Point",
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "crs": "EPSG:4326",
+      "vertical_datum": "not_applicable",
+      "temporal_mode": "observation",
+      "spatial_resolution": "positional_uncertainty_m",
+      "unit": "sourced_household_and_loss_records",
+      "required_fields": {
+        "record_id": "string",
+        "households": "nonnegative_integer",
+        "loss_amount": "nonnegative_number",
+        "currency": "string",
+        "observed_at": "datetime",
+        "source_record_reference": "string",
+        "quality_flag": "quality_flag"
+      },
+      "downstream_rows": [
+        "F17"
+      ]
+    },
+    "dss_records": {
+      "format": "geojson",
+      "geometry": [
+        "Point",
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "crs": "EPSG:4326",
+      "vertical_datum": "not_applicable",
+      "temporal_mode": "observation",
+      "spatial_resolution": "positional_uncertainty_m",
+      "unit": "declared_per_metric",
+      "required_fields": {
+        "record_id": "string",
+        "metric_key": "string",
+        "domain": "string",
+        "value": "number",
+        "unit": "string",
+        "observed_at": "datetime",
+        "source_record_reference": "string",
+        "quality_flag": "quality_flag"
+      },
+      "downstream_rows": [
+        "F19"
+      ]
+    },
+    "sensor_registry": {
+      "format": "geojson",
+      "geometry": [
+        "Point"
+      ],
+      "crs": "EPSG:4326",
+      "vertical_datum": "not_applicable",
+      "temporal_mode": "observation",
+      "spatial_resolution": "positional_uncertainty_m",
+      "unit": "sensor_registry",
+      "required_fields": {
+        "sensor_id": "string",
+        "quantity_id": "string",
+        "unit": "string",
+        "observed_at": "datetime",
+        "quality_flag": "quality_flag"
+      },
+      "downstream_rows": [
+        "F18"
+      ]
     }
   }
 }
