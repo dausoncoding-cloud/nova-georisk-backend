@@ -78,6 +78,41 @@ class Uncertainty(StrictModel):
     confidence_level: float | None = Field(default=None, gt=0, le=1)
 
 
+class PredictorDefinition(StrictModel):
+    role: Literal["predictor", "response"]
+    family: Literal["climate", "hydrology", "remote_sensing", "terrain", "land_cover", "buffering"]
+    unit: str = Field(min_length=1)
+    definition: str = Field(min_length=10)
+    evidence_ref: str = Field(min_length=3)
+
+
+class SoilClassScore(StrictModel):
+    label: str = Field(min_length=1)
+    score: float
+
+
+class SoilScoringPolicy(StrictModel):
+    classes: dict[str, SoilClassScore] = Field(min_length=5, max_length=5)
+    specification_reference: str = Field(min_length=3)
+    score_definition: str = Field(min_length=10)
+    score_units: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def check_codes(self):
+        if any(not re.fullmatch(r"0|[1-9][0-9]{0,8}", key) for key in self.classes):
+            raise ValueError("Soil class codes require canonical nonnegative integers")
+        if len({item.label.casefold() for item in self.classes.values()}) != 5:
+            raise ValueError("Soil class labels must be distinct")
+        return self
+
+
+class ProximityPolicy(StrictModel):
+    normalization: Literal["aoi_minmax_entropy"]
+    river_direction: Literal["benefit", "cost"]
+    service_direction: Literal["benefit", "cost"]
+    policy_reference: str = Field(min_length=3)
+
+
 class SourceDatasetManifest(StrictModel):
     project_id: uuid.UUID
     category: str
@@ -108,6 +143,11 @@ class SourceDatasetManifest(StrictModel):
     hydraulic_model_validation_reference: str | None = None
     observation_year: int | None = Field(default=None, ge=1900, le=2200)
     event_definition: str | None = None
+    predictor_definitions: dict[str, PredictorDefinition] | None = None
+    predictor_catalogue_reference: str | None = Field(default=None, min_length=3)
+    soil_scoring_policy: SoilScoringPolicy | None = None
+    proximity_scoring_policy: ProximityPolicy | None = None
+    historical_record_definition: str | None = Field(default=None, min_length=10, max_length=512)
     observation_definition: str | None = Field(default=None, min_length=10, max_length=512)
 
     @model_validator(mode="after")
@@ -142,8 +182,8 @@ class SourceDatasetManifest(StrictModel):
             raise ValueError("Land-cover class scheme is required")
         if self.land_cover_scheme is not None and self.category != "land_cover":
             raise ValueError("Land-cover scoring scheme is only applicable to land cover")
-        if self.observation_interval_hours is not None and self.category != "rainfall_stations":
-            raise ValueError("Observation interval is only applicable to rainfall stations")
+        if self.observation_interval_hours is not None and self.category not in {"rainfall_stations", "river_discharge_stations"}:
+            raise ValueError("Observation interval is only applicable to rainfall/discharge stations")
         if self.inventory_asset_types is not None and self.category not in {"buildings", "critical_infrastructure", "economic_assets"}:
             raise ValueError("Asset inventory types are only applicable to Exposure asset sources")
         if self.inventory_asset_types is not None and (not self.inventory_asset_types or any(not item.strip() for item in self.inventory_asset_types)):
@@ -196,6 +236,23 @@ class SourceDatasetManifest(StrictModel):
             raise ValueError("Observation definition is only applicable to inundation time slices")
         if self.category == "inundation_time_slice" and self.temporal_coverage.start != self.temporal_coverage.end:
             raise ValueError("Inundation time slice must have one exact observation timestamp")
+        if self.category == "flood_predictor_observations":
+            if not self.predictor_catalogue_reference:
+                raise ValueError("Predictor observations require an explicit catalogue reference")
+            if not self.predictor_definitions or not 2 <= len(self.predictor_definitions) <= 65 or sum(item.role == "response" for item in self.predictor_definitions.values()) != 1:
+                raise ValueError("Predictor observations require declared variables with exactly one response")
+            if any(not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,63}", key) for key in self.predictor_definitions):
+                raise ValueError("Predictor names must be unambiguous identifiers")
+            if set(self.predictor_definitions) & {"sample_id", "observed_at", "longitude", "latitude", "Intercept"}:
+                raise ValueError("Predictor names cannot collide with sample identity fields")
+        elif self.predictor_definitions is not None or self.predictor_catalogue_reference is not None:
+            raise ValueError("Predictor definitions only apply to predictor observations")
+        if (self.category == "soil_texture_classes") != (self.soil_scoring_policy is not None):
+            raise ValueError("Soil texture requires an explicit sourced five-class scoring policy")
+        if self.proximity_scoring_policy is not None and self.category not in {"river_drainage_network", "critical_infrastructure"}:
+            raise ValueError("Proximity policy only applies to sourced river/service geometries")
+        if self.historical_record_definition is not None and self.category not in {"river_discharge_stations", "historical_flood_events"}:
+            raise ValueError("Historical definitions only apply to discharge/event records")
         return self
 
 
@@ -226,6 +283,8 @@ class SourceReadinessReview(StrictModel):
     coverage_complete_verified: bool = False
     hydraulic_model_verified: bool = False
     annual_record_complete_verified: bool = False
+    predictor_catalogue_verified: bool = False
+    scoring_policy_verified: bool = False
 
     @model_validator(mode="after")
     def check_evidence(self):

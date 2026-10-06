@@ -32,7 +32,7 @@ def align_raster_bundle(sources: dict[str, ReadySource], grid: RasterGrid, aoi_w
 def align_raster_source(source: ReadySource, grid: RasterGrid, aoi_wgs84: dict) -> tuple[np.ndarray, np.ndarray, dict]:
     """Nearest-neighbour resampling only; require complete observed AOI coverage."""
     if source.manifest.category not in {
-        "water_surface_elevation", "terrain_dem", "soil_permeability", "land_cover",
+        "water_surface_elevation", "terrain_dem", "soil_permeability", "soil_texture_classes", "land_cover",
         "inundation_time_slice", "population_density", "cropland_fraction", "livestock_density",
     }:
         raise SourceNotReady("Only registered raster categories can be grid-aligned")

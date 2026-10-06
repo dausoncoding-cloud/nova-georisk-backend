@@ -18,6 +18,13 @@ from app.services.source_data.temporal_sources import validate_annual_sources, v
 
 
 MODULE_SOURCE_ROLES: dict[str, dict[str, str]] = {
+    "rainfall_interpolation": {"rainfall": "rainfall_stations"},
+    "river_stage": {"gauges": "river_stage_stations", "thresholds": "river_stage_thresholds"},
+    "feature_proximity": {"rivers": "river_drainage_network", "services": "critical_infrastructure"},
+    "watershed": {"terrain": "terrain_dem", "outlets": "watershed_outlets"},
+    "historical_frequency": {"discharge": "river_discharge_stations", "inventory": "historical_flood_events"},
+    "predictor_mlr": {"observations": "flood_predictor_observations"},
+    "soil_infiltration": {"soil": "soil_texture_classes"},
     "flood_change": {"before": "inundation_time_slice", "after": "inundation_time_slice"},
     "satellite_preprocessing": {},
     "hazard": {"rainfall": "rainfall_stations", "terrain": "terrain_dem", "river_network": "river_drainage_network", "land_cover": "land_cover", "soil": "soil_permeability"},
@@ -45,7 +52,8 @@ MODULE_RESULT_ROLES: dict[str, dict[str, str]] = {
     "flood_hazard_zonation": {"depth": "source_bound_flood_depth", "velocity": "source_bound_flood_velocity"},
 }
 OPTIONAL_SOURCE_ROLES: dict[str, dict[str, str]] = {"satellite_preprocessing": {"climate": "rainfall_stations", "soil": "soil_permeability", "population": "population_density", "roads": "roads", "rivers": "river_drainage_network", "land_cover": "land_cover", "terrain": "terrain_dem"}, "exposure": {"economic_assets": "economic_assets"}}
-EXECUTABLE_MODULES = frozenset({"flood_change", "satellite_preprocessing", "hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"})
+BUNDLE4_MODULES = frozenset({'watershed', 'rainfall_interpolation', 'feature_proximity', 'predictor_mlr', 'river_stage', 'historical_frequency', 'soil_infiltration'})
+EXECUTABLE_MODULES = BUNDLE4_MODULES | frozenset({"flood_change", "satellite_preprocessing", "hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"})
 
 
 @dataclass(frozen=True)
@@ -87,10 +95,13 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
         raise SourceNotReady("Source/result roles do not match the FIRRIS module binding contract")
     if len(set(request.sources.values())) != len(request.sources):
         raise SourceNotReady("The same source dataset cannot fill multiple distinct roles")
-    if request.module in {"flood_change", "satellite_preprocessing", "hazard", "exposure", "risk", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"} and request.target_grid is None:
+    if (request.module in (BUNDLE4_MODULES - {"historical_frequency", "predictor_mlr"}) | {"flood_change", "satellite_preprocessing", "hazard", "exposure", "risk", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"}
+            and request.target_grid is None):
         raise SourceNotReady("Raster-backed modules require an explicit target grid")
     if request.module in {"vulnerability", "insecurity", "resilience"} and request.target_grid is not None:
         raise SourceNotReady("Survey modules use reviewed boundary spatial units, not a raster target grid")
+    if request.module in {"historical_frequency", "predictor_mlr"} and request.target_grid is not None:
+        raise SourceNotReady("Statistical observations use sourced samples, not an invented spatial prediction grid")
     sources = {}
     if aoi_geometry is None:
         raise SourceNotReady("AOI geometry is required for source co-registration")
@@ -128,6 +139,9 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
         grid = request.target_grid
         if not (grid.west <= west and grid.south <= south and grid.east >= east and grid.north >= north):
             raise SourceNotReady("Target raster grid does not cover the complete AOI")
+    if request.module in BUNDLE4_MODULES:
+        from app.services.source_data.bundle4 import validate_bundle4
+        validate_bundle4(request, sources, aoi_geometry)
     if request.module == "hazard":
         grid = request.target_grid
         crs = CRS.from_user_input(grid.crs)

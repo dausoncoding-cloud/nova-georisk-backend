@@ -42,6 +42,10 @@ def manifest(category: str, data: bytes, **overrides) -> SourceDatasetManifest:
         "hydraulic_model_validation_reference": "fixture-review-record" if category == "hydraulic_model_velocity" else None,
         "observation_year": 2020 if category == "annual_inundation_observation" else None,
         "event_definition": "annual maximum inundation above fixed fixture threshold" if category == "annual_inundation_observation" else None,
+        "predictor_definitions": {"fixture": {"role": "response", "family": "hydrology", "unit": "declared-unit", "definition": "Synthetic observed response", "evidence_ref": "fixture:synthetic"},
+                                  "predictor": {"role": "predictor", "family": "climate", "unit": "declared-unit", "definition": "Synthetic observed predictor", "evidence_ref": "fixture:synthetic"}} if category == "flood_predictor_observations" else None,
+        "predictor_catalogue_reference": "fixture:synthetic" if category == "flood_predictor_observations" else None,
+        "soil_scoring_policy": {"classes": {str(i): {"label": f"Synthetic soil class {i}", "score": i} for i in range(1, 6)}, "specification_reference": "fixture:synthetic", "score_definition": "Synthetic lookup scores; no scientific calibration", "score_units": "synthetic_score"} if category == "soil_texture_classes" else None,
     }
     fields.update(overrides)
     return SourceDatasetManifest.model_validate(fields)
@@ -49,7 +53,7 @@ def manifest(category: str, data: bytes, **overrides) -> SourceDatasetManifest:
 
 def test_catalogue_has_explicit_contract_for_every_handoff_category():
     catalogue = get_catalogue()
-    assert len(catalogue["profiles"]) == 24
+    assert len(catalogue["profiles"]) == 28
     assert get_profile("hydraulic_model_velocity")["unit"] == "m/s"
     assert get_profile("annual_inundation_observation")["unit"] == "annual_exceedance_0_1"
     assert all({"format", "geometry", "crs", "vertical_datum", "unit", "temporal_mode", "spatial_resolution", "required_fields", "downstream_rows"} <= set(p) for p in catalogue["profiles"].values())

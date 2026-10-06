@@ -31,7 +31,7 @@ def _serialize(value):
 
 
 def _spreadsheet_safe(frame):
-    return frame.map(lambda value: "'" + value if isinstance(value, str) and value.startswith(("=", "+", "-", "@")) else value)
+    return frame.map(lambda value: "'" + value if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")) else value)
 
 
 def _write_docx(sections, path):

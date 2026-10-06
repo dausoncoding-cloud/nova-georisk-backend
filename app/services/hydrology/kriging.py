@@ -55,6 +55,7 @@ class VariogramParams:
     nugget: float
     sill: float
     range_: float
+    fit_converged: bool = True
 
     def gamma(self, h: np.ndarray) -> np.ndarray:
         return VARIOGRAM_MODELS[self.model](h, self.nugget, self.sill, self.range_)
@@ -99,6 +100,7 @@ def fit_variogram(points: np.ndarray, values: np.ndarray, n_bins: int = 10, mode
     initial_range = max_dist / 2 if max_dist > 0 else 1.0
     initial_guess = [0.0, initial_sill, initial_range]
 
+    converged = True
     try:
         popt, _ = curve_fit(
             VARIOGRAM_MODELS[model],
@@ -110,10 +112,11 @@ def fit_variogram(points: np.ndarray, values: np.ndarray, n_bins: int = 10, mode
         )
         nugget, sill, range_ = popt
     except RuntimeError:
+        converged = False
         # Fall back to the initial moment-based estimate if the fit doesn't converge
         nugget, sill, range_ = initial_guess
 
-    return VariogramParams(model=model, nugget=float(nugget), sill=float(sill), range_=float(range_))
+    return VariogramParams(model=model, nugget=float(nugget), sill=float(sill), range_=float(range_), fit_converged=converged)
 
 
 def ordinary_kriging(

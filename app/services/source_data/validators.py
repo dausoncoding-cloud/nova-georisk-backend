@@ -105,7 +105,12 @@ def _csv(data: bytes, profile: dict, manifest: SourceDatasetManifest) -> tuple[i
             if bounds is not None:
                 lon, lat = float(row["longitude"]), float(row["latitude"])
                 bounds = [min(bounds[0], lon), min(bounds[1], lat), max(bounds[2], lon), max(bounds[3], lat)]
-            if "indicator_key" in row:
+            if manifest.category == "flood_predictor_observations":
+                definition = manifest.predictor_definitions.get(row["variable"])
+                if definition is None or definition.unit != row["unit"]:
+                    _fail("Predictor variable or unit differs from its reviewed definition")
+                unique_key = (row["sample_id"], row["variable"])
+            elif "indicator_key" in row:
                 key, unit = row["indicator_key"], row["unit"]
                 if key not in profile["required_indicators"] or unit != manifest.indicator_units[key]:
                     _fail("Undeclared indicator or mismatched indicator unit")
@@ -188,6 +193,9 @@ def _geotiff(data: bytes, manifest: SourceDatasetManifest) -> tuple[int, list[fl
                     _fail("Cropland fraction must be between zero and one")
             elif category in {"soil_permeability", "population_density", "livestock_density", "hydraulic_model_velocity"} and (values < 0).any():
                 _fail("Negative raster values are invalid for this category")
+            elif category == "soil_texture_classes":
+                if not np.equal(values, np.floor(values)).all() or not set(map(str, np.unique(values.astype(int)))).issubset(manifest.soil_scoring_policy.classes):
+                    _fail("Soil texture codes are absent from the sourced five-class policy")
             elif category == "land_cover":
                 if not np.equal(values, np.floor(values)).all() or not set(map(str, np.unique(values.astype(int)))).issubset(manifest.class_scheme):
                     _fail("Land-cover codes are absent from the declared class scheme")

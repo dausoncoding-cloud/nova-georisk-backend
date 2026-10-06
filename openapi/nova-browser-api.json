@@ -2877,6 +2877,54 @@
         "title": "OrganizationSummary",
         "type": "object"
       },
+      "PredictorModelOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "holdout_fraction": {
+            "exclusiveMaximum": 0.5,
+            "exclusiveMinimum": 0.0,
+            "title": "Holdout Fraction",
+            "type": "number"
+          },
+          "predictor_order": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Predictor Order",
+            "type": "array"
+          },
+          "response": {
+            "minLength": 1,
+            "title": "Response",
+            "type": "string"
+          },
+          "split_policy": {
+            "const": "chronological",
+            "default": "chronological",
+            "enum": [
+              "chronological"
+            ],
+            "title": "Split Policy",
+            "type": "string"
+          },
+          "vif_limit": {
+            "exclusiveMinimum": 1.0,
+            "maximum": 100.0,
+            "title": "Vif Limit",
+            "type": "number"
+          }
+        },
+        "required": [
+          "response",
+          "predictor_order",
+          "vif_limit",
+          "holdout_fraction"
+        ],
+        "title": "PredictorModelOptions",
+        "type": "object"
+      },
       "ProbabilityRequest": {
         "properties": {
           "probability": {
@@ -3052,6 +3100,49 @@
         "title": "ProjectUpdateRequest",
         "type": "object"
       },
+      "ProximityProcessingOptions": {
+        "additionalProperties": false,
+        "description": "Must exactly match the reviewed policy bound to both geometry sources.",
+        "properties": {
+          "normalization": {
+            "const": "aoi_minmax_entropy",
+            "enum": [
+              "aoi_minmax_entropy"
+            ],
+            "title": "Normalization",
+            "type": "string"
+          },
+          "policy_reference": {
+            "minLength": 3,
+            "title": "Policy Reference",
+            "type": "string"
+          },
+          "river_direction": {
+            "enum": [
+              "benefit",
+              "cost"
+            ],
+            "title": "River Direction",
+            "type": "string"
+          },
+          "service_direction": {
+            "enum": [
+              "benefit",
+              "cost"
+            ],
+            "title": "Service Direction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "normalization",
+          "river_direction",
+          "service_direction",
+          "policy_reference"
+        ],
+        "title": "ProximityProcessingOptions",
+        "type": "object"
+      },
       "QuantitativeSeries": {
         "additionalProperties": false,
         "properties": {
@@ -3100,6 +3191,53 @@
           "evidence_refs"
         ],
         "title": "QuantitativeSeries",
+        "type": "object"
+      },
+      "RainfallInterpolationOptions": {
+        "additionalProperties": false,
+        "properties": {
+          "method": {
+            "enum": [
+              "idw",
+              "ordinary_kriging"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "power": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 3.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Power"
+          },
+          "variogram_model": {
+            "anyOf": [
+              {
+                "enum": [
+                  "spherical",
+                  "exponential",
+                  "gaussian"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variogram Model"
+          }
+        },
+        "required": [
+          "method"
+        ],
+        "title": "RainfallInterpolationOptions",
         "type": "object"
       },
       "RasterGrid": {
@@ -4142,7 +4280,14 @@
               "flood_susceptibility",
               "flood_hazard_zonation",
               "satellite_preprocessing",
-              "flood_change"
+              "flood_change",
+              "rainfall_interpolation",
+              "river_stage",
+              "feature_proximity",
+              "watershed",
+              "historical_frequency",
+              "predictor_mlr",
+              "soil_infiltration"
             ],
             "title": "Module",
             "type": "string"
@@ -4231,7 +4376,14 @@
               "flood_susceptibility",
               "flood_hazard_zonation",
               "satellite_preprocessing",
-              "flood_change"
+              "flood_change",
+              "rainfall_interpolation",
+              "river_stage",
+              "feature_proximity",
+              "watershed",
+              "historical_frequency",
+              "predictor_mlr",
+              "soil_infiltration"
             ],
             "title": "Module",
             "type": "string"
@@ -4239,10 +4391,40 @@
           "period": {
             "$ref": "#/components/schemas/TemporalCoverage"
           },
+          "predictor_options": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PredictorModelOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "project_id": {
             "format": "uuid",
             "title": "Project Id",
             "type": "string"
+          },
+          "proximity_options": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProximityProcessingOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rainfall_options": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RainfallInterpolationOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "satellite_options": {
             "anyOf": [
@@ -4472,6 +4654,11 @@
             "title": "Licence Verified",
             "type": "boolean"
           },
+          "predictor_catalogue_verified": {
+            "default": false,
+            "title": "Predictor Catalogue Verified",
+            "type": "boolean"
+          },
           "provenance_verified": {
             "const": true,
             "enum": [
@@ -4486,6 +4673,11 @@
               true
             ],
             "title": "Qa Verified",
+            "type": "boolean"
+          },
+          "scoring_policy_verified": {
+            "default": false,
+            "title": "Scoring Policy Verified",
             "type": "boolean"
           },
           "temporal_coverage_verified": {

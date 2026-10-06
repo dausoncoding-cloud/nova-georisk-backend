@@ -80,6 +80,87 @@
     },
     "administrative_boundaries": {
       "format": "geojson", "geometry": ["Polygon", "MultiPolygon"], "crs": "EPSG:4326", "vertical_datum": "not_applicable", "unit": "boundary_polygon", "temporal_mode": "snapshot", "spatial_resolution": "positional_uncertainty_m", "required_fields": {"spatial_unit_id": "string", "name": "string", "level": "string", "observed_at": "datetime", "quality_flag": "quality_flag"}, "downstream_rows": ["U06", "F13", "F14"]
+    },
+    "river_stage_thresholds": {
+      "crs": "EPSG:4326",
+      "temporal_mode": "observation",
+      "spatial_resolution": "positional_uncertainty_m",
+      "format": "csv",
+      "geometry": [
+        "longitude_latitude_columns"
+      ],
+      "vertical_datum": "required",
+      "unit": "m",
+      "required_fields": {
+        "station_id": "string",
+        "longitude": "longitude",
+        "latitude": "latitude",
+        "observed_at": "datetime",
+        "bankfull_stage_m": "number",
+        "threshold_reference": "string",
+        "quality_flag": "quality_flag"
+      },
+      "downstream_rows": [
+        "F03"
+      ]
+    },
+    "watershed_outlets": {
+      "crs": "EPSG:4326",
+      "temporal_mode": "observation",
+      "spatial_resolution": "positional_uncertainty_m",
+      "format": "geojson",
+      "geometry": [
+        "Point"
+      ],
+      "vertical_datum": "not_applicable",
+      "unit": "outlet_point",
+      "required_fields": {
+        "outlet_id": "string",
+        "observed_at": "datetime",
+        "quality_flag": "quality_flag"
+      },
+      "downstream_rows": [
+        "F06"
+      ]
+    },
+    "flood_predictor_observations": {
+      "crs": "EPSG:4326",
+      "temporal_mode": "observation",
+      "spatial_resolution": "positional_uncertainty_m",
+      "format": "csv",
+      "geometry": [
+        "longitude_latitude_columns"
+      ],
+      "vertical_datum": "not_applicable",
+      "unit": "declared_per_variable",
+      "required_fields": {
+        "sample_id": "string",
+        "variable": "string",
+        "longitude": "longitude",
+        "latitude": "latitude",
+        "observed_at": "datetime",
+        "value": "number",
+        "unit": "string",
+        "quality_flag": "quality_flag"
+      },
+      "downstream_rows": [
+        "F01"
+      ]
+    },
+    "soil_texture_classes": {
+      "format": "geotiff",
+      "geometry": [
+        "raster_grid"
+      ],
+      "crs": "declared_epsg",
+      "vertical_datum": "not_applicable",
+      "unit": "class_code",
+      "temporal_mode": "observation",
+      "spatial_resolution": "required",
+      "required_fields": {},
+      "downstream_rows": [
+        "F09"
+      ]
     }
   }
 }

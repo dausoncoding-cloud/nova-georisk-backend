@@ -6,10 +6,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.schemas.source_data import TemporalCoverage
+from app.schemas.source_data import TemporalCoverage, ProximityPolicy
 
 
-FIRRISModule = Literal["hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation", "satellite_preprocessing", "flood_change"]
+FIRRISModule = Literal["hazard", "exposure", "vulnerability", "insecurity", "risk", "resilience", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation", "satellite_preprocessing", "flood_change", "rainfall_interpolation", "river_stage", "feature_proximity", "watershed", "historical_frequency", "predictor_mlr", "soil_infiltration"]
 
 
 class RasterGrid(BaseModel):
@@ -62,6 +62,43 @@ class SatellitePreprocessingOptions(BaseModel):
         return self
 
 
+
+class RainfallInterpolationOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    method: Literal["idw", "ordinary_kriging"]
+    power: float | None = Field(default=None, gt=0, le=3)
+    variogram_model: Literal["spherical", "exponential", "gaussian"] | None = None
+
+    @model_validator(mode="after")
+    def applicable_options(self):
+        if self.method == "idw" and self.variogram_model is not None:
+            raise ValueError("Variogram model is only applicable to ordinary Kriging")
+        if self.method == "ordinary_kriging" and self.power is not None:
+            raise ValueError("IDW power is only applicable to IDW")
+        return self
+
+
+class ProximityProcessingOptions(ProximityPolicy):
+    """Must exactly match the reviewed policy bound to both geometry sources."""
+
+
+class PredictorModelOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, str_strip_whitespace=True)
+    response: str = Field(min_length=1)
+    predictor_order: list[str] = Field(min_length=1, max_length=64)
+    vif_limit: float = Field(gt=1, le=100)
+    holdout_fraction: float = Field(gt=0, lt=0.5)
+    split_policy: Literal["chronological"] = "chronological"
+
+    @model_validator(mode="after")
+    def unique_predictors(self):
+        if len(set(self.predictor_order)) != len(self.predictor_order) or self.response in self.predictor_order:
+            raise ValueError("Predictors must be unique and exclude the response")
+        if any(not key for key in self.predictor_order):
+            raise ValueError("Predictor names cannot be blank")
+        return self
+
+
 class SourceBoundAnalysisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     project_id: uuid.UUID
@@ -75,6 +112,9 @@ class SourceBoundAnalysisRequest(BaseModel):
     exposure_options: ExposureProcessingOptions | None = None
     duration_options: DurationProcessingOptions | None = None
     satellite_options: SatellitePreprocessingOptions | None = None
+    rainfall_options: RainfallInterpolationOptions | None = None
+    predictor_options: PredictorModelOptions | None = None
+    proximity_options: ProximityProcessingOptions | None = None
 
     @model_validator(mode="after")
     def check_module_options(self):
@@ -86,6 +126,12 @@ class SourceBoundAnalysisRequest(BaseModel):
             raise ValueError("Flood Duration requires a declared temporal resolution and reject-on-gap policy")
         if (self.module == "satellite_preprocessing") != (self.satellite_options is not None):
             raise ValueError("Satellite preprocessing requires explicit alignment/interpolation policies")
+        if (self.module == "rainfall_interpolation") != (self.rainfall_options is not None):
+            raise ValueError("Rainfall interpolation requires explicit method options")
+        if (self.module == "predictor_mlr") != (self.predictor_options is not None):
+            raise ValueError("Predictor MLR requires explicit response, ordering, VIF and holdout policies")
+        if (self.module == "feature_proximity") != (self.proximity_options is not None):
+            raise ValueError("Feature proximity requires explicit reviewed normalization and directions")
         return self
 
 

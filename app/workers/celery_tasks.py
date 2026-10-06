@@ -389,7 +389,12 @@ def execute_engine_task(db, task_id: uuid.UUID) -> None:
             if task.status == TaskStatus.RUNNING:
                 append_event(task, "sources_revalidated")
             db.commit()
-            if request.module == "satellite_preprocessing":
+            from app.services.source_data.bindings import BUNDLE4_MODULES
+            if request.module in BUNDLE4_MODULES:
+                from app.services.source_data.bundle4 import execute_bundle4
+                execution = execute_bundle4(resolved, mapping(to_shape(aoi.geometry)), output_directory,
+                                            next_version, task_id=str(task.id))
+            elif request.module == "satellite_preprocessing":
                 from app.services.source_data.satellite_preprocessing import execute_satellite_preprocessing
                 execution = execute_satellite_preprocessing(resolved, mapping(to_shape(aoi.geometry)),
                     output_directory, next_version, task_id=str(task.id))
