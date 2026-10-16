@@ -2,7 +2,9 @@
 
 Status: **open / not a completion certificate**. Audited against the four DOCX files in `docx-files/` on 2026-10-03. `IMPLEMENTED` means an executable path and tests exist for the stated *limited* capability; it does not assert scientific accuracy. `PARTIAL` means only part of the requirement reaches a persisted, protected result. `MISSING` means no credible end-to-end implementation. `NOT APPLICABLE` is reserved for a different engine or technology suggestion, not for hard FIRRIS science. Source paragraph (`P`) and table (`T`) numbers are zero-based Word document order. Evidence paths are repository-relative; function names identify exact code. No UI label or enum alone is accepted as a GIS product.
 
-Current audit (U06 frontend closeout): **83 requirement groups — 27 IMPLEMENTED, 47 PARTIAL, 7 MISSING, 2 NOT APPLICABLE**. C01–C13 describe tested map-layout/export capability, **not** validation of the source science or legend break policy. The remaining scientific/product rows stay open. The final FIRRIS scientific gate is **not met**.
+Historical audit at the U06 frontend closeout: **83 requirement groups — 27 IMPLEMENTED, 47 PARTIAL, 7 MISSING, 2 NOT APPLICABLE**. C01–C13 describe tested map-layout/export capability, **not** validation of the source science or legend break policy. The remaining scientific/product rows stay open. The final FIRRIS scientific gate is **not met**.
+
+Current requirement-row audit (2026-10-16): **83 requirement groups — 64 IMPLEMENTED, 17 PARTIAL, 0 MISSING, 2 NOT APPLICABLE**. **0 genuine requirement-row engineering gaps** remain. Each of the 17 PARTIAL rows has an EXTERNAL_DATA_BLOCKED primary gate; PARTIAL here retains its external/scientific incompleteness rather than asserting missing software. Engineering completion does not establish operational deployment readiness or scientific validation; see `docs/FIRRIS_FINAL_RELEASE_READINESS.md` for the separate release audit.
 
 Source key: **U** = `0 - NOVA-GeoRisk Intelligence Suite - Universal Satellite Image Analysis Workflow & Sampling Strategy.docx`; **F** = `1 - NOVA-GeoRisk Intelligence Suite - FIRAS.docx` (historical name; FIRRIS is the product name); **M** = `FLOOD - Common Flood Maps Used in Flood Analysis and Modeling.docx`; **C** = `Essentials of the Map.docx`.
 
@@ -168,7 +170,9 @@ Each PARTIAL/MISSING row has **exactly one primary blocker** below. ENGINEERING_
 | M09 | EXTERNAL_DATA_BLOCKED | Protected spatial-unit FVI path exists; reviewed surveys absent. |
 | M10 | EXTERNAL_DATA_BLOCKED | Protected H×E×FII path exists; real upstream Results absent. |
 
-Classification audit: **37 ENGINEERING_GAP, 17 EXTERNAL_DATA_BLOCKED, 0 INDEPENDENT_VALIDATION_BLOCKED-only, 0 OUT_OF_SCOPE** = 54 open rows. This is a primary-cause classification, not a claim that the 17 data-blocked rows need no eventual scientific validation.
+Historical primary-cause classification before subsequent bundles: **37 ENGINEERING_GAP, 17 EXTERNAL_DATA_BLOCKED, 0 INDEPENDENT_VALIDATION_BLOCKED-only, 0 OUT_OF_SCOPE** = 54 open rows. This is a primary-cause classification, not a claim that the 17 data-blocked rows need no eventual scientific validation.
+
+Current primary-blocker audit (2026-10-16): **0 ENGINEERING_GAP, 17 EXTERNAL_DATA_BLOCKED, 0 INDEPENDENT_VALIDATION_BLOCKED-only, 0 OUT_OF_SCOPE** = **17 open rows**. All original external-data row evidence and gates are unchanged.
 
 ### Engineering gap burn-down verification (2026-10-04)
 
@@ -186,4 +190,4 @@ Classification audit: **37 ENGINEERING_GAP, 17 EXTERNAL_DATA_BLOCKED, 0 INDEPEND
 
 ### U06 production browser closeout (2026-10-04)
 
-U06 is **IMPLEMENTED** as an engineering contract: the production wizard uses the protected project-scoped search and identifier-only creation API; source approval, geometry, project isolation and persisted lineage remain server-authoritative. Focused frontend tests (11) and the full frontend suite (60) passed; full disposable-PostGIS integration (119), unit suite (388), TypeScript, production build, OpenAPI export and generated-client drift passed. No production catalogue was seeded or scientific boundary accuracy asserted. Current overall primary blockers: **37 ENGINEERING_GAP, 17 EXTERNAL_DATA_BLOCKED**.
+U06 is **IMPLEMENTED** as an engineering contract: the production wizard uses the protected project-scoped search and identifier-only creation API; source approval, geometry, project isolation and persisted lineage remain server-authoritative. Focused frontend tests (11) and the full frontend suite (60) passed; full disposable-PostGIS integration (119), unit suite (388), TypeScript, production build, OpenAPI export and generated-client drift passed. No production catalogue was seeded or scientific boundary accuracy asserted. At this historical U06 closeout, overall primary blockers were **37 ENGINEERING_GAP, 17 EXTERNAL_DATA_BLOCKED**.
