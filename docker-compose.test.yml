@@ -21,7 +21,9 @@ services:
       start_period: 20s
 
   integration-test:
-    build: .
+    build: &test-build
+      context: .
+      target: test
     environment:
       APP_ENV: development
       DEBUG: "false"
@@ -72,7 +74,7 @@ services:
       retries: 30
 
   smoke-migrate:
-    build: .
+    build: *test-build
     environment: &smoke-environment
       APP_ENV: development
       DEBUG: "false"
@@ -97,7 +99,7 @@ services:
         alembic upgrade head
 
   api-smoke:
-    build: .
+    build: *test-build
     environment: *smoke-environment
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     depends_on:
@@ -115,7 +117,7 @@ services:
       start_period: 5s
 
   worker-smoke:
-    build: .
+    build: *test-build
     environment: *smoke-environment
     command: celery -A app.core.celery_app.celery_app worker --loglevel=info --concurrency=1
     depends_on:
@@ -133,7 +135,7 @@ services:
       start_period: 10s
 
   celery-smoke:
-    build: .
+    build: *test-build
     environment: *smoke-environment
     command: python scripts/smoke_firris_celery.py
     depends_on:

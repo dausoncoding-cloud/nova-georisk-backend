@@ -1,0 +1,356 @@
+[
+  {
+    "path": "usr/local/lib/python3.11/secrets.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "86893f2e4d33e8d02f8cc1d1de7a436d395ae9c9d48ff3dc0225a9cca1601759"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem",
+    "reason": "Public TLS CA certificate bundle; contains public certificates, not private keys.",
+    "rules": [
+      "key-container"
+    ],
+    "sha256": "794d039ffdf277c047e26f2c7d58f81a5865d8a0eb7024a0fac1164fea4d27cf"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/certifi/cacert.pem",
+    "reason": "Public TLS CA certificate bundle; contains public certificates, not private keys.",
+    "rules": [
+      "key-container"
+    ],
+    "sha256": "9cc2a774b5198dcff14d9be1e66091f538975d867ce029a96bce15a55dfd730f"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/cryptography/hazmat/primitives/serialization/__pycache__/ssh.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "private-key-marker"
+    ],
+    "sha256": "a620a672d4dd155a40d6ec108c2b31cd3aad31bd2ff97c275448ef364dd42085"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/cryptography/hazmat/primitives/serialization/ssh.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "private-key-marker"
+    ],
+    "sha256": "162b177bf9d429d3c67ea10d5612a99a86b399a23ca87f067be5466dcd1dca4c"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/__pycache__/_credentials_async.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "203a2083c9efd4d03a3c5ee22d8a4fbbb5b9a2e9968728fac010241be404a712"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/__pycache__/_credentials_base.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "1f4f6d63f9f423d4360a12b85d0947e40011966a4870accda0d029d6090059be"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/__pycache__/_service_account_info.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "cf26cbf3e51516236ebd979f1b31312f1adb05e44d907dc1ff6d45f8df5cacc8"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/__pycache__/credentials.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "d3c2f623cf6e14b3f7774ddd97f59f36231c62948a0ee31dd3c7e065c58faec1"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/__pycache__/impersonated_credentials.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "4a6ea331569c955db1b98417eddc32ee6c8fca4edaa58b625fe95fc59c3cfbf2"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/_credentials_async.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "fe324df35843d3a18820068e4bf0b915491acbf5bc081f3a83c741d16e0b37df"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/_credentials_base.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "2b1742672a05cafadf5a125b367b98929521c6cd1b99bc58bdc1fcfb1a79854b"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/_service_account_info.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "b9c0f65cba5354a796f01327ee251c4bc12be27b78a63e0b5eb343857f82f0fc"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/aio/__pycache__/credentials.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "1bf7543a123cee9f501aabed6139b61da695938e989300fad68819f08f334689"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/aio/credentials.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "27bcf6b17b2fdfdf4ae066f6888807c66647fe64b76d8a0de55d1a7d5b813d34"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/compute_engine/__pycache__/credentials.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "3e2f5503abe8d155b07995c90a0eae295e8227a0a65be04d6f46604158e022e1"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/compute_engine/credentials.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "944adef626ff71382ea1a8175d802b97e80382b9f5278b60d4fd24c6a5cfe6c3"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/credentials.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "f9c380eebb9ef24df24f4a61e67a676097fc318a0869de70f8593b23d92a6c4c"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/crypt/__pycache__/_python_rsa.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "private-key-marker"
+    ],
+    "sha256": "544e1c7d7dad91150dda67e1b7c8f346b1773195e98a0832fa8dc358883039b3"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/crypt/_python_rsa.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "private-key-marker"
+    ],
+    "sha256": "0c4e278b328eeb28ddeff1b12cd3dd9f627ec44b35b832bbc34cc837fa148e0f"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/impersonated_credentials.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "03896b052271898d99eb5010891795cfb57c3b850e0183d87cbc36c057f677ff"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/auth/transport/_mtls_helper.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "private-key-marker"
+    ],
+    "sha256": "2b803d7298aec8ffc654fce2f936f5e0234c0515c144f7ee83d196acfcbcf5ec"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/oauth2/__pycache__/_credentials_async.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "b3f92c4af3c28a6673c41891b0d28f1cceaa6aa10ce80f87371f3dcc8ef348ae"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/oauth2/__pycache__/_service_account_async.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "70aedad54cc287d5a54cb3b7060d0ace94b6ef9ed7abec30ad4373e371a5606e"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/oauth2/__pycache__/credentials.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "6faee8d835ce40d45332546e38a84c49bf16c6576fdaa998f5dde9b03786f3dc"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/oauth2/__pycache__/gdch_credentials.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "credential-name",
+      "private-key-marker"
+    ],
+    "sha256": "8d842c6d8afc64cd48b87bf1d5a0c8bb8d751e110f1b9ca913ebb7f7434a342a"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/oauth2/__pycache__/service_account.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "bdf382f579cbdc3dd10ccd973695b75bae7d0173126daab1ed51add7675ef6b4"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/oauth2/_credentials_async.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "0da0719ffc85ecc020577dd65a02b21786e497cc79f1ea940afc969d85aa2f04"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/oauth2/_service_account_async.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "886c589e96c353d444194699ce723dfe0efe7489268271bb5dfc1ed7e15b66d0"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/oauth2/credentials.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "dd29c92eeec29e5f0034ec7adb292574529b329c740e7aaf6550c4c229e28255"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/oauth2/gdch_credentials.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "credential-name",
+      "private-key-marker"
+    ],
+    "sha256": "4f7e683b459554b37cb7927d6520fe4e1419b08747e548336f86fa371de776e8"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/google/oauth2/service_account.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "56b822aa3e99722a6a680fc4b30270c51d55be779852813ce9f05fe69b207f82"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/googleapiclient/discovery_cache/documents/agentidentitycredentials.v1.json",
+    "reason": "Google API discovery schema/documentation, not credential JSON; parser example markers contain no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "981af7e6b0ef0915488e71d1aa5cb5add1a03da48b846b2524411d7cbfe9e9fb"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/googleapiclient/discovery_cache/documents/agentidentitycredentials.v1alpha.json",
+    "reason": "Google API discovery schema/documentation, not credential JSON; parser example markers contain no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "c1a2f982b6c32f6bf6d2f1ac033fe27f70edd5806e297c721ee416b43bb9c9ff"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/googleapiclient/discovery_cache/documents/agentidentitycredentials.v1beta.json",
+    "reason": "Google API discovery schema/documentation, not credential JSON; parser example markers contain no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "f385fbea8118fb15e19867eb1da320c6000d52afe7add662a2e3ee96db483593"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/googleapiclient/discovery_cache/documents/appengine.v1.json",
+    "reason": "Google API discovery schema/documentation, not credential JSON; parser example markers contain no parseable private key.",
+    "rules": [
+      "private-key-marker"
+    ],
+    "sha256": "e35418b4cee467a81c938fe186d14647e3451084298bd4971ee4bb0fcfa33cbd"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/googleapiclient/discovery_cache/documents/appengine.v1alpha.json",
+    "reason": "Google API discovery schema/documentation, not credential JSON; parser example markers contain no parseable private key.",
+    "rules": [
+      "private-key-marker"
+    ],
+    "sha256": "8a97af5ef251f61e5436b523b7eec82fcd87eb6dc0f14d6e8b0136cc50fd74f6"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/googleapiclient/discovery_cache/documents/appengine.v1beta.json",
+    "reason": "Google API discovery schema/documentation, not credential JSON; parser example markers contain no parseable private key.",
+    "rules": [
+      "private-key-marker"
+    ],
+    "sha256": "338371b4e56289eda792a8b64a4a1884e2a5561f5ea75d7be2d99a7f06a67c30"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/googleapiclient/discovery_cache/documents/iamcredentials.v1.json",
+    "reason": "Google API discovery schema/documentation, not credential JSON; parser example markers contain no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "3f2743913d3678a0471d2baba588561e8c5c3c678ab245156952d5da346846ab"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/googleapiclient/discovery_cache/documents/secretmanager.v1.json",
+    "reason": "Google API discovery schema/documentation, not credential JSON; parser example markers contain no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "664f8ea0cdc9a32ffca9ada25058c9c5a6e677ff763634da6577c224fba33009"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/googleapiclient/discovery_cache/documents/secretmanager.v1beta1.json",
+    "reason": "Google API discovery schema/documentation, not credential JSON; parser example markers contain no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "f3e4a10db14b026bd5aceda8cb0cfe9391b5cae62d406e544ed75594480f05d6"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/googleapiclient/discovery_cache/documents/secretmanager.v1beta2.json",
+    "reason": "Google API discovery schema/documentation, not credential JSON; parser example markers contain no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "7e05292ec51df06e86cfa75045799b34dc7ae206bdcbb6b0e0a3749365005d69"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/redis/__pycache__/credentials.cpython-311.pyc",
+    "reason": "Compiled standard-library/authentication or serialization code; no parseable private key. SHA256 binds the code body excluding its 16-byte CPython timestamp header.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "1279366e7bbf7c9cee139b594728291b6dab7b8f033bd2fbe5c36e7abe0e7a97"
+  },
+  {
+    "path": "usr/local/lib/python3.11/site-packages/redis/credentials.py",
+    "reason": "Installed standard-library/authentication or serialization source; credential-related name or parser constants, no parseable private key.",
+    "rules": [
+      "credential-name"
+    ],
+    "sha256": "e95bc5791785a7abdeae71885a52153a6f0e99b360a0561d775c20b236539e59"
+  }
+]
