@@ -67,3 +67,6 @@ deploy/certbot/www
 **/.vscode
 **/.DS_Store
 **/Thumbs.db
+
+# Institutional uploads remain outside source/build trees.
+**/external-datasets

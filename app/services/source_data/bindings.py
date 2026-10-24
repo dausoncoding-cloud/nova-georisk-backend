@@ -130,6 +130,9 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
     aw, asouth, ae, anorth = aoi.bounds
     for role, category in {**required, **{name: optional[name] for name in request.sources if name in optional}}.items():
         source = load_registered_source(db, request.sources[role], request.project_id, root=root)
+        attached_aoi = getattr(source, "managed_aoi_id", None)
+        if attached_aoi and attached_aoi != request.aoi_id:
+            raise SourceNotReady("Managed source is attached to a different AOI")
         manifest = source.manifest
         if manifest.category != category:
             raise SourceNotReady(f"Source role {role} requires category {category}")

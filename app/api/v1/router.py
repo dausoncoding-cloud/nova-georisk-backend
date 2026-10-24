@@ -2,6 +2,8 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    administration,
+    external_data,
     analyses,
     aoi,
     engines,
@@ -38,3 +40,6 @@ api_router.include_router(results.router)
 # api_router.include_router(ml.router)
 
 api_router.include_router(live.router)
+
+api_router.include_router(administration.router)
+api_router.include_router(external_data.router)

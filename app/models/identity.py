@@ -5,7 +5,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import CheckConstraint, Boolean, DateTime, Enum, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -53,6 +53,7 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class OrganizationMembership(TimestampMixin, Base):
     __tablename__ = "organization_memberships"
+    __table_args__ = (CheckConstraint("status IN ('active','disabled','removed')", name="ck_membership_status"),)
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True
@@ -61,6 +62,8 @@ class OrganizationMembership(TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     role: Mapped[MembershipRole] = mapped_column(Enum(MembershipRole), nullable=False)
+
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", server_default="active")
 
     organization: Mapped[Organization] = relationship(back_populates="memberships")
     user: Mapped[User] = relationship(back_populates="memberships")

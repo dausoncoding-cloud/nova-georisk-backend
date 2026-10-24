@@ -25,8 +25,10 @@ class ReadySource:
     manifest: SourceDatasetManifest
     data: bytes
     evidence: dict
+    managed_aoi_id: uuid.UUID | None = None
 
     def lineage(self) -> dict:
+        managed_version = (getattr(self.dataset, "metadata_json", None) or {}).get("managed_version")
         return {
             "dataset_id": str(self.dataset.id),
             "source_id": self.manifest.source_id,
@@ -51,6 +53,7 @@ class ReadySource:
                for field in ("validation_definition", "impact_definition", "live_feed_policy", "susceptibility_method", "raster_predictor", "zonation_policy") if getattr(self.manifest, field) is not None},
             **({"dss_metric_definitions": {key: definition.model_dump(mode="json") for key, definition in self.manifest.dss_metric_definitions.items()}} if self.manifest.dss_metric_definitions else {}),
             "readiness_evidence": self.evidence,
+            **({"managed_version": managed_version} if managed_version else {}),
         }
 
 
@@ -68,6 +71,13 @@ def load_registered_source(db: Session, dataset_id: uuid.UUID, project_id: uuid.
     if manifest.project_id != project_id or manifest.category != record.product_type or manifest.source_id != record.source_collection:
         raise SourceNotReady("Source registration metadata does not match database identity")
     evidence = metadata.get("readiness") or {}
+    managed_aoi_id = None
+    if require_ready and metadata.get("managed_version"):
+        from app.models.management import ManagedDataset
+        managed = db.query(ManagedDataset).filter(ManagedDataset.source_dataset_id == dataset_id).one_or_none()
+        if managed is None or managed.status != "Approved for Analysis":
+            raise SourceNotReady("Managed source is not approved for analysis")
+        managed_aoi_id = managed.aoi_id
     if require_ready:
         if evidence.get("analysis_ready") is not True or evidence.get("sha256", "").lower() != manifest.sha256.lower():
             raise SourceNotReady("Source is not approved for scientific analysis")
@@ -91,4 +101,4 @@ def load_registered_source(db: Session, dataset_id: uuid.UUID, project_id: uuid.
         raise SourceNotReady("Source bytes fail current structural validation") from exc
     if report.get("sha256", "").lower() != actual.sha256 or report.get("analysis_ready") is not False:
         raise SourceNotReady("Source registration attestation is inconsistent")
-    return ReadySource(record, manifest, data, evidence)
+    return ReadySource(record, manifest, data, evidence, managed_aoi_id)

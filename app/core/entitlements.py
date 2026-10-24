@@ -24,7 +24,7 @@ def require_active_membership(
     membership = db.get(
         OrganizationMembership, (context.organization_id, context.user_id)
     )
-    if user is None or not user.is_active or membership is None:
+    if user is None or not user.is_active or membership is None or membership.status != "active":
         raise HTTPException(status_code=403, detail="Active organization membership required.")
     if membership.role.value != context.role.value:
         raise HTTPException(status_code=403, detail="Session permissions have changed; sign in again.")

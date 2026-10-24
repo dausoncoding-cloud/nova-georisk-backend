@@ -65,7 +65,7 @@ def _existing_memberships(db: Session, user: User) -> list[OrganizationMembershi
     return (
         db.query(OrganizationMembership)
         .options(joinedload(OrganizationMembership.organization))
-        .filter(OrganizationMembership.user_id == user.id)
+        .filter(OrganizationMembership.user_id == user.id, OrganizationMembership.status == "active")
         .all()
     )
 

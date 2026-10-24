@@ -118,6 +118,9 @@ def approve_source_dataset(
         raise HTTPException(status_code=403, detail="A NOVA organization administrator must approve source readiness.")
     require_active_membership(db, context)
     require_role(context, OrganizationRole.OWNER, OrganizationRole.ADMIN)
+    from app.models.management import ManagedDataset
+    if db.query(ManagedDataset).filter(ManagedDataset.source_dataset_id == dataset_id).first() is not None:
+        raise HTTPException(status_code=409, detail="Use the audited External Data Manager review endpoint for managed sources.")
     record = db.get(Dataset, dataset_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Source dataset not found.")
@@ -150,6 +153,9 @@ def revoke_source_dataset(
         raise HTTPException(status_code=403, detail="A NOVA organization administrator must revoke source readiness.")
     require_active_membership(db, context)
     require_role(context, OrganizationRole.OWNER, OrganizationRole.ADMIN)
+    from app.models.management import ManagedDataset
+    if db.query(ManagedDataset).filter(ManagedDataset.source_dataset_id == dataset_id).first() is not None:
+        raise HTTPException(status_code=409, detail="Use the audited External Data Manager review endpoint for managed sources.")
     record = db.get(Dataset, dataset_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Source dataset not found.")

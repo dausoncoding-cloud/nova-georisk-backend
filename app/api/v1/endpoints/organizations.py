@@ -38,7 +38,7 @@ def get_current_organization_context(
     memberships = (
         db.query(OrganizationMembership)
         .options(joinedload(OrganizationMembership.organization))
-        .filter(OrganizationMembership.user_id == user.id)
+        .filter(OrganizationMembership.user_id == user.id, OrganizationMembership.status == "active")
         .join(OrganizationMembership.organization)
         .order_by(OrganizationMembership.organization_id)
         .all()

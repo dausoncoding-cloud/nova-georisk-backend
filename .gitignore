@@ -54,3 +54,6 @@ dist/
 Thumbs.db
 .idea/
 .vscode/
+
+# Institutional uploads remain outside source/build trees.
+external-datasets/
