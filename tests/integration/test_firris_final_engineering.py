@@ -1,5 +1,6 @@
 """Disposable PostGIS lifecycle with explicitly synthetic sources and policies."""
 import hashlib
+import json
 import uuid
 from dataclasses import replace
 from types import SimpleNamespace
@@ -142,12 +143,14 @@ def test_m01_acquired_bytes_and_before_target_sar_are_persisted_and_protected(cl
         with memory.open(driver='GTiff',width=16,height=16,count=2,dtype='float32',crs='EPSG:4326',transform=spec.transform,nodata=-9999) as dst:
             dst.write(np.stack(list(source_arrays.values())));dst.descriptions=tuple(source_arrays)
         original=memory.read()
+    manifest_bytes = json.dumps({'scope':'synthetic engineering fixture', 'request':{'bands':['rainfall','elevation','label']}}).encode()
     def acquired(config,geometry,workspace):
         workspace.mkdir(parents=True,exist_ok=True);path=workspace/'synthetic-received-export.tif';path.write_bytes(original)
-        return GEEFeatureStack(feature_layers={'rainfall':rows.astype(float),'elevation':cols.astype(float)},label_layer=labels,valid_mask=np.ones((16,16),dtype=bool),transform=spec.transform,crs='EPSG:4326',quality={'status':'passed','fixture_scope':'synthetic engineering only'},source_artifacts={'acquired_feature_stack':path},source_rasters=source_arrays,
+        manifest_path=workspace/'synthetic.bands.json';manifest_path.write_bytes(manifest_bytes)
+        return GEEFeatureStack(feature_layers={'rainfall':rows.astype(float),'elevation':cols.astype(float)},label_layer=labels,valid_mask=np.ones((16,16),dtype=bool),transform=spec.transform,crs='EPSG:4326',quality={'status':'passed','fixture_scope':'synthetic engineering only'},source_artifacts={'acquired_feature_stack':path,'band_identity_manifest':manifest_path},source_rasters=source_arrays,
             provenance={'source':'synthetic GEE boundary fixture; not real observations','label_source':'synthetic SAR pseudo-label','independent_ground_truth':False,
                 'baseline_period':config['baseline_period'],'target_period':config['target_period'],'per_scene_lineage':{'scope':'synthetic, no live scenes'},
-                'acquisition_artifacts':{'acquired_feature_stack':{'sha256':hashlib.sha256(original).hexdigest(),'size_bytes':len(original),'filename':path.name}},
+                'acquisition_artifacts':{'acquired_feature_stack':{'sha256':hashlib.sha256(original).hexdigest(),'size_bytes':len(original),'filename':path.name},'band_identity_manifest':{'sha256':hashlib.sha256(manifest_bytes).hexdigest(),'size_bytes':len(manifest_bytes),'filename':manifest_path.name}},
                 'source_fidelity_scope':'received synthetic bytes only; provider source-byte checksum unavailable'})
     monkeypatch.setattr('app.services.gee.firris_pipeline.fetch_feature_stack',acquired)
     monkeypatch.setattr(run_engine_analysis,'delay',lambda _:SimpleNamespace(id='synthetic-final-gee'))
@@ -159,10 +162,14 @@ def test_m01_acquired_bytes_and_before_target_sar_are_persisted_and_protected(cl
     task_id=uuid.UUID(response.json()['task']['id']);execute_engine_task(db_session,task_id)
     task=db_session.get(Task,task_id);assert task.status==TaskStatus.COMPLETED,task.error_summary
     result=db_session.query(Result).filter_by(task_id=task_id).one()
-    for key in ['acquired_feature_stack',*source_arrays]:
+    for key in ['acquired_feature_stack','band_identity_manifest',*source_arrays]:
         response=client.get(f'/api/v1/results/{result.id}/products/{key}',headers=headers)
         assert response.status_code==200,response.text
         assert hashlib.sha256(response.content).hexdigest()==result.output_files[key]['checksum_sha256']
         assert client.get(f'/api/v1/results/{result.id}/products/{key}',headers=foreign).status_code==404
         if key=='acquired_feature_stack': assert response.content==original
+        if key=='band_identity_manifest':
+            assert response.content==manifest_bytes
+            assert result.output_files[key]['format']=='json'
+            assert result.output_files[key]['media_type']=='application/json'
     assert result.provenance['validation']['independent_ground_truth'] is False

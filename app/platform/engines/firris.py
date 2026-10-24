@@ -300,7 +300,8 @@ class FIRRISEngineAdapter(EngineAdapter):
                 raise ValueError("Acquired source bytes changed before protected publication")
             target=context.output_directory/("source-"+source.name)
             shutil.copyfile(source,target)
-            reports[key]=artifact_entry(target,label="Received GEE source export; not original provider scene bytes",media_type="application/octet-stream",artifact_type="metadata",role="export",result_version=context.result_version,format_name="zip" if zipfile.is_zipfile(target) else "geotiff",
+            is_manifest = key == "band_identity_manifest"
+            reports[key]=artifact_entry(target,label="Validated GEE band identity manifest" if is_manifest else "Received GEE source export; not original provider scene bytes",media_type="application/json" if is_manifest else "application/octet-stream",artifact_type="metadata",role="export",result_version=context.result_version,format_name="json" if is_manifest else "zip" if zipfile.is_zipfile(target) else "geotiff",
                 gis_metadata={"source_sha256":record["sha256"],"band_identity":workflow.provenance.get("band_identity"),"source_fidelity_scope":workflow.provenance.get("source_fidelity_scope")})
         for key,values in getattr(workflow,"source_rasters",{}).items():
             if values.shape != next(iter(workflow.product_arrays.values())).shape or _array_fingerprint(values) != workflow.provenance.get("materialized_source_raster_checksums",{}).get(key):

@@ -221,9 +221,9 @@ def test_m01_received_download_length_and_stream_close_are_verified(tmp_path,mon
     monkeypatch.setattr(pipeline.requests,'get',lambda *args,**kwargs:response)
     image=MagicMock();image.getDownloadURL.return_value='https://synthetic.invalid/export'
     if expected:
-        assert pipeline._download_image(image,{},tmp_path/'received',scale=30,crs='EPSG:3857').read_bytes()==payload
+        assert pipeline._download_image(image,{},tmp_path/'received',scale=30,crs='EPSG:3857',contract={'bands':['synthetic'],'filename_prefix':'synthetic','validity_bands':['valid__synthetic']}).read_bytes()==payload
     else:
-        with pytest.raises(ValueError): pipeline._download_image(image,{},tmp_path/'received',scale=30,crs='EPSG:3857')
+        with pytest.raises(ValueError): pipeline._download_image(image,{},tmp_path/'received',scale=30,crs='EPSG:3857',contract={'bands':['synthetic'],'filename_prefix':'synthetic','validity_bands':['valid__synthetic']})
     response.close.assert_called_once()
 
 

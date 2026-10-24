@@ -7,7 +7,6 @@ and its validation/export code do not depend on Earth Engine objects.
 """
 from __future__ import annotations
 
-import shutil
 import hashlib
 import zipfile
 from dataclasses import dataclass, field
@@ -21,6 +20,7 @@ from rasterio.crs import CRS
 
 from app.services.gee import auth, indices, ingestion, preprocessing, screening_pipeline
 from app.services.gee.firris_contracts import INDEX_BANDS, CORRECTIONS, periods, validate_aoi, validate_grid, assess_pixels
+from app.services.gee.band_export import assemble_export, request_contract, EXPORT_FORMAT, VALIDITY_PREFIX
 from app.services.gee.scene_qa import inspect_collection, inspect_static_image
 from pyproj import CRS as ProjectionCRS
 from pyproj.exceptions import CRSError
@@ -52,14 +52,16 @@ class GEEFeatureStack:
     source_rasters: dict[str, np.ndarray] = field(default_factory=dict)
 
 
-def _download_image(image, aoi, output_path: Path, *, scale: float, crs: str) -> Path:
+def _download_image(image, aoi, output_path: Path, *, scale: float, crs: str, contract: dict) -> Path:
     url = image.getDownloadURL(
         {
             "region": aoi,
             "scale": scale,
             "crs": crs,
-            "format": "GEO_TIFF",
-            "filePerBand": False,
+            "format": EXPORT_FORMAT,
+            "filePerBand": True,
+            "bands": contract["bands"] + contract["validity_bands"],
+            "name": contract["filename_prefix"],
         }
     )
     response = requests.get(url, stream=True, timeout=(30, 300))
@@ -82,25 +84,6 @@ def _download_image(image, aoi, output_path: Path, *, scale: float, crs: str) ->
     finally:
         response.close()
     return output_path
-
-
-def _resolve_tiff(downloaded: Path) -> Path:
-    if not zipfile.is_zipfile(downloaded):
-        return downloaded
-    extraction_dir = downloaded.parent / "gee-extracted"
-    extraction_dir.mkdir(exist_ok=True)
-    with zipfile.ZipFile(downloaded) as archive:
-        candidates = [item for item in archive.infolist() if item.filename.lower().endswith((".tif", ".tiff"))]
-        if len(candidates) != 1:
-            raise ValueError("GEE must return one multiband GeoTIFF for the FIRRIS feature stack.")
-        member = candidates[0]
-        if member.file_size > MAX_DOWNLOAD_BYTES or member.flag_bits & 1:
-            raise ValueError("GEE archive member exceeds protected capacity or is encrypted")
-        safe_name = Path(member.filename).name
-        extracted = extraction_dir / safe_name
-        with archive.open(member) as source, extracted.open("wb") as target:
-            shutil.copyfileobj(source, target)
-    return extracted
 
 
 def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: Path) -> GEEFeatureStack:
@@ -297,8 +280,16 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
         raise ValueError("Materialized remote band identities/order differ from the source contract")
 
     workspace.mkdir(parents=True, exist_ok=True)
-    downloaded = _download_image(stack, aoi, workspace / "gee-feature-stack.download", scale=scale, crs=crs)
-    raster_path = _resolve_tiff(downloaded)
+    # Preserve source mask identity as well as samples: provider TIFF nodata=0
+    # cannot distinguish a valid zero class/index from a masked pixel.
+    validity_names = [VALIDITY_PREFIX + band for band in expected_bands]
+    validity = stack.mask().gt(0).unmask(0, sameFootprint=False).rename(validity_names)
+    transport = stack.addBands(validity)
+    if transport.bandNames().getInfo() != expected_bands + validity_names:
+        raise ValueError("Materialized remote validity identities/order differ from the source contract")
+    contract = request_contract(transport.serialize(), aoi.serialize(), expected_bands, scale=scale, crs=crs)
+    downloaded = _download_image(transport, aoi, workspace / "gee-feature-stack.download", scale=scale, crs=crs, contract=contract)
+    raster_path, manifest_path, band_manifest = assemble_export(downloaded, contract)
     with rasterio.open(raster_path) as source:
         if source.crs is None or source.crs != CRS.from_user_input(crs):
             raise ValueError("GEE export CRS does not match the requested analysis CRS.")
@@ -317,7 +308,7 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
         transform = source.transform
         output_crs = source.crs.to_string()
         source_rasters={name:np.asarray(values[len(requested)+index].filled(np.nan),dtype=np.float32) for index,name in enumerate(("source_sar_baseline","source_sar_target"))}
-    source_artifacts={"acquired_feature_stack":downloaded}
+    source_artifacts={"acquired_feature_stack":downloaded, "band_identity_manifest":manifest_path}
     if raster_path!=downloaded: source_artifacts["extracted_feature_stack"]=raster_path
     acquisition_artifacts={key:{"sha256":hashlib.sha256(path.read_bytes()).hexdigest(),"size_bytes":path.stat().st_size,"filename":path.name} for key,path in source_artifacts.items()}
 
@@ -350,6 +341,7 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
             "per_scene_lineage":scene_qa, "static_source_lineage":static_sources,
             "acquisition_artifacts":acquisition_artifacts,
             "band_identity":expected_bands,
+            "band_identity_delivery":band_manifest,
             "source_fidelity_scope":"Inspected scene IDs pinned before composition; provider metadata and received export bytes verified. Original provider source-byte checksums remain unavailable; metadata hashes are not pixel checksums.",
             "provider": "Google Earth Engine",
             "datasets": sorted(selected_datasets),

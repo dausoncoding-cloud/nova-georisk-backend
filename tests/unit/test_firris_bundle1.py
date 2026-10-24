@@ -217,8 +217,11 @@ def fake_collection(image_record):
 def test_full_gee_acquisition_contract_and_provenance(tmp_path, monkeypatch, failure, dem_source):
     from app.services.gee import firris_pipeline as pipeline
     image = MagicMock()
+    image.serialize.return_value = "synthetic image expression"
+    region = MagicMock()
+    region.serialize.return_value = "synthetic region expression"
     for method in ("rename", "clip", "reproject", "addBands", "select", "sum", "normalizedDifference",
-                   "subtract", "lte", "lt", "And", "neq", "updateMask", "focal_median", "mask", "setDefaultProjection"):
+                   "subtract", "lte", "lt", "And", "neq", "updateMask", "focal_median", "mask", "setDefaultProjection", "gt", "unmask"):
         getattr(image, method).return_value = image
     image.projection.return_value.getInfo.return_value = {"crs": "EPSG:4326", "transform": [1, 0, 0, 0, -1, 2]}
     s2_record = scene()
@@ -241,7 +244,7 @@ def test_full_gee_acquisition_contract_and_provenance(tmp_path, monkeypatch, fai
     for collection in (target, baseline): collection.select.return_value.median.return_value = image
     rainfall.select.return_value.sum.return_value = image
     monkeypatch.setattr(pipeline.auth, "initialize_gee", lambda: None)
-    monkeypatch.setattr(pipeline.ingestion, "build_aoi_geometry", lambda geometry: geometry)
+    monkeypatch.setattr(pipeline.ingestion, "build_aoi_geometry", lambda geometry: region)
     monkeypatch.setattr(pipeline.ingestion, "get_sentinel2_collection", lambda *args, **kwargs: s2)
     monkeypatch.setattr(pipeline.ingestion, "get_sentinel1_collection", lambda aoi, start, end: baseline if start == "2024-03-04" else target)
     monkeypatch.setattr(pipeline.ingestion, "get_chirps_rainfall", lambda *args: rainfall)
@@ -271,13 +274,20 @@ def test_full_gee_acquisition_contract_and_provenance(tmp_path, monkeypatch, fai
             pipeline.ingestion.CHIRPS_COLLECTION, pipeline.ingestion.SRTM_DEM_ASSET,
             pipeline.ingestion.ALOS_DEM_COLLECTION, pipeline.JRC_WATER_ASSET]
     bands = config["features"]+["source_sar_baseline","source_sar_target","label"]
-    image.bandNames.return_value.getInfo.return_value = bands
+    image.bandNames.return_value.getInfo.side_effect = [bands, bands+["valid__"+band for band in bands]]
     def download(stack, aoi, path, **kwargs):
-        with rasterio.open(path, "w", driver="GTiff", width=2, height=2, count=len(bands),
-                           dtype="float32", transform=from_origin(0, 2, 1, 1), nodata=-9999,
-                           crs="EPSG:3857" if failure == "export_crs" else "EPSG:4326") as raster:
-            raster.write(np.ones((len(bands), 2, 2), dtype="float32"))
-            raster.descriptions = tuple(reversed(bands)) if failure == "band_order" else tuple(bands)
+        # Synthetic provider per-band delivery, not scientific evidence.
+        import zipfile
+        from rasterio.io import MemoryFile
+        with zipfile.ZipFile(path, "w") as archive:
+            for index, band in enumerate(bands+["valid__"+band for band in bands]):
+                with MemoryFile() as memory:
+                    with memory.open(driver="GTiff", width=2, height=2, count=1,
+                                     dtype="float32", transform=from_origin(0, 2, 1, 1), nodata=-9999,
+                                     crs="EPSG:3857" if failure == "export_crs" else "EPSG:4326") as raster:
+                        raster.write(np.ones((1, 2, 2), dtype="float32"))
+                        raster.descriptions = (bands[-index-1] if failure == "band_order" and index<len(bands) else band,)
+                    archive.writestr(kwargs["contract"]["filename_prefix"]+"."+band+".tif", memory.read())
         return path
     monkeypatch.setattr(pipeline, "_download_image", download)
     if failure:
@@ -297,7 +307,8 @@ def test_full_gee_acquisition_contract_and_provenance(tmp_path, monkeypatch, fai
         assert result.provenance["indices"]["ndmi"]["bands"] == ("B8", "B11")
         image.normalizedDifference.assert_any_call(["B3", "B8"])
         image.normalizedDifference.assert_any_call(["B8", "B11"])
-        image.unmask.assert_not_called()
+        image.unmask.assert_called_once_with(0, sameFootprint=False)
+        assert result.provenance["band_identity_delivery"]["request"]["mask_encoding"].startswith("source mask > 0")
         assert result.provenance["gap_policy"].startswith("masked or missing")
 
 
