@@ -143,3 +143,18 @@ def test_gis_layer_package_is_georeferenced_styled_and_credited(tmp_path):
 def test_non_renderable_products_are_not_mapped(tmp_path):
     entry = _extent(tmp_path); entry["layer"]["renderable"] = False
     assert _build(tmp_path, entry) == {}
+
+
+@pytest.mark.parametrize("builder", [_extent, _score])
+def test_every_label_fits_inside_the_sheet_and_no_large_empty_band(tmp_path, builder):
+    from app.services.maps.cartography import _font
+    entry = builder(tmp_path)
+    output = _build(tmp_path, entry)
+    layout, size, _ = _layout(tmp_path, output[f"{entry['product_key']}_map_png"])
+    font = _font(34)
+    x0, y0, x1, y1 = layout["map_box_px"]
+    scale = layout["colour_scale"]
+    texts = scale["labels"] if scale["kind"] == "gradient" else [item["label"] for item in scale["classes"]]
+    panel_left = x1 + 70
+    assert all(panel_left + 90 + font.getlength(text) <= size[0] for text in texts)
+    assert size[1] - y1 <= 130  # sheet ends just below the frame labels

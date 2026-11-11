@@ -158,7 +158,7 @@ def _paint_vector(path: Path, meta: dict, bands: list[dict], key: str, size: tup
 
 _DPI = 300
 _MAP_MAX = (1800, 1500)
-_MARGIN_LEFT, _MARGIN_TOP, _MARGIN_BOTTOM, _GAP, _PANEL = 230, 60, 120, 70, 560
+_MARGIN_LEFT, _MARGIN_TOP, _MARGIN_BOTTOM, _GAP = 230, 60, 120, 70
 _RANGE_LABEL = re.compile(r"^\s*-?\d+(?:\.\d+)?\s*[–-]\s*-?\d+(?:\.\d+)?\s*$")
 _CLASS_VALUE_KEYS = {"flood_extent"}
 
@@ -282,7 +282,7 @@ def _draw_png(map_rgba: Image.Image, box, sheet_size, labels, scale) -> Image.Im
         draw.rectangle((panel_x, box[1], panel_x + 70, box[1] + height), outline="black", width=2)
         draw.text((panel_x + 90, box[1]), scale["labels"][0], font=font, fill="black", anchor="lm")
         draw.text((panel_x + 90, box[1] + height), scale["labels"][1], font=font, fill="black", anchor="lm")
-        draw.text((panel_x, box[1] + height + 30), scale["labels"][2], font=font, fill="black")
+        draw.text((panel_x + 90, box[1] + height // 2), scale["labels"][2], font=font, fill="black", anchor="lm")
     else:
         for index, item in enumerate(scale["classes"]):
             y = box[1] + index * 70
@@ -324,7 +324,7 @@ def _draw_pdf(path: Path, map_rgba: Image.Image, box, sheet_size, labels, scale,
         pdf.rect(panel_x, flip(box[1] + bar), 70 * pt, bar * pt, stroke=1, fill=0)
         pdf.drawString(panel_x + 90 * pt, flip(box[1]) - 3, scale["labels"][0])
         pdf.drawString(panel_x + 90 * pt, flip(box[1] + bar) - 3, scale["labels"][1])
-        pdf.drawString(panel_x, flip(box[1] + bar + 60), scale["labels"][2])
+        pdf.drawString(panel_x + 90 * pt, flip(box[1] + bar // 2) - 3, scale["labels"][2])
     else:
         for index, item in enumerate(scale["classes"]):
             y = box[1] + index * 70
@@ -404,8 +404,12 @@ def _render(output_directory: Path, key: str, entry: dict, provenance: dict, ver
         map_image, _, _ = _paint_vector(source, meta, bands, key, map_size)
     box = (_MARGIN_LEFT, _MARGIN_TOP, _MARGIN_LEFT + map_size[0], _MARGIN_TOP + map_size[1])
     scale = _scale(bands, continuous, value_range, str(meta.get("units", "")), has_nodata)
-    panel_height = 960 if scale["kind"] == "gradient" else 70 * len(scale["classes"])
-    sheet_size = (box[2] + _GAP + _PANEL, max(box[3], box[1] + panel_height) + _MARGIN_BOTTOM)
+    font = _font(34)
+    texts = scale["labels"] if scale["kind"] == "gradient" else [item["label"] for item in scale["classes"]]
+    swatch = 90 if scale["kind"] == "gradient" else 80
+    panel_width = swatch + max(int(math.ceil(font.getlength(text))) for text in texts) + 40
+    panel_height = min(map_size[1], 900) if scale["kind"] == "gradient" else 70 * len(scale["classes"])
+    sheet_size = (box[2] + _GAP + panel_width, max(box[3], box[1] + panel_height) + _MARGIN_BOTTOM)
     labels = _coordinate_labels(crs, bounds, box)
     created = datetime.now(timezone.utc).isoformat()
     layout = {"style": "simple framed map (client decision D5)", "title": title,
