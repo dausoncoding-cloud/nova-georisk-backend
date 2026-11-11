@@ -56,6 +56,8 @@ class FIRRISWorkflowOutput:
     generalized_extent: np.ndarray | None = None
     source_artifacts: dict[str,Path] = field(default_factory=dict)
     source_rasters: dict[str,np.ndarray] = field(default_factory=dict)
+    independent_accuracy: dict[str, Any] = field(default_factory=dict)
+    reference_points: pd.DataFrame | None = None
 
 
 def _epsg_code(crs: str) -> int:
@@ -216,10 +218,13 @@ def run_satellite_workflow(
         raster_spec = RasterSpec(transform=acquired.transform, crs_epsg=_epsg_code(acquired.crs))
         quality = acquired.quality
         source_provenance = acquired.provenance
+        optical_status = quality.get("optical_reference")
+        optical_reference = acquired.source_rasters.get("optical_reference")
     elif provider == "prepared":
         feature_layers, label_layer, valid_mask, raster_spec, quality, source_provenance = _prepared_stack(
             workflow, gis_metadata, aoi_geometry
         )
+        optical_status, optical_reference = None, None
     else:
         raise ValueError("FIRRIS satellite workflow provider must be 'gee' or 'prepared'.")
 
@@ -302,6 +307,18 @@ def run_satellite_workflow(
         raise ValueError("Classifier returned invalid whole-grid predictions")
     probability = probability_flat.reshape(label_layer.shape)
     predicted_class = class_flat.reshape(label_layer.shape)
+    from app.services.firris.reference_accuracy import assess_independent_accuracy
+    from app.services.gee.firris_pipeline import REFERENCE_BANDS
+    if leaked := sorted(set(trained.feature_names) & set(REFERENCE_BANDS)):
+        raise ValueError(f"Reference bands must never enter the feature matrix: {leaked}")
+    independent_accuracy, reference_points = assess_independent_accuracy(
+        provider=provider, optical_status=optical_status, reference=optical_reference, valid_mask=valid_mask,
+        train_rows=split.train.rows, train_cols=split.train.cols, predicted_class=predicted_class, probability=probability)
+    if reference_points is not None:
+        xs_ref, ys_ref = raster_xy(raster_spec.transform, reference_points["pixel_row"].to_numpy(),
+                                   reference_points["pixel_col"].to_numpy(), offset="center")
+        reference_points.insert(2, "coordinate_x", xs_ref)
+        reference_points.insert(3, "coordinate_y", ys_ref)
 
     split_labels = np.full(samples.n, "test", dtype=object)
     train_coordinates = set(zip(split.train.rows.tolist(), split.train.cols.tolist()))
@@ -395,7 +412,8 @@ def run_satellite_workflow(
         "validation": {
             "method": "held-out stratified test partition",
             "level": "internal_agreement",
-            "independent_validation": "not_performed",
+            "independent_validation": independent_accuracy["status"],
+            "independent_accuracy": independent_accuracy,
             "reference_basis": reference_basis(
                 provider, str(source_provenance.get("label_source", "supplied labels")), list(feature_layers),
                 y_train, y_test, train_fraction=train_fraction, strategy=strategy),
@@ -421,4 +439,6 @@ def run_satellite_workflow(
         generalized_extent=generalized,
         source_artifacts=getattr(acquired,"source_artifacts",{}) if provider=="gee" else {},
         source_rasters=getattr(acquired,"source_rasters",{}) if provider=="gee" else {},
+        independent_accuracy=independent_accuracy,
+        reference_points=reference_points,
     )

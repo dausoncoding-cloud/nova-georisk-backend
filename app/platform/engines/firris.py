@@ -477,6 +477,32 @@ class FIRRISEngineAdapter(EngineAdapter):
                                                   "predicted_label": predicted, "confusion": codes[(observed, predicted)],
                                                   "agreement": int(observed == predicted)}})
         _write_json(holdout_points, {"type": "FeatureCollection", "features": point_features})
+        accuracy_path = context.output_directory / "independent-accuracy.json"
+        _write_json(accuracy_path, _json_value(workflow.independent_accuracy))
+        reports["independent_accuracy"] = artifact_entry(
+            accuracy_path, label="Independent accuracy assessment (Sentinel-2 optical reference)", media_type="application/json",
+            artifact_type="report", result_version=context.result_version, role="export", delivery_type="metadata_json", format_name="json")
+        if workflow.reference_points is not None:
+            reference_csv = context.output_directory / "independent-reference-points.csv"
+            export_csv(workflow.reference_points, str(reference_csv))
+            reports["independent_reference_points_csv"] = artifact_entry(
+                reference_csv, label="Independent reference audit sample (area-weighted; census metrics are the reported accuracy)", media_type="text/csv", artifact_type="report",
+                result_version=context.result_version, role="export", delivery_type="csv", format_name="csv")
+            reference_features = []
+            for row in workflow.reference_points.itertuples(index=False):
+                lon, lat = point_transformer.transform(float(row.coordinate_x), float(row.coordinate_y))
+                reference_features.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                    "properties": {"pixel_row": int(row.pixel_row), "pixel_col": int(row.pixel_col),
+                                   "reference_label": int(row.reference_label), "predicted_label": int(row.predicted_label),
+                                   "model_score": float(row.model_score), "area_weight": float(row.area_weight)}})
+            reference_geojson = context.output_directory / "independent-reference-points.geojson"
+            _write_json(reference_geojson, {"type": "FeatureCollection", "features": reference_features})
+            reports["independent_reference_points"] = artifact_entry(
+                reference_geojson, label="Independent reference audit sample", media_type="application/geo+json", artifact_type="vector",
+                result_version=context.result_version, role="export", delivery_type="geojson", format_name="geojson",
+                gis_metadata={"crs": "EPSG:4326", "producer": "NOVA GeoRisk", "feature_count": len(reference_features),
+                              "reference_basis": "Sentinel-2 optical flood reference; not a model input; not field-verified",
+                              "purpose": "visual audit sample; equal allocation per reference class; use area_weight for estimates"})
         reports["validation_holdout_points"] = artifact_entry(
             holdout_points, label="Validation hold-out points", media_type="application/geo+json", artifact_type="vector",
             result_version=context.result_version, role="export", delivery_type="geojson", format_name="geojson",
@@ -532,7 +558,8 @@ class FIRRISEngineAdapter(EngineAdapter):
         reports = self._workflow_reports(context, workflow, summaries) if workflow is not None else {}
         summary: dict[str, Any] = {"status": "completed", "products": summaries}
         if workflow is not None:
-            summary.update({"quality": workflow.quality, "validation": workflow.validation_metrics, "model": workflow.model_metadata, "validation_dashboard": workflow.validation_metrics["dashboard"]})
+            summary.update({"quality": workflow.quality, "validation": workflow.validation_metrics, "model": workflow.model_metadata, "validation_dashboard": workflow.validation_metrics["dashboard"],
+                            "independent_accuracy": workflow.independent_accuracy})
         provenance = {
             "producer": context.gis_metadata["producer"], "engine_key": self.key, "engine_version": self.version,
             "operation": context.operation, "artifact_schema_version": "1.0",

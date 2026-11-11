@@ -148,7 +148,7 @@ def test_empty_sar_collection_keeps_generic_reason():
                            aoi=AOI, required_bands=["VV"])
 
 
-def test_firris_pipeline_requests_query_level_degraded_filter(tmp_path, monkeypatch):
+def test_firris_pipeline_requests_query_level_degraded_filter_for_both_optical_periods(tmp_path, monkeypatch):
     from app.services.gee import firris_pipeline as pipeline
 
     calls = []
@@ -156,12 +156,18 @@ def test_firris_pipeline_requests_query_level_degraded_filter(tmp_path, monkeypa
     class _Stop(Exception):
         pass
 
-    def capture(*args, **kwargs):
-        calls.append(kwargs)
+    def capture(aoi, start, end, **kwargs):
+        calls.append({"start": start, **kwargs})
+        if len(calls) == 1:
+            raise ValueError("synthetic: no compliant optical scene")  # target unavailable -> reference only
         raise _Stop()
 
+    sar_record = {"scene_count": 1, "scenes": [{"relative_orbit": 7, "scene_id": "synthetic"}]}
     monkeypatch.setattr(pipeline.auth, "initialize_gee", lambda: None)
+    monkeypatch.setattr(pipeline.ingestion, "ee", MagicMock())
     monkeypatch.setattr(pipeline.ingestion, "build_aoi_geometry", lambda geometry: MagicMock())
+    monkeypatch.setattr(pipeline.ingestion, "get_sentinel1_collection", lambda *args, **kwargs: MagicMock())
+    monkeypatch.setattr(pipeline, "inspect_collection", lambda collection, **kwargs: sar_record)
     monkeypatch.setattr(pipeline.ingestion, "get_sentinel2_collection", capture)
     config = {"date_mode": "pre-post", "target_period": {"start": "2024-03-05", "end": "2024-03-06"},
               "baseline_period": {"start": "2024-03-04", "end": "2024-03-05"}}
@@ -169,4 +175,5 @@ def test_firris_pipeline_requests_query_level_degraded_filter(tmp_path, monkeypa
     with pytest.raises(_Stop):
         pipeline._fetch_feature_stack(config, AOI, tmp_path)
 
-    assert calls == [{"max_cloud_pct": 20.0, "require_zero_degraded_msi": True}]
+    assert calls == [{"start": "2024-03-05", "max_cloud_pct": 20.0, "require_zero_degraded_msi": True},
+                     {"start": "2024-03-04", "max_cloud_pct": 20.0, "require_zero_degraded_msi": True}]

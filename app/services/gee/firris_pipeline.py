@@ -25,16 +25,33 @@ from app.services.gee.scene_qa import inspect_collection, inspect_static_image
 from pyproj import CRS as ProjectionCRS
 from pyproj.exceptions import CRSError
 
+# Model features (Bundle 1 item 1.7): SAR, terrain and rainfall only. Sentinel-2 is the
+# independent accuracy reference, so no optical index may be a model input.
 DEFAULT_FEATURES = [
     "sar_vv_target",
     "sar_change",
-    "ndvi",
-    "mndwi",
-    "ndbi",
     "elevation",
     "slope",
     "rainfall",
 ]
+SOURCE_BANDS = ["source_sar_baseline", "source_sar_target", "label"]
+# Exported after the label; never model features. Optical bands are reference-only and are
+# excluded from pixel admission (cloud never removes a pixel from classification).
+REFERENCE_BANDS = ["jrc_occurrence", "source_mndwi_target", "source_mndwi_baseline", "optical_reference"]
+OPTICAL_REFERENCE_BANDS = ["source_mndwi_target", "source_mndwi_baseline", "optical_reference"]
+OPTICAL_REFERENCE_POLICY = {
+    "definition": ("flooded (1) = MNDWI > 0 on the target composite AND MNDWI <= 0 on the baseline composite "
+                   "AND JRC occurrence < 90%; not flooded (0) = every other eligible pixel"),
+    "mndwi": "(B3 - B11) / (B3 + B11), Sentinel-2 SR harmonized, SCL cloud/shadow/cirrus/snow masked, median composite",
+    "scene_policy": "cloud <= max_cloud_pct and degraded MSI = 0% (query filter + per-scene assertion), both periods",
+    "eligibility": "admitted pixels whose optical bands are valid at both dates",
+    "independence": "optical indices are not model features; the reference never enters the feature matrix",
+    "limitations": ["Optical water misses flooded vegetation and water under cloud",
+                    "Reference restricted to pixels cloud-free at both dates",
+                    "MNDWI > 0 threshold error",
+                    "Reference and classifier observe slightly different dates",
+                    "Not field-verified"],
+}
 MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
 JRC_WATER_ASSET = "JRC/GSW1_4/GlobalSurfaceWater"
 # Companion asset of JRC GSW v1.4: per-pixel count of valid Landsat observations 1984-2021.
@@ -48,6 +65,15 @@ JRC_MASK_POLICY = {
     "evidence": "FIRRIS_CRITICAL_SCIENTIFIC_FINDINGS_VERIFICATION.md §11.1",
 }
 FIRRIS_SCIENCE_VERSION = "firris-science-2"
+OPTICAL_REFERENCE_MNDWI_BANDS = ("B11", "B3", "SCL")
+
+
+def optical_flood_reference(mndwi_target, mndwi_baseline, occurrence):
+    """Independent optical flood reference (1.7): new open water at target that is not permanent water.
+
+    Pixels where either MNDWI composite or JRC occurrence is masked stay masked (not eligible).
+    """
+    return mndwi_target.gt(0).And(mndwi_baseline.lte(0)).And(occurrence.lt(90))
 
 
 def jrc_occurrence_within_observed_footprint(occurrence, valid_obs):
@@ -166,7 +192,9 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
     speckle_radius = int(preprocessing_config.get("sar_speckle_radius_m", 50))
     if not 1 <= speckle_radius <= 500:
         raise ValueError("SAR speckle radius must be between 1 and 500 metres.")
-    unknown = sorted(set(requested) - (set(DEFAULT_FEATURES) | set(INDEX_BANDS)))
+    if optical := sorted(set(requested) & set(INDEX_BANDS)):
+        raise ValueError(f"Optical indices cannot be FIRRIS model features: {optical}. Sentinel-2 is the independent accuracy reference")
+    unknown = sorted(set(requested) - set(DEFAULT_FEATURES))
     if unknown:
         raise ValueError(f"Unsupported GEE FIRRIS features: {unknown}")
 
@@ -179,15 +207,9 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
         raise ValueError("Unsupported output CRS")
     auth.initialize_gee()
     aoi = ingestion.build_aoi_geometry(aoi_geometry)
-    s2 = ingestion.get_sentinel2_collection(
-        aoi, target["start"], target["end"], max_cloud_pct=max_cloud, require_zero_degraded_msi=True
-    )
     s1_target = ingestion.get_sentinel1_collection(aoi, target["start"], target["end"])
     s1_baseline = ingestion.get_sentinel1_collection(aoi, baseline["start"], baseline["end"])
-    optical_bands = sorted({"SCL"} | {band for name in requested if name in INDEX_BANDS for band in INDEX_BANDS[name]})
     scene_qa = {
-        "sentinel_2_target": inspect_collection(s2, sensor="Sentinel-2", period=target,
-            aoi=aoi_geometry, required_bands=optical_bands, max_cloud=max_cloud, collection_id=ingestion.SENTINEL2_COLLECTION),
         "sentinel_1_target": inspect_collection(s1_target, sensor="Sentinel-1", period=target,
             aoi=aoi_geometry, required_bands=["VV"], collection_id=ingestion.SENTINEL1_COLLECTION),
         "sentinel_1_baseline": inspect_collection(s1_baseline, sensor="Sentinel-1", period=baseline,
@@ -199,12 +221,27 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
         raise ValueError("SAR change requires one matching relative orbit in both periods")
     def pin(collection_record):
         return ingestion.ee.ImageCollection.fromImages([ingestion.ee.Image(record["scene_id"]) for record in collection_record["scenes"]])
-    s2=pin(scene_qa["sentinel_2_target"])
     s1_target=pin(scene_qa["sentinel_1_target"])
     s1_baseline=pin(scene_qa["sentinel_1_baseline"])
-    s2_composite = preprocessing.clip_to_aoi(
-        preprocessing.median_composite(s2.map(preprocessing.mask_sentinel2_clouds)), aoi
-    )
+    # Sentinel-2 is acquired only for the independent reference. A period without a compliant
+    # scene (or failing optical QA) makes the reference not assessable; it never fails the run.
+    optical_reference_status = {}
+    mndwi = {}
+    for key, period in (("target", target), ("baseline", baseline)):
+        try:
+            collection = ingestion.get_sentinel2_collection(
+                aoi, period["start"], period["end"], max_cloud_pct=max_cloud, require_zero_degraded_msi=True)
+            record = inspect_collection(collection, sensor="Sentinel-2", period=period, aoi=aoi_geometry,
+                required_bands=list(OPTICAL_REFERENCE_MNDWI_BANDS), max_cloud=max_cloud,
+                collection_id=ingestion.SENTINEL2_COLLECTION)
+        except ValueError as exc:
+            optical_reference_status[key] = {"status": "unavailable", "reason": f"Sentinel-2 {key}: {exc}"}
+            continue
+        scene_qa[f"sentinel_2_{key}"] = record
+        composite = preprocessing.clip_to_aoi(
+            preprocessing.median_composite(pin(record).map(preprocessing.mask_sentinel2_clouds)), aoi)
+        mndwi[key] = indices.compute_mndwi(composite)
+        optical_reference_status[key] = {"status": "available", "scene_count": record["scene_count"]}
     vv_target = preprocessing.apply_speckle_filter(
         screening_pipeline.build_sar_vv_composite(s1_target), radius=speckle_radius
     )
@@ -257,6 +294,15 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
     water_observation = original_observation.select("valid_obs").clip(aoi)
     water = jrc_occurrence_within_observed_footprint(original_water.select("occurrence"), water_observation).clip(aoi)
     label = screening_pipeline.screen_binary_flood_extent(sar_change, slope, water).rename("label")
+    reference_available = set(mndwi) == {"target", "baseline"}
+    unavailable = label.multiply(0).selfMask()  # fully masked placeholder keeps the band contract fixed
+    reference_layers = {
+        "jrc_occurrence": water.rename("jrc_occurrence"),
+        "source_mndwi_target": (mndwi.get("target") or unavailable).rename("source_mndwi_target"),
+        "source_mndwi_baseline": (mndwi.get("baseline") or unavailable).rename("source_mndwi_baseline"),
+        "optical_reference": (optical_flood_reference(mndwi["target"], mndwi["baseline"], water)
+                              if reference_available else unavailable).rename("optical_reference"),
+    }
     rainfall_collection = ingestion.get_chirps_rainfall(aoi, target["start"], target["end"])
     scene_qa["chirps_target"] = inspect_collection(rainfall_collection, sensor="CHIRPS", period=target,
         aoi=aoi_geometry, required_bands=["precipitation"], collection_id=ingestion.CHIRPS_COLLECTION)
@@ -288,21 +334,20 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
     available = {
         "sar_vv_target": vv_target.rename("sar_vv_target"),
         "sar_change": sar_change.rename("sar_change"),
-        "ndvi": indices.compute_ndvi(s2_composite).rename("ndvi"),
-        "mndwi": indices.compute_mndwi(s2_composite).rename("mndwi"),
-        "ndbi": indices.compute_ndbi(s2_composite).rename("ndbi"),
         "elevation": dem.rename("elevation"),
         "slope": slope.rename("slope"),
         "rainfall": rainfall,
     }
-    for name in requested:
-        if name in INDEX_BANDS:
-            available[name] = getattr(indices, "compute_" + name)(s2_composite).rename(name)
     stack = available[requested[0]]
     for name in requested[1:]:
         stack = stack.addBands(available[name])
-    stack = stack.addBands(vv_baseline.rename("source_sar_baseline")).addBands(vv_target.rename("source_sar_target")).addBands(label).clip(aoi).reproject(crs=crs, scale=scale)
-    expected_bands=requested+["source_sar_baseline","source_sar_target","label"]
+    stack = stack.addBands(vv_baseline.rename("source_sar_baseline")).addBands(vv_target.rename("source_sar_target")).addBands(label)
+    for name in REFERENCE_BANDS:
+        stack = stack.addBands(reference_layers[name])
+    stack = stack.clip(aoi).reproject(crs=crs, scale=scale)
+    expected_bands=requested+SOURCE_BANDS+REFERENCE_BANDS
+    admission_bands=[index for index, name in enumerate(expected_bands) if name not in OPTICAL_REFERENCE_BANDS]
+    label_band=expected_bands.index("label")
     if stack.bandNames().getInfo()!=expected_bands:
         raise ValueError("Materialized remote band identities/order differ from the source contract")
 
@@ -330,26 +375,34 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
             raise ValueError("GEE feature stack band count does not match the requested feature contract.")
         feature_layers = {name: np.asarray(values[index].filled(np.nan), dtype=np.float32) for index, name in enumerate(requested)}
         valid_mask, pixel_qa = assess_pixels(values, aoi_geometry, source.transform, source.crs,
-            float(config.get("minimum_valid_coverage_pct", 70)))
-        label_layer = np.where(valid_mask, values[-1].filled(0), 0).astype(np.uint8)
+            float(config.get("minimum_valid_coverage_pct", 70)), admission_bands=admission_bands, label_band=label_band)
+        label_layer = np.where(valid_mask, values[label_band].filled(0), 0).astype(np.uint8)
         transform = source.transform
         output_crs = source.crs.to_string()
-        source_rasters={name:np.asarray(values[len(requested)+index].filled(np.nan),dtype=np.float32) for index,name in enumerate(("source_sar_baseline","source_sar_target"))}
+        source_rasters={name:np.asarray(values[expected_bands.index(name)].filled(np.nan),dtype=np.float32)
+                        for name in ("source_sar_baseline","source_sar_target",*REFERENCE_BANDS)}
     source_artifacts={"acquired_feature_stack":downloaded, "band_identity_manifest":manifest_path}
     if raster_path!=downloaded: source_artifacts["extracted_feature_stack"]=raster_path
     acquisition_artifacts={key:{"sha256":hashlib.sha256(path.read_bytes()).hexdigest(),"size_bytes":path.stat().st_size,"filename":path.name} for key,path in source_artifacts.items()}
 
     target_count = scene_qa["sentinel_1_target"]["scene_count"]
     baseline_count = scene_qa["sentinel_1_baseline"]["scene_count"]
-    optical_count = scene_qa["sentinel_2_target"]["scene_count"]
     minimum_coverage = float(config.get("minimum_valid_coverage_pct", 70))
     quality = {
         "status": "passed",
         **pixel_qa,
         "per_collection": scene_qa,
         "minimum_valid_coverage_pct": minimum_coverage,
+        "admission_bands": [expected_bands[index] for index in admission_bands],
+        "optical_reference": {
+            "status": "available" if reference_available else "unavailable",
+            "periods": optical_reference_status,
+            "reason": None if reference_available else "; ".join(
+                record["reason"] for record in optical_reference_status.values() if record["status"] != "available"),
+        },
         "scene_counts": {
-            "sentinel_2_target": optical_count,
+            "sentinel_2_target": scene_qa.get("sentinel_2_target", {}).get("scene_count", 0),
+            "sentinel_2_baseline": scene_qa.get("sentinel_2_baseline", {}).get("scene_count", 0),
             "sentinel_1_target": target_count,
             "sentinel_1_baseline": baseline_count,
         },
@@ -376,9 +429,10 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
             "date_mode": date_mode,
             "date_policy": "end-exclusive; baseline precedes target; windows supplied explicitly",
             "corrections": CORRECTIONS,
-            "indices": {name: {"sensor": "Sentinel-2 SR harmonized", "bands": INDEX_BANDS[name],
-                "units": "dimensionless", "method": "existing approved normalized difference"}
-                for name in requested if name in INDEX_BANDS},
+            "indices": {"mndwi": {"sensor": "Sentinel-2 SR harmonized", "bands": INDEX_BANDS["mndwi"],
+                "units": "dimensionless", "method": "existing approved normalized difference",
+                "role": "independent accuracy reference only; not a model feature"}},
+            "optical_reference_policy": dict(OPTICAL_REFERENCE_POLICY),
             "excluded_indices": ["BAI", "NBR", "dNBR", "LST (no thermal band on selected sensor)"],
             "compositing": "per-band temporal median of valid observations; spatial overlap participates in median",
             "resampling": "Earth Engine default nearest neighbour; one final export grid",

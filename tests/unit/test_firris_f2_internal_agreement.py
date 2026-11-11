@@ -109,7 +109,8 @@ def test_gee_workflow_records_sar_rule_overlap_and_screening_label_column(tmp_pa
         tmp_path)
     validation = output.provenance["validation"]
     assert validation["level"] == "internal_agreement"
-    assert validation["independent_validation"] == "not_performed"
+    # The mocked stack carries no optical reference, so independent accuracy is not assessable (1.7).
+    assert validation["independent_validation"] == "not_assessable"
     basis = validation["reference_basis"]
     assert basis["statement"] == SAR_STATEMENT
     assert basis["features_overlapping_rule"] == ["sar_change", "slope"]

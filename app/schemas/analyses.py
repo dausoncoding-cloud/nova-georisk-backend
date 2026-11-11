@@ -84,6 +84,10 @@ class SatelliteSourceConfig(BaseModel):
     def gee_periods_required(self) -> "SatelliteSourceConfig":
         if self.provider == "gee" and (self.target_period is None or self.baseline_period is None):
             raise ValueError("GEE source requires target_period and baseline_period.")
+        optical = sorted(set(self.features) & {"ndvi", "mndwi", "ndbi", "ndwi", "ndmi"})
+        if self.provider == "gee" and optical:
+            raise ValueError(f"Optical indices cannot be FIRRIS model features: {optical}. "
+                             "Sentinel-2 is the independent accuracy reference; use SAR, terrain and rainfall features.")
         if self.provider == "gee":
             baseline, target = self.baseline_period, self.target_period
             if baseline.end > target.start:

@@ -79,7 +79,12 @@ def validate_grid(crs, transform, scale=None):
     return parsed
 
 
-def assess_pixels(values, geometry, transform, crs, minimum):
+def assess_pixels(values, geometry, transform, crs, minimum, *, admission_bands=None, label_band=-1):
+    """Admit AOI cells valid in every admission band; coverage gate unchanged.
+
+    ``admission_bands`` (default: all bands) lets reference-only bands, such as the optical
+    accuracy reference, stay outside pixel admission.
+    """
     if not math.isfinite(minimum) or not 0 <= minimum <= 100:
         raise ValueError("Minimum valid coverage must be finite and between 0 and 100")
     validate_aoi(geometry)
@@ -96,8 +101,9 @@ def assess_pixels(values, geometry, transform, crs, minimum):
                              out_shape=values.shape[1:], transform=transform, invert=True)
     if not aoi_mask.any():
         raise ValueError("Export grid does not intersect AOI")
-    valid = aoi_mask & ~np.any(np.ma.getmaskarray(values), axis=0) & np.all(np.isfinite(values.filled(np.nan)), axis=0)
-    labels = values[-1].filled(np.nan)
+    admitted = values if admission_bands is None else values[list(admission_bands)]
+    valid = aoi_mask & ~np.any(np.ma.getmaskarray(admitted), axis=0) & np.all(np.isfinite(admitted.filled(np.nan)), axis=0)
+    labels = values[label_band].filled(np.nan)
     if not np.isin(labels[valid], [0, 1]).all():
         raise ValueError("GEE screening labels must be binary")
     coverage = float(valid.sum() / aoi_mask.sum() * 100)
