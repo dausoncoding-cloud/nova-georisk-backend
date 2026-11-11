@@ -179,6 +179,329 @@
         "title": "AOIUpdateRequest",
         "type": "object"
       },
+      "AccuracyAssessment": {
+        "additionalProperties": false,
+        "description": "Plan item 2.2: independent assessment first (when assessed), internal agreement second.",
+        "properties": {
+          "independent_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Independent Reason"
+          },
+          "independent_status": {
+            "enum": [
+              "not_performed",
+              "assessed",
+              "not_assessable",
+              "insufficient_reference_samples"
+            ],
+            "title": "Independent Status",
+            "type": "string"
+          },
+          "independent_wording": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Independent Wording"
+          },
+          "scopes": {
+            "items": {
+              "$ref": "#/components/schemas/AccuracyScope"
+            },
+            "title": "Scopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scopes",
+          "independent_status",
+          "independent_reason",
+          "independent_wording"
+        ],
+        "title": "AccuracyAssessment",
+        "type": "object"
+      },
+      "AccuracyIntervals": {
+        "additionalProperties": false,
+        "properties": {
+          "cohens_kappa": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cohens Kappa"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "overall_accuracy_pct": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overall Accuracy Pct"
+          },
+          "roc_auc": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roc Auc"
+          }
+        },
+        "required": [
+          "method",
+          "overall_accuracy_pct",
+          "cohens_kappa",
+          "roc_auc"
+        ],
+        "title": "AccuracyIntervals",
+        "type": "object"
+      },
+      "AccuracyRatio": {
+        "additionalProperties": false,
+        "properties": {
+          "fraction": {
+            "title": "Fraction",
+            "type": "string"
+          },
+          "pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct"
+          }
+        },
+        "required": [
+          "fraction",
+          "pct"
+        ],
+        "title": "AccuracyRatio",
+        "type": "object"
+      },
+      "AccuracyScope": {
+        "additionalProperties": false,
+        "properties": {
+          "average_precision": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Precision"
+          },
+          "cohens_kappa": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cohens Kappa"
+          },
+          "confidence_intervals_95": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccuracyIntervals"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confusion_matrix": {
+            "$ref": "#/components/schemas/ConfusionMatrixTable"
+          },
+          "f1_flooded": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "F1 Flooded"
+          },
+          "interval_note": {
+            "title": "Interval Note",
+            "type": "string"
+          },
+          "iou_flooded": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Iou Flooded"
+          },
+          "method": {
+            "enum": [
+              "census",
+              "held_out_sample"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "n": {
+            "minimum": 0.0,
+            "title": "N",
+            "type": "integer"
+          },
+          "n_per_reference_class": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "N Per Reference Class",
+            "type": "object"
+          },
+          "overall_accuracy_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overall Accuracy Pct"
+          },
+          "per_class": {
+            "items": {
+              "$ref": "#/components/schemas/ClassAccuracySummary"
+            },
+            "title": "Per Class",
+            "type": "array"
+          },
+          "pr": {
+            "items": {
+              "$ref": "#/components/schemas/PrPoint"
+            },
+            "title": "Pr",
+            "type": "array"
+          },
+          "prevalence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prevalence"
+          },
+          "reference_basis": {
+            "title": "Reference Basis",
+            "type": "string"
+          },
+          "roc": {
+            "items": {
+              "$ref": "#/components/schemas/RocPoint"
+            },
+            "title": "Roc",
+            "type": "array"
+          },
+          "roc_auc": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Roc Auc"
+          },
+          "roc_auc_note": {
+            "title": "Roc Auc Note",
+            "type": "string"
+          },
+          "scope": {
+            "enum": [
+              "independent_optical",
+              "internal_screening",
+              "internal_supplied"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "title",
+          "reference_basis",
+          "method",
+          "n",
+          "n_per_reference_class",
+          "confusion_matrix",
+          "overall_accuracy_pct",
+          "cohens_kappa",
+          "f1_flooded",
+          "iou_flooded",
+          "per_class",
+          "roc",
+          "pr",
+          "prevalence",
+          "roc_auc",
+          "average_precision",
+          "roc_auc_note",
+          "confidence_intervals_95",
+          "interval_note"
+        ],
+        "title": "AccuracyScope",
+        "type": "object"
+      },
       "AdministrativeBoundaryAOICreate": {
         "properties": {
           "dataset_id": {
@@ -1084,6 +1407,102 @@
         "title": "CapacitySubindexResponse",
         "type": "object"
       },
+      "ClassAccuracySummary": {
+        "additionalProperties": false,
+        "description": "Makunga et al. (2025) Table 8 row.",
+        "properties": {
+          "area_ha": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area Ha"
+          },
+          "class_label": {
+            "enum": [
+              "1",
+              "0"
+            ],
+            "title": "Class Label",
+            "type": "string"
+          },
+          "class_name": {
+            "title": "Class Name",
+            "type": "string"
+          },
+          "commission_error_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commission Error Pct"
+          },
+          "f1_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "F1 Score"
+          },
+          "omission_error_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Omission Error Pct"
+          },
+          "producers_accuracy_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Producers Accuracy Pct"
+          },
+          "users_accuracy_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Users Accuracy Pct"
+          }
+        },
+        "required": [
+          "class_label",
+          "class_name",
+          "area_ha",
+          "omission_error_pct",
+          "commission_error_pct",
+          "users_accuracy_pct",
+          "producers_accuracy_pct",
+          "f1_score"
+        ],
+        "title": "ClassAccuracySummary",
+        "type": "object"
+      },
       "ClassArea": {
         "additionalProperties": false,
         "properties": {
@@ -1403,6 +1822,89 @@
           "n"
         ],
         "title": "ConfusionCountsSchema",
+        "type": "object"
+      },
+      "ConfusionMatrixTable": {
+        "additionalProperties": false,
+        "description": "Makunga et al. (2025) Table 1 layout: classified rows x reference columns.",
+        "properties": {
+          "classified": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ConfusionRow"
+            },
+            "title": "Classified",
+            "type": "object"
+          },
+          "columns": {
+            "const": "reference",
+            "enum": [
+              "reference"
+            ],
+            "title": "Columns",
+            "type": "string"
+          },
+          "producers_accuracy": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/AccuracyRatio"
+            },
+            "title": "Producers Accuracy",
+            "type": "object"
+          },
+          "reference_totals": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Reference Totals",
+            "type": "object"
+          },
+          "rows": {
+            "const": "classified",
+            "enum": [
+              "classified"
+            ],
+            "title": "Rows",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rows",
+          "columns",
+          "classified",
+          "reference_totals",
+          "producers_accuracy"
+        ],
+        "title": "ConfusionMatrixTable",
+        "type": "object"
+      },
+      "ConfusionRow": {
+        "additionalProperties": false,
+        "properties": {
+          "reference_0": {
+            "minimum": 0.0,
+            "title": "Reference 0",
+            "type": "integer"
+          },
+          "reference_1": {
+            "minimum": 0.0,
+            "title": "Reference 1",
+            "type": "integer"
+          },
+          "total": {
+            "minimum": 0.0,
+            "title": "Total",
+            "type": "integer"
+          },
+          "users_accuracy": {
+            "$ref": "#/components/schemas/AccuracyRatio"
+          }
+        },
+        "required": [
+          "reference_1",
+          "reference_0",
+          "total",
+          "users_accuracy"
+        ],
+        "title": "ConfusionRow",
         "type": "object"
       },
       "CriRequest": {
@@ -3726,6 +4228,44 @@
         "title": "OrganizationSummary",
         "type": "object"
       },
+      "PrPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "precision": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precision"
+          },
+          "recall": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recall"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          }
+        },
+        "required": [
+          "threshold",
+          "recall",
+          "precision"
+        ],
+        "title": "PrPoint",
+        "type": "object"
+      },
       "PredictorModelOptions": {
         "additionalProperties": false,
         "properties": {
@@ -5028,6 +5568,51 @@
         "title": "RiskMapRequest",
         "type": "object"
       },
+      "RocPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "fpr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fpr"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "tpr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tpr"
+          }
+        },
+        "required": [
+          "threshold",
+          "fpr",
+          "tpr"
+        ],
+        "title": "RocPoint",
+        "type": "object"
+      },
       "SatellitePreprocessingOptions": {
         "additionalProperties": false,
         "properties": {
@@ -6140,6 +6725,16 @@
       "ValidationDashboard": {
         "additionalProperties": false,
         "properties": {
+          "accuracy_assessment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccuracyAssessment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "availability": {
             "additionalProperties": {
               "type": "object"

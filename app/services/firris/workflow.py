@@ -58,6 +58,7 @@ class FIRRISWorkflowOutput:
     source_rasters: dict[str,np.ndarray] = field(default_factory=dict)
     independent_accuracy: dict[str, Any] = field(default_factory=dict)
     reference_points: pd.DataFrame | None = None
+    accuracy_assessment: dict[str, Any] = field(default_factory=dict)
 
 
 def _epsg_code(crs: str) -> int:
@@ -188,6 +189,34 @@ def reference_basis(provider: str, label_source: str, features, y_train, y_test,
         "n_train_per_class": _per_class(y_train),
         "n_test_per_class": _per_class(y_test),
     }
+
+
+def _accuracy_assessment(*, provider, independent_accuracy, optical_reference, valid_mask, split, predicted_class,
+                         probability, sample_frame, raster_spec, statement, label_source) -> dict[str, Any]:
+    """Plan item 2.2: Makunga-style tables for the independent census (first) and internal agreement."""
+    from app.services.firris.area_statistics import raster_area_statistics
+    from app.services.firris.reference_accuracy import census_candidates
+    from app.services.validation.accuracy_tables import accuracy_scope
+
+    areas = raster_area_statistics(predicted_class, raster_spec, nodata_mask=valid_mask)
+    class_area_ha = {str(item["class_value"]): float(item["area_ha"]) for item in areas.get("class_areas", [])}
+    scopes = []
+    if independent_accuracy.get("status") == "assessed":
+        _, _, candidates = census_candidates(optical_reference, valid_mask, split.train.rows, split.train.cols)
+        scopes.append(accuracy_scope(
+            "independent_optical", optical_reference[candidates].astype(int), predicted_class[candidates],
+            probability[candidates], method="census", class_area_ha=class_area_ha,
+            title="Accuracy assessment against an independent Sentinel-2 optical reference",
+            basis="Sentinel-2 optical flood reference (MNDWI change, JRC permanent water excluded); not a model input; not field-verified"))
+    holdout = sample_frame[sample_frame["sample_split"] == "test"]
+    scopes.append(accuracy_scope(
+        "internal_screening" if provider == "gee" else "internal_supplied",
+        holdout["observed_label"].to_numpy(), holdout["predicted_label"].to_numpy(), holdout["conditional_score"].to_numpy(),
+        method="held_out_sample", class_area_ha=class_area_ha,
+        title=statement.rstrip(".") + " (held-out pixels)", basis=label_source))
+    return {"scopes": scopes, "independent_status": independent_accuracy.get("status", "not_performed"),
+            "independent_reason": independent_accuracy.get("reason"),
+            "independent_wording": independent_accuracy.get("wording")}
 
 
 def run_satellite_workflow(
@@ -338,6 +367,12 @@ def run_satellite_workflow(
     sample_frame.insert(0, "coordinate_x", xs)
     sample_frame.insert(0, "pixel_col", samples.cols)
     sample_frame.insert(0, "pixel_row", samples.rows)
+    accuracy_assessment = _accuracy_assessment(
+        provider=provider, independent_accuracy=independent_accuracy, optical_reference=optical_reference,
+        valid_mask=valid_mask, split=split, predicted_class=predicted_class, probability=probability,
+        sample_frame=sample_frame, raster_spec=raster_spec,
+        statement=(SAR_AGREEMENT_STATEMENT if provider == "gee" else SUPPLIED_AGREEMENT_STATEMENT),
+        label_source=str(source_provenance.get("label_source", "supplied labels")))
 
     metrics = asdict(trained.test_metrics)
     metrics["confusion"] = asdict(trained.test_metrics.confusion)
@@ -426,6 +461,7 @@ def run_satellite_workflow(
         },
     }
     return FIRRISWorkflowOutput(
+        accuracy_assessment=accuracy_assessment,
         product_arrays={"flood_probability": probability, "flood_extent": predicted_class},
         validation_arrays=validation_rasters(label_layer, predicted_class, valid_mask),
         samples=sample_frame,

@@ -302,6 +302,41 @@ class FIRRISEngineAdapter(EngineAdapter):
             entries["flood_extent_vector"] = artifact_entry(vector_path, label="Flood Extent vector", media_type="application/geo+json", artifact_type="vector", result_version=context.result_version, role="product", product_key=product, delivery_type="vector", format_name="geojson", gis_metadata={**product_metadata, "crs": "EPSG:4326", "bounding_box": vector_layer["bounding_box"]}, layer=vector_layer)
         return entries
 
+    def _accuracy_table_exports(self, context: EngineExecutionContext, assessment: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        """CSV versions of the 2.2 tables (Makunga et al. 2025 Table 1 and Table 8) and curves."""
+        entries: dict[str, dict[str, Any]] = {}
+        names = {"1": "Flood candidate", "0": "Not flood candidate"}
+        for scope in assessment.get("scopes", []):
+            key, matrix = scope["scope"], scope["confusion_matrix"]
+            rows = [{"classified": names[label], "reference_flood_candidate": matrix["classified"][label]["reference_1"],
+                     "reference_not_flood_candidate": matrix["classified"][label]["reference_0"],
+                     "total": matrix["classified"][label]["total"],
+                     "users_accuracy_fraction": matrix["classified"][label]["users_accuracy"]["fraction"],
+                     "users_accuracy_pct": matrix["classified"][label]["users_accuracy"]["pct"]} for label in ("1", "0")]
+            rows.append({"classified": "Reference total", "reference_flood_candidate": matrix["reference_totals"]["1"],
+                         "reference_not_flood_candidate": matrix["reference_totals"]["0"], "total": matrix["reference_totals"]["all"]})
+            rows.append({"classified": "Producer's accuracy",
+                         "reference_flood_candidate": matrix["producers_accuracy"]["1"]["fraction"],
+                         "reference_not_flood_candidate": matrix["producers_accuracy"]["0"]["fraction"],
+                         "users_accuracy_pct": None})
+            summary = [{"class": row["class_name"], "area_ha": row["area_ha"], "omission_error_pct": row["omission_error_pct"],
+                        "commission_error_pct": row["commission_error_pct"], "users_accuracy_pct": row["users_accuracy_pct"],
+                        "producers_accuracy_pct": row["producers_accuracy_pct"], "overall_accuracy_pct": scope["overall_accuracy_pct"],
+                        "f1_score": row["f1_score"], "cohens_kappa": scope["cohens_kappa"], "n": scope["n"], "method": scope["method"]}
+                       for row in scope["per_class"]]
+            for suffix, frame, label in (
+                ("confusion", pd.DataFrame(rows), "confusion matrix (classified x reference)"),
+                ("summary", pd.DataFrame(summary), "per-class accuracy summary"),
+                ("roc", pd.DataFrame(scope["roc"]), "ROC curve points"),
+                ("pr", pd.DataFrame(scope["pr"]), "precision-recall curve points"),
+            ):
+                path = context.output_directory / f"accuracy-{key}-{suffix}.csv"
+                export_csv(frame, str(path))
+                entries[f"accuracy_{key}_{suffix}"] = artifact_entry(
+                    path, label=f"{scope['title']}: {label}", media_type="text/csv", artifact_type="report",
+                    result_version=context.result_version, role="export", delivery_type="csv", format_name="csv")
+        return entries
+
     def _workflow_reports(self, context: EngineExecutionContext, workflow: FIRRISWorkflowOutput, summaries: dict[str, Any]) -> dict[str, dict[str, Any]]:
         reports: dict[str, dict[str, Any]] = {}
         from app.services.validation.diagnostics import write_diagnostic_artifacts
@@ -317,6 +352,9 @@ class FIRRISEngineAdapter(EngineAdapter):
         if basis is not None:
             dashboard["reference_basis"] = dict(basis)
         dashboard["independent_validation"] = validation_record.get("independent_validation", "not_performed")
+        if workflow.accuracy_assessment:
+            dashboard["accuracy_assessment"] = _json_value(workflow.accuracy_assessment)
+            reports.update(self._accuracy_table_exports(context, workflow.accuracy_assessment))
         workflow.validation_metrics["dashboard"] = dashboard
         reports.update(diagnostics)
         pinned=workflow.provenance.get("acquisition_artifacts",{})

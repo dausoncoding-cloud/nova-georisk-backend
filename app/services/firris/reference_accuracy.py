@@ -101,6 +101,15 @@ def weighted_estimates(points: pd.DataFrame) -> dict[str, Any]:
     return estimates
 
 
+def census_candidates(reference: np.ndarray, valid_mask: np.ndarray, train_rows, train_cols) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Eligible pixels (admitted, optical valid at both dates), and those of them not used for training."""
+    valid = np.asarray(valid_mask, dtype=bool)
+    eligible = valid & np.isfinite(reference)
+    training = np.zeros_like(valid)
+    training[np.asarray(train_rows, dtype=int), np.asarray(train_cols, dtype=int)] = True
+    return eligible, training, eligible & ~training
+
+
 def assess_independent_accuracy(*, provider: str, optical_status: dict | None, reference: np.ndarray | None,
                                 valid_mask: np.ndarray, train_rows, train_cols, predicted_class: np.ndarray,
                                 probability: np.ndarray) -> tuple[dict[str, Any], pd.DataFrame | None]:
@@ -111,10 +120,7 @@ def assess_independent_accuracy(*, provider: str, optical_status: dict | None, r
         reason = (optical_status or {}).get("reason") or "Optical reference unavailable"
         return {"status": "not_assessable", "reason": reason}, None
     valid = np.asarray(valid_mask, dtype=bool)
-    eligible = valid & np.isfinite(reference)
-    training = np.zeros_like(valid)
-    training[np.asarray(train_rows, dtype=int), np.asarray(train_cols, dtype=int)] = True
-    candidates = eligible & ~training
+    eligible, training, candidates = census_candidates(reference, valid, train_rows, train_cols)
     labels = np.nan_to_num(reference, nan=-1).astype(int)
     per_class = {str(label): int(np.count_nonzero(candidates & (labels == label))) for label in (0, 1)}
     record = {"method": "census of eligible non-training pixels", "eligible_cells": int(eligible.sum()),

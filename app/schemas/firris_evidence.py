@@ -165,6 +165,89 @@ class ReferenceBasis(StrictModel):
         return self
 
 
+class AccuracyRatio(StrictModel):
+    fraction: str
+    pct: float | None
+
+
+class ConfusionRow(StrictModel):
+    reference_1: int = Field(ge=0)
+    reference_0: int = Field(ge=0)
+    total: int = Field(ge=0)
+    users_accuracy: AccuracyRatio
+
+
+class ConfusionMatrixTable(StrictModel):
+    """Makunga et al. (2025) Table 1 layout: classified rows x reference columns."""
+    rows: Literal['classified']
+    columns: Literal['reference']
+    classified: dict[Literal['1', '0'], ConfusionRow]
+    reference_totals: dict[Literal['1', '0', 'all'], int]
+    producers_accuracy: dict[Literal['1', '0'], AccuracyRatio]
+
+
+class ClassAccuracySummary(StrictModel):
+    """Makunga et al. (2025) Table 8 row."""
+    class_label: Literal['1', '0']
+    class_name: str
+    area_ha: float | None
+    omission_error_pct: float | None
+    commission_error_pct: float | None
+    users_accuracy_pct: float | None
+    producers_accuracy_pct: float | None
+    f1_score: float | None
+
+
+class RocPoint(StrictModel):
+    threshold: float | None
+    fpr: float | None
+    tpr: float | None
+
+
+class PrPoint(StrictModel):
+    threshold: float
+    recall: float | None
+    precision: float | None
+
+
+class AccuracyIntervals(StrictModel):
+    method: str
+    overall_accuracy_pct: list[float] | None
+    cohens_kappa: list[float] | None
+    roc_auc: list[float] | None
+
+
+class AccuracyScope(StrictModel):
+    scope: Literal['independent_optical', 'internal_screening', 'internal_supplied']
+    title: str
+    reference_basis: str
+    method: Literal['census', 'held_out_sample']
+    n: int = Field(ge=0)
+    n_per_reference_class: dict[Literal['0', '1'], int]
+    confusion_matrix: ConfusionMatrixTable
+    overall_accuracy_pct: float | None
+    cohens_kappa: float | None
+    f1_flooded: float | None
+    iou_flooded: float | None
+    per_class: list[ClassAccuracySummary]
+    roc: list[RocPoint]
+    pr: list[PrPoint]
+    prevalence: float | None
+    roc_auc: float | None
+    average_precision: float | None
+    roc_auc_note: str
+    confidence_intervals_95: AccuracyIntervals | None
+    interval_note: str
+
+
+class AccuracyAssessment(StrictModel):
+    """Plan item 2.2: independent assessment first (when assessed), internal agreement second."""
+    scopes: list[AccuracyScope]
+    independent_status: IndependentValidationStatus
+    independent_reason: str | None
+    independent_wording: str | None
+
+
 class ValidationDashboard(StrictModel):
     kind: Literal['continuous', 'binary']
     metrics: dict
@@ -176,13 +259,14 @@ class ValidationDashboard(StrictModel):
     # Optional so results stored before Bundle 1 still validate.
     reference_basis: ReferenceBasis | None = None
     independent_validation: IndependentValidationStatus | None = None
+    accuracy_assessment: AccuracyAssessment | None = None
 
     @model_serializer(mode='wrap')
     def _omit_unset_bundle1_fields(self, handler):
         """Leave the two optional Bundle 1 fields out when unset, so dashboards stored without
         them (other engines, legacy FIRRIS results) are returned exactly as stored."""
         data = handler(self)
-        for key in ('reference_basis', 'independent_validation'):
+        for key in ('reference_basis', 'independent_validation', 'accuracy_assessment'):
             if isinstance(data, dict) and data.get(key) is None:
                 data.pop(key, None)
         return data
