@@ -15,7 +15,11 @@
 4. **Small commits, one concern each.** Every bundle is a separate branch and pull request; Bundles 1 and 2 are each split into the commits listed.
 5. **Packaging.** No broad `COPY`. New static assets live under `app/` (already copied). Any new Python dependency is pinned in `requirements.txt` and passes `scripts/verify_docker_packaging.py` and `check_image_packaging.py`.
 6. **Testing gate per bundle:** backend unit + integration + PostGIS suites, OpenAPI contract test, migration check (`verify_phase05_schema.py` where relevant), Docker packaging scan; frontend `typecheck`, `test`, `build`, `api:check`.
-7. **Rollout pattern:** build image → staging stack → one real staging run → production image activation with the previous image tag retained → one real production run → acceptance note. **Rollback:** re-activate the previous image tag; no data migration in Bundles 1–3 needs reversing (Section 7).
+7. **Staging checks (required before item 4.6 and before the Bundle 5 run):**
+   - (a) Measure the provider limit of synchronous `getDownloadURL` for the FIRRIS per-band ZIP: largest bounding box at 30 m that exports successfully with the Bundle 1 contract (12 bands + 12 validity bands). Record the exact provider error text and byte figure at the first failure. The local 512 MiB guards are not the binding limit if the provider limit is lower. A figure of ≈ 48 MiB per request is recalled but **unverified**.
+   - (b) Record export bytes, run time and Earth Engine errors for Mindu, Ugalla-small and a ~100 km² dry-land AOI.
+   - The results set the capacity rule of 4.6 and the AOI chosen in 5.1.
+8. **Rollout pattern:** build image → staging stack → one real staging run → production image activation with the previous image tag retained → one real production run → acceptance note. **Rollback:** re-activate the previous image tag; no data migration in Bundles 1–3 needs reversing (Section 7).
 
 ### Scientific sign-off items (owner: client scientific lead; development team proceeds on the documented default if no response, and records that)
 
@@ -170,6 +174,7 @@ Large-area/tiled processing is **excluded** from this sprint. Doc 0 lists scalab
 | Data / external | Provider only (Sentinel-2, JRC) / none |
 | Tests | Feature list contains no optical index; reference band never enters the feature matrix (assertion on matrix columns); reference points never coincide with training pixels; per-class minimum enforced or the assessment reports "insufficient reference samples" (no metrics) instead of computing on too few points; metrics recomputed from the exported points CSV equal the dashboard |
 | Regression risks | Model change alters classified areas for all new runs (new result versions; legacy unchanged). A second S2 acquisition increases cases where the run is rejected for cloud or degraded data; preflight (4.1) must check both periods |
+| Decisions (2026-11-11) | **Band contract, changed once for 1.1b and 1.7 together (12 bands):** features `sar_vv_target, sar_change, elevation, slope, rainfall`; sources `source_sar_baseline, source_sar_target`; `label`; `jrc_occurrence` (= `occurrence_c`, 1.1); `source_mndwi_target`, `source_mndwi_baseline` (also serve 3.1); `optical_reference`. `ndvi, mndwi, ndbi` leave the feature set. Each band keeps its `valid__` twin. **Pixel admission:** the coverage gate (≥ 70%) is computed on features, `label` and `jrc_occurrence` only. Optical bands are reference-only and never exclude a pixel from classification. **Reference sampling:** only admitted pixels whose optical bands are valid at both dates. The run reports the reference-eligible fraction (eligible / admitted). If n per class is below the minimum, the assessment reports "insufficient reference samples" with no metrics. **No clean S2 for target or baseline:** the run continues. Independent accuracy = "not assessable" with the reason (e.g. no compliant optical scene in the baseline window), and internal agreement (1.5) is still shown. Once S2 is no longer a model input, the 1.2 "No compliant optical scene" condition becomes this reason and no longer fails the run. The 1.2 tests are updated in the same commit |
 | Acceptance | On the Bundle 5 run: confusion matrix and metrics reported against the optical reference with n per class; if values are still ≥ 0.99, the run is investigated and the cause documented before acceptance (for example a trivially separable AOI) rather than presented as-is |
 
 ---
@@ -364,7 +369,7 @@ Replace fixed default dates in `src/features/analyses/parameters.ts` with empty 
 
 | Field | Detail |
 |---|---|
-| Problem | The Kilosa AOI is 12,075 km², 13,589,579 cells at 30 m (verification §11.1). The export guard is `width × height × bands × 8 bytes ≤ 512 MiB` (`band_export.py`, `MAX_EXPORT_BYTES`), with 11 exported bands today and 12 after 1.1. Even counting only AOI cells, the estimate is ≈ 1.20–1.30 GB (1.11–1.22 GiB), about 2.2–2.4× the guard; the bounding box is larger. The run would fail at export after scene QA is fixed |
+| Problem | The Kilosa AOI is 12,075 km², 13,589,579 AOI cells at 30 m (verification §11.1). The guard counts the export **bounding box**, which is 6,077 × 3,319 = 20.2 M px. The export guard is `width × height × bands × 8 bytes ≤ 512 MiB` (`band_export.py`, `MAX_EXPORT_BYTES`). For Kilosa that is ≈ 1,693 MiB with 11 bands (3.3× the guard) and ≈ 1,847 MiB with the 12-band Bundle 1 contract (3.6×). The largest bounding box under the guard is ≈ 5,490 km² with 11 bands and ≈ 5,030 km² with 12. The provider `getDownloadURL` limit may bind earlier (staging check §0.7a). The run would fail at export after scene QA is fixed |
 | Severity | HIGH |
 | Backend files | `app/services/firris/preflight.py` (4.1): capacity check computed from the AOI bounding box at the requested scale and the band count of the requested products, using the same constant as `band_export`. Returns a plain-language warning with the estimate, the limit, and suggestions: coarser scale with the resulting cell size, or a smaller or split AOI. The submit endpoint rejects with 422 when the estimate exceeds the guard, because the run cannot succeed |
 | Frontend files | `AnalysisSubmitPage.tsx`: warning on the AOI step and in the preflight panel ("This AOI is about 12,075 km² (≈13.6 million cells at 30 m), above the current processing limit. Use 60 m or larger resolution, or a smaller AOI."). Submit disabled when over the limit |
@@ -410,5 +415,5 @@ Replace fixed default dates in `src/features/analyses/parameters.ts` with empty 
 5. `fix(firris): name classifier score as model confidence` (1.4) + contract/OpenAPI/frontend label.
 6. `fix(firris): frame pseudo-label metrics as internal agreement` (1.5) + backend/frontend/report wording tests.
 7. `feat(results): legacy interpretation notice` (1.6).
-7a. `feat(validation): assess accuracy against independent Sentinel-2 optical reference` (1.7) + tests.
-8. Full test gate (Section 0.6) → staging runs (Mindu AOI + dry-land AOI) → before/after table → production activation with previous tag retained.
+7a. `feat(validation): assess accuracy against independent Sentinel-2 optical reference` (1.7) + tests. This commit also carries the deferred export part of 1.1 (`jrc_occurrence` band), so the band contract changes once (decisions in 1.7).
+8. Full test gate (Section 0.6) → staging checks (Section 0.7) → staging runs (Mindu AOI + dry-land AOI) → before/after table → production activation with previous tag retained.
