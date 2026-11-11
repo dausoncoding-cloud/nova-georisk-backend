@@ -39,6 +39,7 @@ class ReportContext:
     regression_metrics: dict[str, float] | None = None
     classification_metrics: dict[str, float] | None = None
     classification_heading: str = "Classification Validation"
+    summary_heading: str = "Flood Risk Index Summary"
     class_area_statistics: list[dict] = field(default_factory=list)
     notes: str | None = None
 
@@ -60,7 +61,7 @@ def generate_pdf_report(context: ReportContext, output_path: str) -> str:
     story.append(Spacer(1, 0.6 * cm))
 
     if context.index_summaries:
-        story.append(Paragraph("Flood Risk Index Summary", styles["Heading2"]))
+        story.append(Paragraph(context.summary_heading, styles["Heading2"]))
         table_data = [["Index", "Mean", "Min", "Max", "Classification"]]
         for s in context.index_summaries:
             table_data.append([s.name, f"{s.mean:.3f}", f"{s.min:.3f}", f"{s.max:.3f}", s.classification])

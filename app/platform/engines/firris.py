@@ -432,6 +432,7 @@ class FIRRISEngineAdapter(EngineAdapter):
             ],
             classification_metrics=numeric_metrics,
             classification_heading=statement,
+            summary_heading="Classification output summary",
             class_area_statistics=[
                 {"product": satellite_display_label(key, _workflow_algorithm(context)), **class_area}
                 for key, value in summaries.items()

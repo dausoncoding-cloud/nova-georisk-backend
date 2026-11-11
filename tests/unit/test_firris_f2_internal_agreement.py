@@ -118,3 +118,19 @@ def test_gee_workflow_records_sar_rule_overlap_and_screening_label_column(tmp_pa
     ReferenceBasis.model_validate(basis)
     assert "screening_label" in output.samples.columns
     np.testing.assert_array_equal(output.samples["screening_label"], output.samples["observed_label"])
+
+
+def test_firris_report_summary_heading_is_classification_output_summary(tmp_path):
+    _run_engine(tmp_path)
+    text = " ".join("".join(page.extract_text() or "" for page in PdfReader(tmp_path / "firris-analysis-report.pdf").pages).split())
+    assert "Classification output summary" in text
+    assert "Flood Risk Index Summary" not in text
+
+
+def test_other_report_callers_keep_their_heading(tmp_path):
+    from app.services.reporting.report_builder import IndexSummary, ReportContext, generate_pdf_report
+    path = tmp_path / "other.pdf"
+    generate_pdf_report(ReportContext(project_name="p", aoi_name="a",
+                                      index_summaries=[IndexSummary(name="FRI", mean=0.5, min=0.1, max=0.9, classification="Moderate")]), str(path))
+    text = " ".join("".join(page.extract_text() or "" for page in PdfReader(path).pages).split())
+    assert "Flood Risk Index Summary" in text
