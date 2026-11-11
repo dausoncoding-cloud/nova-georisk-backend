@@ -4,6 +4,7 @@ from __future__ import annotations
 from geoalchemy2.shape import to_shape
 from shapely.geometry import mapping
 
+from app.api.v1.result_overview import build_result_overview
 from app.models.aoi import AOI
 from app.models.result import Result
 from app.models.task import Task
@@ -182,6 +183,7 @@ def serialize_result(result: Result) -> ResultResponse:
         interpretation=(result.summary or {}).get("interpretation"),
         validation_dashboard=(result.summary or {}).get("validation_dashboard"),
         interpretation_notice=legacy_interpretation_notice(result),
+        overview=build_result_overview(result),
         decision_support=(result.summary or {}).get("decision_support"),
         provenance=result.provenance,
         products=products,

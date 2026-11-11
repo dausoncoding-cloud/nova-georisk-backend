@@ -47,6 +47,61 @@ class ResultLayerResponse(BaseModel):
     temporal_metadata: dict[str, Any] | None = None
 
 
+class OverviewHeadline(BaseModel):
+    text: str
+    flood_candidate_area_km2: float | None
+    percent_of_valid: float | None
+    valid_area_km2: float | None
+    target_period: str | None
+    baseline_period: str | None
+
+
+class MissingCellsByBand(BaseModel):
+    band: str
+    cells: int
+    pct_of_aoi: float | None
+    affects_admission: bool
+
+
+class AreaAccounting(BaseModel):
+    aoi_cells: int | None
+    valid_cells: int | None
+    excluded_cells: int | None
+    valid_area_km2: float | None
+    aoi_area_km2_estimate: float | None
+    excluded_area_km2_estimate: float | None
+    valid_pct_of_aoi: float | None
+    flood_candidate_area_km2: float | None
+    flood_candidate_pct_of_valid: float | None
+    flood_candidate_pct_of_aoi: float | None
+    missing_cells_by_band: list[MissingCellsByBand]
+    method_note: str
+
+
+class QualityGateRow(BaseModel):
+    name: str
+    threshold: str
+    observed: str | None
+    status: Literal["pass", "fail", "not_recorded", "not_applicable"]
+
+
+class DataSourceRow(BaseModel):
+    dataset: str
+    role: str
+    resolution: str
+    scene_dates: list[str]
+    credit: str
+
+
+class ResultOverview(BaseModel):
+    """Plan item 2.3: read-time overview computed from stored summary and provenance."""
+    headline: OverviewHeadline
+    area_accounting: AreaAccounting
+    quality_gates: list[QualityGateRow]
+    data_sources: list[DataSourceRow]
+    limitations: list[str]
+
+
 class ResultResponse(BaseModel):
     id: uuid.UUID
     task_id: uuid.UUID
@@ -61,6 +116,7 @@ class ResultResponse(BaseModel):
     validation_dashboard: ValidationDashboard | None = None
     # Read-time notice for results produced before firris-science-2; never stored.
     interpretation_notice: str | None = None
+    overview: ResultOverview | None = None
     decision_support: DecisionSupportDashboard | None = None
     provenance: dict | None
     products: list[ResultProductResponse]

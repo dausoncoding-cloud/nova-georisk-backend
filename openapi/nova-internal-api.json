@@ -765,6 +765,147 @@
         "title": "ApiError",
         "type": "object"
       },
+      "AreaAccounting": {
+        "properties": {
+          "aoi_area_km2_estimate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aoi Area Km2 Estimate"
+          },
+          "aoi_cells": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aoi Cells"
+          },
+          "excluded_area_km2_estimate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excluded Area Km2 Estimate"
+          },
+          "excluded_cells": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Excluded Cells"
+          },
+          "flood_candidate_area_km2": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flood Candidate Area Km2"
+          },
+          "flood_candidate_pct_of_aoi": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flood Candidate Pct Of Aoi"
+          },
+          "flood_candidate_pct_of_valid": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flood Candidate Pct Of Valid"
+          },
+          "method_note": {
+            "title": "Method Note",
+            "type": "string"
+          },
+          "missing_cells_by_band": {
+            "items": {
+              "$ref": "#/components/schemas/MissingCellsByBand"
+            },
+            "title": "Missing Cells By Band",
+            "type": "array"
+          },
+          "valid_area_km2": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Area Km2"
+          },
+          "valid_cells": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Cells"
+          },
+          "valid_pct_of_aoi": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Pct Of Aoi"
+          }
+        },
+        "required": [
+          "aoi_cells",
+          "valid_cells",
+          "excluded_cells",
+          "valid_area_km2",
+          "aoi_area_km2_estimate",
+          "excluded_area_km2_estimate",
+          "valid_pct_of_aoi",
+          "flood_candidate_area_km2",
+          "flood_candidate_pct_of_valid",
+          "flood_candidate_pct_of_aoi",
+          "missing_cells_by_band",
+          "method_note"
+        ],
+        "title": "AreaAccounting",
+        "type": "object"
+      },
       "AtlasLegend": {
         "properties": {
           "entries": {
@@ -1908,6 +2049,42 @@
           "display_name"
         ],
         "title": "CurrentUserResponse",
+        "type": "object"
+      },
+      "DataSourceRow": {
+        "properties": {
+          "credit": {
+            "title": "Credit",
+            "type": "string"
+          },
+          "dataset": {
+            "title": "Dataset",
+            "type": "string"
+          },
+          "resolution": {
+            "title": "Resolution",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "scene_dates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scene Dates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dataset",
+          "role",
+          "resolution",
+          "scene_dates",
+          "credit"
+        ],
+        "title": "DataSourceRow",
         "type": "object"
       },
       "DatasetEligibility": {
@@ -3964,6 +4141,41 @@
         "title": "MembershipRole",
         "type": "string"
       },
+      "MissingCellsByBand": {
+        "properties": {
+          "affects_admission": {
+            "title": "Affects Admission",
+            "type": "boolean"
+          },
+          "band": {
+            "title": "Band",
+            "type": "string"
+          },
+          "cells": {
+            "title": "Cells",
+            "type": "integer"
+          },
+          "pct_of_aoi": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pct Of Aoi"
+          }
+        },
+        "required": [
+          "band",
+          "cells",
+          "pct_of_aoi",
+          "affects_admission"
+        ],
+        "title": "MissingCellsByBand",
+        "type": "object"
+      },
       "OrganizationContextResponse": {
         "properties": {
           "current_organization": {
@@ -4143,6 +4355,79 @@
           "slug"
         ],
         "title": "OrganizationSummary",
+        "type": "object"
+      },
+      "OverviewHeadline": {
+        "properties": {
+          "baseline_period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Period"
+          },
+          "flood_candidate_area_km2": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flood Candidate Area Km2"
+          },
+          "percent_of_valid": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Percent Of Valid"
+          },
+          "target_period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Period"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "valid_area_km2": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valid Area Km2"
+          }
+        },
+        "required": [
+          "text",
+          "flood_candidate_area_km2",
+          "percent_of_valid",
+          "valid_area_km2",
+          "target_period",
+          "baseline_period"
+        ],
+        "title": "OverviewHeadline",
         "type": "object"
       },
       "PrPoint": {
@@ -4505,6 +4790,47 @@
           "policy_reference"
         ],
         "title": "ProximityProcessingOptions",
+        "type": "object"
+      },
+      "QualityGateRow": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "observed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed"
+          },
+          "status": {
+            "enum": [
+              "pass",
+              "fail",
+              "not_recorded",
+              "not_applicable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "threshold",
+          "observed",
+          "status"
+        ],
+        "title": "QualityGateRow",
         "type": "object"
       },
       "QuantitativeSeries": {
@@ -5081,6 +5407,47 @@
         "title": "ResultLayerResponse",
         "type": "object"
       },
+      "ResultOverview": {
+        "description": "Plan item 2.3: read-time overview computed from stored summary and provenance.",
+        "properties": {
+          "area_accounting": {
+            "$ref": "#/components/schemas/AreaAccounting"
+          },
+          "data_sources": {
+            "items": {
+              "$ref": "#/components/schemas/DataSourceRow"
+            },
+            "title": "Data Sources",
+            "type": "array"
+          },
+          "headline": {
+            "$ref": "#/components/schemas/OverviewHeadline"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "quality_gates": {
+            "items": {
+              "$ref": "#/components/schemas/QualityGateRow"
+            },
+            "title": "Quality Gates",
+            "type": "array"
+          }
+        },
+        "required": [
+          "headline",
+          "area_accounting",
+          "quality_gates",
+          "data_sources",
+          "limitations"
+        ],
+        "title": "ResultOverview",
+        "type": "object"
+      },
       "ResultPage": {
         "properties": {
           "items": {
@@ -5338,6 +5705,16 @@
             },
             "title": "Layers",
             "type": "array"
+          },
+          "overview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResultOverview"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "products": {
             "items": {
