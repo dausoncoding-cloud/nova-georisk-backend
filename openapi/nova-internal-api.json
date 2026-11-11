@@ -4781,6 +4781,17 @@
               }
             ]
           },
+          "interpretation_notice": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interpretation Notice"
+          },
           "layers": {
             "items": {
               "$ref": "#/components/schemas/ResultLayerResponse"

@@ -59,6 +59,8 @@ class ResultResponse(BaseModel):
     analytics: ResultAnalytics | None = None
     interpretation: ResultInterpretation | None = None
     validation_dashboard: ValidationDashboard | None = None
+    # Read-time notice for results produced before firris-science-2; never stored.
+    interpretation_notice: str | None = None
     decision_support: DecisionSupportDashboard | None = None
     provenance: dict | None
     products: list[ResultProductResponse]

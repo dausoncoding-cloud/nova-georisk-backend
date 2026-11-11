@@ -69,6 +69,23 @@ def serialize_task(task: Task, result: Result | None = None) -> TaskStatusRespon
     )
 
 
+LEGACY_FIRRIS_NOTICE = (
+    "Produced before the JRC never-water correction; analysis was restricted to historically wet pixels. "
+    "Metrics are internal agreement with SAR screening labels. Downloaded files from this run use older labels "
+    "(\u201cFlood Probability\u201d, \u201cFlood Risk Index Summary\u201d); the score is a model confidence score, "
+    "not a probability of flooding."
+)
+FIRRIS_SCIENCE_VERSION = "firris-science-2"
+
+
+def legacy_interpretation_notice(result: Result) -> str | None:
+    """Notice for FIRRIS GEE results produced before firris-science-2 (Bundle 1). Stored data is untouched."""
+    provenance = result.provenance if isinstance(result.provenance, dict) else {}
+    if result.engine_key != "firris" or "per_scene_lineage" not in provenance:
+        return None
+    return None if provenance.get("science_version") == FIRRIS_SCIENCE_VERSION else LEGACY_FIRRIS_NOTICE
+
+
 def serialize_result(result: Result) -> ResultResponse:
     """Serialize result metadata without leaking server filesystem paths."""
     products = []
@@ -164,6 +181,7 @@ def serialize_result(result: Result) -> ResultResponse:
         analytics=(result.summary or {}).get("delivery"),
         interpretation=(result.summary or {}).get("interpretation"),
         validation_dashboard=(result.summary or {}).get("validation_dashboard"),
+        interpretation_notice=legacy_interpretation_notice(result),
         decision_support=(result.summary or {}).get("decision_support"),
         provenance=result.provenance,
         products=products,
