@@ -135,7 +135,10 @@ def test_firris_satellite_workflow_delivers_real_gis_and_reports(tmp_path):
     assert result.output_files["flood_extent_cog"]["layer"]["nodata"] == 255
     assert result.output_files["flood_extent_cog"]["gis_metadata"]["spatial_resolution"]["x"] == 0.05
     assert result.output_files["flood_extent_cog"]["gis_metadata"]["georeferencing_source"] == "delivered_raster_grid"
-    assert result.output_files["flood_extent_cog"]["layer"]["legend"]["entries"][1]["label"].startswith("Classified flooded")
+    legend = result.output_files["flood_extent_cog"]["layer"]["legend"]
+    # Terminology (verification §8): a model-classified flood candidate, not a confirmed flood.
+    assert [entry["label"] for entry in legend["entries"]] == ["Not classified as flood candidate (0)", "Model-classified flood candidate (1)"]
+    assert legend["title"] == "Model-classified flood candidates (SAR)"
     assert "not AEP" in result.output_files["flood_probability_cog"]["layer"]["legend"]["title"]
     assert result.output_files["flood_extent_vector"]["artifact_type"] == "vector"
     assert result.output_files["flood_probability_preview"]["media_type"] == "image/png"

@@ -67,8 +67,8 @@ def _workflow_algorithm(context) -> str:
 
 _SATELLITE_LEGENDS = {
     "flood_extent": {
-        "title": "SAR-derived flood classification",
-        "entries": [{"label": "Not classified as flooded (0)", "color": "#228B22"}, {"label": "Classified flooded (1)", "color": "#00BFFF"}],
+        "title": "Model-classified flood candidates (SAR)",
+        "entries": [{"label": "Not classified as flood candidate (0)", "color": "#228B22"}, {"label": "Model-classified flood candidate (1)", "color": "#00BFFF"}],
         "nodata_label": "No data / outside valid coverage",
     },
     "flood_probability": {
