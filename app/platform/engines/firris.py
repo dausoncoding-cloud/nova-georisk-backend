@@ -143,6 +143,8 @@ def _layer_metadata(
     }
 
 
+_VALIDATION_REFERENCE_BASIS = "SAR screening labels; internal agreement, not independent flood-map accuracy"
+
 class FIRRISEngineAdapter(EngineAdapter):
     key = "firris"
     name = "FIRRIS"
@@ -424,10 +426,35 @@ class FIRRISEngineAdapter(EngineAdapter):
         )
         reports["firris_pdf_report"] = artifact_entry(pdf_path, label="FIRRIS analysis report", media_type="application/pdf", artifact_type="report", result_version=context.result_version, role="export", delivery_type="pdf", format_name="pdf")
         reports["firris_excel_report"] = artifact_entry(xlsx_path, label="FIRRIS analysis workbook", media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", artifact_type="report", result_version=context.result_version, role="export", delivery_type="excel", format_name="xlsx")
+        from app.services.validation.spatial_products import AGREEMENT_LEGEND, CONFUSION_LEGEND, VALIDATION_NODATA
+        legends = {"validation_confusion": CONFUSION_LEGEND, "validation_accuracy": AGREEMENT_LEGEND}
         for key, array in workflow.validation_arrays.items():
             path = context.output_directory / f"{key}.tif"
-            write_geotiff(str(path), array.astype(np.uint8), workflow.raster_spec, nodata=0)
-            reports[key] = artifact_entry(path, label=key.replace("_", " ").title(), media_type="image/tiff", artifact_type="raster", result_version=context.result_version, role="export", delivery_type="geotiff", format_name="geotiff", gis_metadata=context.gis_metadata)
+            write_geotiff(str(path), array.astype(np.uint8), workflow.raster_spec, nodata=VALIDATION_NODATA)
+            metadata = {**context.gis_metadata, "nodata": VALIDATION_NODATA, "legend": dict(legends.get(key, {})),
+                        "split_scope": "whole_valid_grid",
+                        "split_scope_description": "every valid cell, training and held-out pixels together; see validation_holdout_points for held-out pixels only",
+                        "reference_basis": _VALIDATION_REFERENCE_BASIS}
+            reports[key] = artifact_entry(path, label=key.replace("_", " ").title(), media_type="image/tiff", artifact_type="raster", result_version=context.result_version, role="export", delivery_type="geotiff", format_name="geotiff", gis_metadata=metadata)
+        holdout_points = context.output_directory / "validation_holdout_points.geojson"
+        point_transformer = Transformer.from_crs(f"EPSG:{workflow.raster_spec.crs_epsg}", "EPSG:4326", always_xy=True)
+        codes = {(1, 1): 1, (0, 0): 2, (0, 1): 3, (1, 0): 4}
+        point_features = []
+        for row in holdout.itertuples(index=False):
+            observed, predicted = int(row.observed_label), int(row.predicted_label)
+            lon, lat = point_transformer.transform(float(row.coordinate_x), float(row.coordinate_y))
+            point_features.append({"type": "Feature", "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                                   "properties": {"pixel_row": int(row.pixel_row), "pixel_col": int(row.pixel_col),
+                                                  "sample_split": "test", "screening_label": observed,
+                                                  "predicted_label": predicted, "confusion": codes[(observed, predicted)],
+                                                  "agreement": int(observed == predicted)}})
+        _write_json(holdout_points, {"type": "FeatureCollection", "features": point_features})
+        reports["validation_holdout_points"] = artifact_entry(
+            holdout_points, label="Validation hold-out points", media_type="application/geo+json", artifact_type="vector",
+            result_version=context.result_version, role="export", delivery_type="geojson", format_name="geojson",
+            gis_metadata={"crs": "EPSG:4326", "producer": "NOVA GeoRisk", "split_scope": "hold_out_only",
+                          "feature_count": len(point_features), "legend": {"1": "TP", "2": "TN", "3": "FP", "4": "FN"},
+                          "reference_basis": _VALIDATION_REFERENCE_BASIS})
         return reports
 
     def execute(self, context: EngineExecutionContext, progress_callback) -> EngineExecutionOutput:

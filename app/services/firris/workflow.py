@@ -26,7 +26,7 @@ from app.services.ml.features import build_feature_dataframe, build_label_series
 from app.services.ml.predict import predict_flood_class, predict_flood_probability
 from app.services.ml.training import train_classifier_from_split, classifier_configuration
 from app.services.firris.postprocessing import generalize_extent
-from app.services.validation.spatial_products import accuracy_map, confusion_map
+from app.services.validation.spatial_products import validation_rasters
 from rasterio.transform import xy as raster_xy
 
 WORKFLOW_VERSION = "1.0"
@@ -368,10 +368,7 @@ def run_satellite_workflow(
     }
     return FIRRISWorkflowOutput(
         product_arrays={"flood_probability": probability, "flood_extent": predicted_class},
-        validation_arrays={
-            "validation_confusion": confusion_map(label_layer, predicted_class),
-            "validation_accuracy": accuracy_map(label_layer, predicted_class),
-        },
+        validation_arrays=validation_rasters(label_layer, predicted_class, valid_mask),
         samples=sample_frame,
         validation_metrics=metrics,
         model_metadata=model_metadata,
