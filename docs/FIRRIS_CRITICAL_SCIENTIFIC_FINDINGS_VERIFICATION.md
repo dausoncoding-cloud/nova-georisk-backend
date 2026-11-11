@@ -309,6 +309,8 @@ report = {
 Expected under F1: dry land → `occurrence_valid_fraction` ≈ 0, `jrc_observed_fraction` ≈ 1, `never_water_but_observed` ≈ 1.
 
 ### 10.2 Client failed task
+> **Database note (2026-11-11):** run this against **`nova_georisk_firris_2f1b2dc`**, the database of live release `2f1b2dc`, read from the worker's `DATABASE_URL` without credentials. The `nova_georisk` database on the same PostGIS instance is a legacy schema (Alembic `eb3a25ef583f`) with no FIRRIS tasks. The database name follows the release tag and will change with the next release. See §11.
+
 Read-only SQL on production (organisation-scoped; no secrets in output):
 ```sql
 SELECT t.id, t.project_id, t.aoi_id, a.name, a.area_km2, t.progress_pct, t.created_at,
