@@ -250,7 +250,9 @@ def test_full_gee_acquisition_contract_and_provenance(tmp_path, monkeypatch, fai
     monkeypatch.setattr(pipeline.ingestion, "get_chirps_rainfall", lambda *args: rainfall)
     monkeypatch.setattr(pipeline.ingestion, "get_dem", lambda *args, **kwargs: image)
     def provider_image(identifier):
-        native_band = "elevation" if identifier == pipeline.ingestion.SRTM_DEM_ASSET else "DSM" if identifier.startswith(pipeline.ingestion.ALOS_DEM_COLLECTION+"/") else "occurrence"
+        native_band = ("elevation" if identifier == pipeline.ingestion.SRTM_DEM_ASSET
+                       else "DSM" if identifier.startswith(pipeline.ingestion.ALOS_DEM_COLLECTION+"/")
+                       else "valid_obs" if identifier == pipeline.JRC_OBSERVATION_ASSET else "occurrence")
         image.getInfo.return_value = {"id": "unknown" if failure == "static_asset" else identifier, "bands":[{"id": native_band,"crs":"EPSG:4326","crs_transform":[1,0,0,0,-1,2]}]}
         return image
     monkeypatch.setattr(pipeline.ingestion.ee, "Image", provider_image)
@@ -307,7 +309,13 @@ def test_full_gee_acquisition_contract_and_provenance(tmp_path, monkeypatch, fai
         assert result.provenance["indices"]["ndmi"]["bands"] == ("B8", "B11")
         image.normalizedDifference.assert_any_call(["B3", "B8"])
         image.normalizedDifference.assert_any_call(["B8", "B11"])
-        image.unmask.assert_called_once_with(0, sameFootprint=False)
+        image.unmask.assert_any_call(0, sameFootprint=False)  # validity transport
+        image.unmask.assert_any_call(0)  # JRC never-water = 0%, bounded by valid_obs (F1)
+        assert image.unmask.call_count == 2
+        assert result.provenance["science_version"] == "firris-science-2"
+        assert result.provenance["jrc_mask_policy"]["observation_asset"] == pipeline.JRC_OBSERVATION_ASSET
+        assert result.provenance["static_source_lineage"]["water_observation"]["asset_id"] == pipeline.JRC_OBSERVATION_ASSET
+        assert result.provenance["static_source_lineage"]["water_observation"]["native_band"]["id"] == "valid_obs"
         assert result.provenance["band_identity_delivery"]["request"]["mask_encoding"].startswith("source mask > 0")
         assert result.provenance["gap_policy"].startswith("masked or missing")
 

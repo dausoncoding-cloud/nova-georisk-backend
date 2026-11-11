@@ -37,6 +37,30 @@ DEFAULT_FEATURES = [
 ]
 MAX_DOWNLOAD_BYTES = 512 * 1024 * 1024
 JRC_WATER_ASSET = "JRC/GSW1_4/GlobalSurfaceWater"
+# Companion asset of JRC GSW v1.4: per-pixel count of valid Landsat observations 1984-2021.
+JRC_OBSERVATION_ASSET = "JRC/GSW1_4/Metadata"
+JRC_MASK_POLICY = {
+    "policy": "never-water=0 within Metadata valid_obs>0",
+    "occurrence_asset": JRC_WATER_ASSET,
+    "observation_asset": JRC_OBSERVATION_ASSET,
+    "observation_band": "valid_obs",
+    "nodata": "pixels with valid_obs = 0 or masked valid_obs stay nodata",
+    "evidence": "FIRRIS_CRITICAL_SCIENTIFIC_FINDINGS_VERIFICATION.md §11.1",
+}
+FIRRIS_SCIENCE_VERSION = "firris-science-2"
+
+
+def jrc_occurrence_within_observed_footprint(occurrence, valid_obs):
+    """Return JRC occurrence with never-water pixels as 0% where JRC observed the pixel.
+
+    GlobalSurfaceWater masks pixels where water was never detected, which made all
+    never-water land FIRRIS nodata (F1). Inside the JRC observation footprint a masked
+    occurrence means 0%. The footprint is Metadata ``valid_obs > 0``; pixels JRC never
+    observed (``valid_obs`` = 0 or masked) remain nodata. YearlyHistory is not usable
+    for this bound because it also masks never-water pixels.
+    """
+    observed = valid_obs.gt(0)
+    return occurrence.unmask(0).updateMask(observed)
 
 
 @dataclass(frozen=True)
@@ -225,10 +249,13 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
         dem=pinned.mosaic().setDefaultProjection(pinned.first().projection()).clip(aoi)
         static_sources["dem"]={"collection_id":ingestion.ALOS_DEM_COLLECTION,"tiles":tiles,"status":"passed"}
     slope = screening_pipeline.compute_slope_degrees(dem)
-    # Do not use the screening helper's historical unmask(0): unknown is nodata.
+    # Never-water is 0% only inside the JRC observation footprint; unobserved pixels stay nodata.
     original_water=ingestion.ee.Image(JRC_WATER_ASSET)
     static_sources["water_occurrence"]=inspect_static_image(original_water,asset_id=JRC_WATER_ASSET,required_band="occurrence")
-    water = original_water.select("occurrence").clip(aoi)
+    original_observation=ingestion.ee.Image(JRC_OBSERVATION_ASSET)
+    static_sources["water_observation"]=inspect_static_image(original_observation,asset_id=JRC_OBSERVATION_ASSET,required_band="valid_obs")
+    water_observation = original_observation.select("valid_obs").clip(aoi)
+    water = jrc_occurrence_within_observed_footprint(original_water.select("occurrence"), water_observation).clip(aoi)
     label = screening_pipeline.screen_binary_flood_extent(sar_change, slope, water).rename("label")
     rainfall_collection = ingestion.get_chirps_rainfall(aoi, target["start"], target["end"])
     scene_qa["chirps_target"] = inspect_collection(rainfall_collection, sensor="CHIRPS", period=target,
@@ -245,7 +272,7 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
         raise ValueError("Rainfall daily collection has missing or duplicate dates")
     native_projections = {}
     from rasterio import Affine
-    for role, image in (("dem", dem), ("water_occurrence", water)):
+    for role, image in (("dem", dem), ("water_occurrence", water), ("water_observation", water_observation)):
         metadata = image.projection().getInfo()
         try:
             validate_grid(metadata["crs"], Affine(*metadata["transform"]))
@@ -339,6 +366,7 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
         source_rasters=source_rasters,
         provenance={
             "per_scene_lineage":scene_qa, "static_source_lineage":static_sources,
+            "science_version":FIRRIS_SCIENCE_VERSION, "jrc_mask_policy":dict(JRC_MASK_POLICY),
             "acquisition_artifacts":acquisition_artifacts,
             "band_identity":expected_bands,
             "band_identity_delivery":band_manifest,
