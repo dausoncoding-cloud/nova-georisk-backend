@@ -154,6 +154,40 @@ def _prepared_stack(workflow: dict[str, Any], gis_metadata: dict[str, Any],
     )
 
 
+SAR_AGREEMENT_STATEMENT = "Internal agreement with SAR screening labels — not independent flood-map accuracy."
+SUPPLIED_AGREEMENT_STATEMENT = "Internal agreement with supplied labels — not independent flood-map accuracy."
+# Model features that also define the SAR screening label (screen_binary_flood_extent).
+SAR_RULE_INPUT_FEATURES = ("sar_change", "slope")
+
+
+def _sar_screening_rule() -> str:
+    from app.services.gee import screening_pipeline as rule
+    return (f"label = (sar_change_db <= {rule.DEFAULT_SAR_CHANGE_THRESHOLD_DB} dB) AND "
+            f"(slope < {rule.DEFAULT_SLOPE_THRESHOLD_DEGREES} deg) AND "
+            f"(JRC occurrence < {rule.DEFAULT_PERMANENT_WATER_OCCURRENCE_THRESHOLD}%; never-water = 0% within Metadata valid_obs > 0)")
+
+
+def _per_class(labels) -> dict[str, int]:
+    values, counts = np.unique(np.asarray(labels).astype(int), return_counts=True)
+    return {str(value): int(count) for value, count in zip(values.tolist(), counts.tolist())}
+
+
+def reference_basis(provider: str, label_source: str, features, y_train, y_test, *, train_fraction: float, strategy: str) -> dict:
+    """Explicit basis of the held-out agreement metrics (F2): what labels, which rule, which split."""
+    sar = provider == "gee"
+    return {
+        "statement": SAR_AGREEMENT_STATEMENT if sar else SUPPLIED_AGREEMENT_STATEMENT,
+        "label_source": label_source,
+        "rule": _sar_screening_rule() if sar else None,
+        "features_overlapping_rule": sorted(set(features) & set(SAR_RULE_INPUT_FEATURES)) if sar else [],
+        "split_method": (f"{strategy.replace('_', ' ')} sampling; stratified random pixel split "
+                         f"(train fraction {train_fraction:g}); test pixels come from the same scene and are "
+                         "interleaved with training pixels, so they are not spatially independent"),
+        "n_train_per_class": _per_class(y_train),
+        "n_test_per_class": _per_class(y_test),
+    }
+
+
 def run_satellite_workflow(
     workflow: dict[str, Any],
     gis_metadata: dict[str, Any],
@@ -280,6 +314,9 @@ def run_satellite_workflow(
     sample_frame["conditional_score"] = predict_flood_probability(trained, sample_frame[trained.feature_names]).to_numpy()
     sample_frame.insert(0, "sample_split", split_labels)
     sample_frame.insert(0, "observed_label", samples.labels)
+    if provider == "gee":
+        # "observed_label" is kept for one release (deprecated): it is a SAR screening label, not an observation.
+        sample_frame.insert(1, "screening_label", samples.labels)
     sample_frame.insert(0, "coordinate_y", ys)
     sample_frame.insert(0, "coordinate_x", xs)
     sample_frame.insert(0, "pixel_col", samples.cols)
@@ -357,7 +394,11 @@ def run_satellite_workflow(
         },
         "validation": {
             "method": "held-out stratified test partition",
-            "level": "model_internal",
+            "level": "internal_agreement",
+            "independent_validation": "not_performed",
+            "reference_basis": reference_basis(
+                provider, str(source_provenance.get("label_source", "supplied labels")), list(feature_layers),
+                y_train, y_test, train_fraction=train_fraction, strategy=strategy),
             "independent_ground_truth": False,
             "limitation": (
                 "Supplied labels have not been independently audited."

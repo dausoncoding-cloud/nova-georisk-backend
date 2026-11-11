@@ -4112,6 +4112,66 @@
         "title": "RasterGrid",
         "type": "object"
       },
+      "ReferenceBasis": {
+        "additionalProperties": false,
+        "description": "What the reported agreement metrics were computed against (F2).",
+        "properties": {
+          "features_overlapping_rule": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Features Overlapping Rule",
+            "type": "array"
+          },
+          "label_source": {
+            "title": "Label Source",
+            "type": "string"
+          },
+          "n_test_per_class": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "N Test Per Class",
+            "type": "object"
+          },
+          "n_train_per_class": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "N Train Per Class",
+            "type": "object"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          },
+          "split_method": {
+            "title": "Split Method",
+            "type": "string"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "statement",
+          "label_source",
+          "features_overlapping_rule",
+          "split_method",
+          "n_train_per_class",
+          "n_test_per_class"
+        ],
+        "title": "ReferenceBasis",
+        "type": "object"
+      },
       "RegressionValidationRequest": {
         "properties": {
           "observed": {
@@ -5936,6 +5996,23 @@
             "title": "Availability",
             "type": "object"
           },
+          "independent_validation": {
+            "anyOf": [
+              {
+                "enum": [
+                  "not_performed",
+                  "assessed",
+                  "not_assessable",
+                  "insufficient_reference_samples"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Independent Validation"
+          },
           "kind": {
             "enum": [
               "continuous",
@@ -5961,6 +6038,16 @@
             },
             "title": "Plots",
             "type": "array"
+          },
+          "reference_basis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReferenceBasis"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "scope": {
             "title": "Scope",

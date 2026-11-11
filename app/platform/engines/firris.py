@@ -306,11 +306,17 @@ class FIRRISEngineAdapter(EngineAdapter):
         reports: dict[str, dict[str, Any]] = {}
         from app.services.validation.diagnostics import write_diagnostic_artifacts
         holdout = workflow.samples[workflow.samples["sample_split"] == "test"]
+        validation_record = workflow.provenance.get("validation") or {}
+        basis = validation_record.get("reference_basis")
+        statement = (basis or {}).get("statement", "Internal agreement with supplied labels — not independent flood-map accuracy.")
         dashboard, diagnostics = write_diagnostic_artifacts(context.output_directory,
             holdout["observed_label"].to_numpy(), holdout["predicted_label"].to_numpy(),
             scores=holdout["conditional_score"].to_numpy(), kind="binary", units="binary_class_0_1",
-            scope="declared_holdout; label-source provenance retained; independent scientific validation not asserted",
+            scope=f"{statement} Held-out pixels only (n = {len(holdout)}).",
             version=context.result_version)
+        if basis is not None:
+            dashboard["reference_basis"] = dict(basis)
+        dashboard["independent_validation"] = validation_record.get("independent_validation", "not_performed")
         workflow.validation_metrics["dashboard"] = dashboard
         reports.update(diagnostics)
         pinned=workflow.provenance.get("acquisition_artifacts",{})
@@ -425,6 +431,7 @@ class FIRRISEngineAdapter(EngineAdapter):
                 for key, value in summaries.items() if isinstance(value, dict) and {"mean", "min", "max"} <= set(value)
             ],
             classification_metrics=numeric_metrics,
+            classification_heading=statement,
             class_area_statistics=[
                 {"product": satellite_display_label(key, _workflow_algorithm(context)), **class_area}
                 for key, value in summaries.items()

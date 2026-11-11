@@ -47,7 +47,8 @@ def test_prepared_satellite_workflow_samples_trains_validates_and_predicts(tmp_p
     assert result.model_metadata["model_version"] == "test-1"
     assert result.quality["status"] == "passed"
     assert result.provenance["sampling"]["strategy"] == "stratified_random"
-    assert result.provenance["validation"]["level"] == "model_internal"
+    assert result.provenance["validation"]["level"] == "internal_agreement"  # F2 (Bundle 1 item 1.5)
+    assert result.provenance["validation"]["independent_validation"] == "not_performed"
     assert result.provenance["validation"]["independent_ground_truth"] is False
 
 

@@ -145,6 +145,26 @@ class LiveFeedbackResponse(StrictModel):
     actor_id: uuid.UUID | None
 
 
+IndependentValidationStatus = Literal['not_performed', 'assessed', 'not_assessable', 'insufficient_reference_samples']
+
+
+class ReferenceBasis(StrictModel):
+    """What the reported agreement metrics were computed against (F2)."""
+    statement: str
+    label_source: str
+    rule: str | None = None
+    features_overlapping_rule: list[str]
+    split_method: str
+    n_train_per_class: dict[str, int]
+    n_test_per_class: dict[str, int]
+
+    @model_validator(mode='after')
+    def _non_negative_counts(self):
+        if any(value < 0 for counts in (self.n_train_per_class, self.n_test_per_class) for value in counts.values()):
+            raise ValueError('Per-class sample counts must be non-negative')
+        return self
+
+
 class ValidationDashboard(StrictModel):
     kind: Literal['continuous', 'binary']
     metrics: dict
@@ -153,6 +173,9 @@ class ValidationDashboard(StrictModel):
     scope: str
     units: str
     limitations: list[str]
+    # Optional so results stored before Bundle 1 still validate.
+    reference_basis: ReferenceBasis | None = None
+    independent_validation: IndependentValidationStatus | None = None
 
 
 class DecisionSupportDashboard(StrictModel):

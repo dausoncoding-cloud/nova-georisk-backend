@@ -38,6 +38,7 @@ class ReportContext:
     index_summaries: list[IndexSummary] = field(default_factory=list)
     regression_metrics: dict[str, float] | None = None
     classification_metrics: dict[str, float] | None = None
+    classification_heading: str = "Classification Validation"
     class_area_statistics: list[dict] = field(default_factory=list)
     notes: str | None = None
 
@@ -73,7 +74,7 @@ def generate_pdf_report(context: ReportContext, output_path: str) -> str:
         story.append(Spacer(1, 0.6 * cm))
 
     if context.classification_metrics:
-        story.append(Paragraph("Classification Validation", styles["Heading2"]))
+        story.append(Paragraph(context.classification_heading, styles["Heading2"]))
         table_data = [["Metric", "Value"]] + [
             [k.replace("_", " ").title(), f"{v:.4f}"] for k, v in context.classification_metrics.items()
         ]
