@@ -315,7 +315,7 @@ def _render(output_directory: Path, key: str, entry: dict, provenance: dict, ver
     sheet = Image.new("RGB", _SIZE, "#F5F8FB")
     draw = ImageDraw.Draw(sheet, "RGBA")
     draw.rectangle((0, 0, _SIZE[0], 135), fill=_NAVY)
-    title = key.replace("_", " ").title()
+    title = str(meta.get("display_label") or key.replace("_", " ").title())
     draw.text((100, 42), title, font=_font(49, bold=True), fill="white")
     draw.text((1500, 65), f"FIRRIS  •  Result version {version}", font=_font(26), fill="white")
     draw.rectangle(_MAP, fill="white", outline=_NAVY, width=5)

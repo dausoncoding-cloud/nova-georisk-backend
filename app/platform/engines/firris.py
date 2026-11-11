@@ -47,6 +47,24 @@ _LABELS = {
     "flood_hazard_zonation": "Flood Hazard Zonation",
 }
 
+_MODEL_SCORE_SEMANTICS = ("Fraction of classifier votes (score) for the SAR screening-label flood class; "
+                          "not a probability of flooding; not annual exceedance probability (AEP) or return period.")
+
+
+def satellite_display_label(product: str, algorithm: str | None = "random_forest") -> str:
+    """Client-facing name of a satellite-workflow product. API keys are unchanged."""
+    if product == "flood_probability":
+        if algorithm in (None, "random_forest"):
+            return "Model confidence score (Random Forest vote fraction)"
+        return f"Model confidence score ({str(algorithm).replace('_', ' ')} class score)"
+    return _LABELS[product]
+
+
+def _workflow_algorithm(context) -> str:
+    workflow = (context.parameters or {}).get("workflow") or {}
+    return str((workflow.get("model") or {}).get("algorithm") or "random_forest")
+
+
 _SATELLITE_LEGENDS = {
     "flood_extent": {
         "title": "SAR-derived flood classification",
@@ -160,7 +178,7 @@ class FIRRISEngineAdapter(EngineAdapter):
             "products": [
                 {
                     "key": product.value,
-                    "label": _LABELS[product.value],
+                    "label": satellite_display_label(product.value) if product.value in satellite_products else _LABELS[product.value],
                     "available_delivery_types": [
                         "metadata_json",
                         *(["geotiff", "cog", "preview"] if product.value in satellite_products else []),
@@ -241,12 +259,14 @@ class FIRRISEngineAdapter(EngineAdapter):
             return {}
         if valid_mask.shape != values.shape:
             raise ValueError("FIRRIS output and valid-pixel mask shapes differ.")
-        label = _LABELS[product]
+        label = satellite_display_label(product, _workflow_algorithm(context))
         units = computed["units"]
         numeric = np.nan_to_num(values, nan=0).astype(np.uint8) if product == "flood_extent" else values.astype(np.float32)
         nodata = 255 if product == "flood_extent" else -9999.0
-        product_metadata = {**context.gis_metadata, "product_key": product, "units": units,
+        product_metadata = {**context.gis_metadata, "product_key": product, "display_label": label, "units": units,
                             "nodata": nodata, "result_version": context.result_version}
+        if product == "flood_probability":
+            product_metadata["semantics"] = _MODEL_SCORE_SEMANTICS
         if product == "flood_extent":
             if context.aoi_geometry is not None:
                 from shapely.geometry import shape
@@ -401,12 +421,12 @@ class FIRRISEngineAdapter(EngineAdapter):
             project_name=str(context.project_id),
             aoi_name=str(context.aoi_id),
             index_summaries=[
-                IndexSummary(name=_LABELS[key], mean=float(value["mean"]), min=float(value["min"]), max=float(value["max"]), classification="Model output")
+                IndexSummary(name=satellite_display_label(key, _workflow_algorithm(context)), mean=float(value["mean"]), min=float(value["min"]), max=float(value["max"]), classification="Model output")
                 for key, value in summaries.items() if isinstance(value, dict) and {"mean", "min", "max"} <= set(value)
             ],
             classification_metrics=numeric_metrics,
             class_area_statistics=[
-                {"product": _LABELS[key], **class_area}
+                {"product": satellite_display_label(key, _workflow_algorithm(context)), **class_area}
                 for key, value in summaries.items()
                 for class_area in value.get("area_statistics", {}).get("class_areas", [])
             ],
@@ -480,7 +500,7 @@ class FIRRISEngineAdapter(EngineAdapter):
                 source_values = workflow.product_arrays[product]
                 computed = {"values": np.where(workflow.valid_mask, source_values, np.nan), "units": "dimensionless" if product == "flood_probability" else "binary class"}
                 if product == "flood_probability":
-                    computed["semantics"] = "Conditional classifier class score; not annual exceedance probability or return period."
+                    computed["semantics"] = _MODEL_SCORE_SEMANTICS
             else:
                 computed = self._compute(product, params)
             values = np.asarray(computed["values"])
@@ -489,11 +509,12 @@ class FIRRISEngineAdapter(EngineAdapter):
             if workflow is not None and values.ndim == 2:
                 summaries[product]["area_statistics"] = raster_area_statistics(workflow.product_arrays[product], workflow.raster_spec, nodata_mask=workflow.valid_mask)
             metadata_path = context.output_directory / f"{product}.json"
-            _write_json(metadata_path, {"product_key": product, "product_name": _LABELS[product], "gis_metadata": context.gis_metadata, "data": {key: _json_value(value) for key, value in computed.items()}})
+            product_name = satellite_display_label(product, _workflow_algorithm(context)) if workflow is not None else _LABELS[product]
+            _write_json(metadata_path, {"product_key": product, "product_name": product_name, "gis_metadata": context.gis_metadata, "data": {key: _json_value(value) for key, value in computed.items()}})
             gis_entries = self._gis_artifacts(context, product, computed, workflow.raster_spec, workflow.valid_mask) if workflow is not None else {}
             available = ["metadata_json", *[entry["delivery_type"] for entry in gis_entries.values()]]
             outputs[product] = artifact_entry(
-                metadata_path, label=_LABELS[product], media_type="application/json", artifact_type="metadata",
+                metadata_path, label=product_name, media_type="application/json", artifact_type="metadata",
                 result_version=context.result_version, role="product", product_key=product,
                 delivery_type="metadata_json", format_name="json", gis_metadata=context.gis_metadata,
                 layer=_layer_metadata(context, product=product, units=computed["units"], renderable=bool(gis_entries), available=available, legend=_SATELLITE_LEGENDS.get(product) if gis_entries else None, nodata=(255 if product == "flood_extent" else -9999.0) if gis_entries else None),
