@@ -1,4 +1,4 @@
-"""Metadata-driven FIRRIS cartographic PNG/PDF exports.
+"""Metadata-driven FIRRIS map exports: simple framed maps (client decision D5) and GIS-ready layers.
 
 These are presentation artifacts, not new scientific layers. The underlying
 protected raster/vector product, nodata, lineage and uncertainty remain in the
@@ -11,14 +11,15 @@ import json
 import math
 import os
 import re
+import zipfile
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 
 import numpy as np
 import rasterio
 from PIL import Image, ImageDraw, ImageFont, PngImagePlugin
-from pyproj import CRS, Geod, Transformer
-from rasterio.warp import transform_bounds
+from pyproj import CRS
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 from shapely.geometry import shape
@@ -33,11 +34,7 @@ MAP_KEYS = frozenset({
     "flood_vulnerability", "flood_risk", "flood_susceptibility",
     "flood_hazard_zonation",
 })
-_GEOD = Geod(ellps="WGS84")
-_SIZE = (2200, 1550)
-_MAP = (115, 180, 1480, 1235)
 _NAVY = "#102A43"
-_GREY = "#526477"
 
 
 def _font(size: int, *, bold: bool = False):
@@ -125,33 +122,6 @@ def _class_codes(values: np.ndarray, bands: list[dict], key: str) -> np.ndarray:
     return np.searchsorted(maxima, values, side="left").astype("int16") + 1
 
 
-def _paint_raster(path: Path, meta: dict, bands: list[dict], key: str, size: tuple[int, int]):
-    with rasterio.open(path) as raster:
-        if raster.count != 1 or raster.crs is None:
-            raise ValueError("Cartographic source must be a one-band georeferenced raster")
-        bounds = (raster.bounds.left, raster.bounds.bottom, raster.bounds.right, raster.bounds.top)
-        declared = meta.get("bounds") or meta.get("bounding_box")
-        if declared is not None and not np.allclose(bounds, _bounds(declared), rtol=0, atol=1e-4):
-            raise ValueError("Artifact and declared GIS bounds differ")
-        if meta.get("crs") and CRS.from_user_input(meta["crs"]) != raster.crs:
-            raise ValueError("Artifact and declared CRS differ")
-        if meta.get("nodata") != raster.nodata:
-            raise ValueError("Artifact and declared nodata differ")
-        source = raster.read(1, masked=True)
-        valid = ~np.ma.getmaskarray(source)
-        observed = np.asarray(source.data, dtype=float)
-        if not valid.any() or not np.isfinite(observed[valid]).all():
-            raise ValueError("Map raster has no finite observed pixels")
-        codes = np.zeros(observed.shape, dtype="int16")
-        codes[valid] = _class_codes(observed[valid], bands, key)
-        rgba = np.zeros((raster.height, raster.width, 4), dtype="uint8")
-        for index, band in enumerate(bands, 1):
-            color = tuple(bytes.fromhex(band["color"][1:])) + (255,)
-            rgba[valid & (codes == index)] = color
-        image = Image.fromarray(rgba, "RGBA").resize(size, Image.Resampling.NEAREST)
-        return image, CRS.from_user_input(raster.crs), bounds
-
-
 def _paint_vector(path: Path, meta: dict, bands: list[dict], key: str, size: tuple[int, int]):
     raw = json.loads(path.read_text(encoding="utf-8"))
     if raw.get("type") != "FeatureCollection" or not raw.get("features"):
@@ -186,9 +156,11 @@ def _paint_vector(path: Path, meta: dict, bands: list[dict], key: str, size: tup
     return image, crs, bounds
 
 
-def _pixel(x: float, y: float, bounds, frame=_MAP):
-    return (frame[0] + (x - bounds[0]) / (bounds[2] - bounds[0]) * (frame[2] - frame[0]),
-            frame[1] + (bounds[3] - y) / (bounds[3] - bounds[1]) * (frame[3] - frame[1]))
+_DPI = 300
+_MAP_MAX = (1800, 1500)
+_MARGIN_LEFT, _MARGIN_TOP, _MARGIN_BOTTOM, _GAP, _PANEL = 230, 60, 120, 70, 560
+_RANGE_LABEL = re.compile(r"^\s*-?\d+(?:\.\d+)?\s*[–-]\s*-?\d+(?:\.\d+)?\s*$")
+_CLASS_VALUE_KEYS = {"flood_extent"}
 
 
 def _nice_step(span: float) -> float:
@@ -197,218 +169,284 @@ def _nice_step(span: float) -> float:
     return next(scale * magnitude for scale in (1, 2, 5, 10) if scale * magnitude >= value)
 
 
-def _graticule(draw: ImageDraw.ImageDraw, crs: CRS, bounds):
-    west, south, east, north = transform_bounds(crs, "EPSG:4326", *bounds, densify_pts=21)
-    to_map = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
-    font = _font(19)
-    for axis, low, high in (("lon", west, east), ("lat", south, north)):
+def _is_continuous(bands: list[dict]) -> bool:
+    return len(bands) > 1 and all(_RANGE_LABEL.match(band["label"]) for band in bands)
+
+
+def _rgb(color: str) -> tuple[int, int, int]:
+    return tuple(bytes.fromhex(color[1:]))
+
+
+def _ramp(t: np.ndarray, stops: list[str]) -> np.ndarray:
+    """Linear interpolation of colour stops over t in [0, 1]."""
+    colors = np.asarray([_rgb(stop) for stop in stops], dtype=float)
+    position = np.clip(t, 0, 1) * (len(colors) - 1)
+    low = np.floor(position).astype(int)
+    high = np.minimum(low + 1, len(colors) - 1)
+    weight = (position - low)[..., None]
+    return (colors[low] * (1 - weight) + colors[high] * weight).round().astype("uint8")
+
+
+def _read_raster(path: Path, meta: dict):
+    with rasterio.open(path) as raster:
+        if raster.count != 1 or raster.crs is None:
+            raise ValueError("Cartographic source must be a one-band georeferenced raster")
+        bounds = (raster.bounds.left, raster.bounds.bottom, raster.bounds.right, raster.bounds.top)
+        declared = meta.get("bounds") or meta.get("bounding_box")
+        if declared is not None and not np.allclose(bounds, _bounds(declared), rtol=0, atol=1e-4):
+            raise ValueError("Artifact and declared GIS bounds differ")
+        if meta.get("crs") and CRS.from_user_input(meta["crs"]) != raster.crs:
+            raise ValueError("Artifact and declared CRS differ")
+        if meta.get("nodata") != raster.nodata:
+            raise ValueError("Artifact and declared nodata differ")
+        source = raster.read(1, masked=True)
+        valid = ~np.ma.getmaskarray(source)
+        observed = np.asarray(source.data, dtype=float)
+        if not valid.any() or not np.isfinite(observed[valid]).all():
+            raise ValueError("Map raster has no finite observed pixels")
+        return observed, valid, CRS.from_user_input(raster.crs), bounds, raster.transform
+
+
+def _map_only_rgba(observed, valid, bands, key, continuous):
+    """Native-resolution RGBA of the layer only: no frame, text or legend; no data is transparent."""
+    rgba = np.zeros(observed.shape + (4,), dtype="uint8")
+    if continuous:
+        low, high = float(observed[valid].min()), float(observed[valid].max())
+        t = (observed - low) / (high - low) if high > low else np.zeros_like(observed)
+        rgba[..., :3] = _ramp(t, [band["color"] for band in bands])
+        rgba[..., 3] = np.where(valid, 255, 0)
+        return rgba, (low, high)
+    codes = np.zeros(observed.shape, dtype="int16")
+    codes[valid] = _class_codes(observed[valid], bands, key)
+    for index, band in enumerate(bands, 1):
+        rgba[valid & (codes == index)] = _rgb(band["color"]) + (255,)
+    return rgba, None
+
+
+def _fit(width: float, height: float) -> tuple[int, int]:
+    scale = min(_MAP_MAX[0] / width, _MAP_MAX[1] / height)
+    return max(1, round(width * scale)), max(1, round(height * scale))
+
+
+def _coordinate_labels(crs: CRS, bounds, box) -> list[dict]:
+    x0, y0, x1, y1 = box
+    west, south, east, north = bounds
+    labels = []
+    for axis, low, high in (("x", west, east), ("y", south, north)):
         step = _nice_step(high - low)
+        decimals = max(0, -math.floor(math.log10(step)))
         value = math.ceil(low / step) * step
-        while value <= high:
-            points = []
-            for other in np.linspace(south if axis == "lon" else west,
-                                     north if axis == "lon" else east, 65):
-                x, y = to_map.transform(value, other) if axis == "lon" else to_map.transform(other, value)
-                if math.isfinite(x) and math.isfinite(y):
-                    px, py = _pixel(x, y, bounds)
-                    if _MAP[0] <= px <= _MAP[2] and _MAP[1] <= py <= _MAP[3]:
-                        points.append((px, py))
-            if len(points) > 1:
-                draw.line(points, fill=(26, 73, 114, 75), width=2)
-                anchor = points[-1] if axis == "lon" else points[0]
-                label = f"{value:.3g}°" + ("E" if axis == "lon" and value >= 0 else
-                                          "W" if axis == "lon" else
-                                          "N" if value >= 0 else "S")
-                draw.text((min(max(anchor[0], _MAP[0] + 4), _MAP[2] - 95),
-                           min(max(anchor[1], _MAP[1] + 4), _MAP[3] - 25)),
-                          label, font=font, fill=_NAVY)
+        while value <= high + 1e-12:
+            if crs.is_geographic:
+                hemisphere = ("E" if value >= 0 else "W") if axis == "x" else ("N" if value >= 0 else "S")
+                text = f"{abs(value):.{decimals}f}°{hemisphere}"
+            else:
+                text = f"{value:,.{decimals}f} m {'E' if axis == 'x' else 'N'}"
+            position = (x0 + (value - west) / (east - west) * (x1 - x0)) if axis == "x" else (y0 + (north - value) / (north - south) * (y1 - y0))
+            labels.append({"axis": axis, "value": round(value, 10), "text": text, "position_px": position})
             value += step
-    return (west, south, east, north)
+    return labels
 
 
-def _north_and_scale(draw: ImageDraw.ImageDraw, crs: CRS, bounds):
-    midx, midy = (bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2
-    to_geo = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
-    from_geo = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
-    lon, lat = to_geo.transform(midx, midy)
-    north_x, north_y = from_geo.transform(lon, min(89.9, lat + 0.01))
-    dx, dy = north_x - midx, north_y - midy
-    length = math.hypot(dx, dy)
-    if not math.isfinite(length) or length <= 0:
-        raise ValueError("True north cannot be derived from the artifact CRS")
-    ux, uy = dx / length, -dy / length
-    base = (_MAP[2] - 95, _MAP[1] + 130)
-    tip = (base[0] + ux * 85, base[1] + uy * 85)
-    draw.line([base, tip], fill=_NAVY, width=8)
-    draw.polygon([tip, (tip[0] - uy * 14 - ux * 25, tip[1] + ux * 14 - uy * 25),
-                  (tip[0] + uy * 14 - ux * 25, tip[1] - ux * 14 - uy * 25)], fill=_NAVY)
-    draw.text((tip[0] - 14, tip[1] - 42), "N", font=_font(36, bold=True), fill=_NAVY)
-    # Geodesic distance at the scale-bar latitude, valid for projected and
-    # geographic CRSs; local scale is deliberately labelled approximate.
-    y = bounds[1] + 0.08 * (bounds[3] - bounds[1])
-    x0, x1 = bounds[0] + 0.08 * (bounds[2] - bounds[0]), bounds[0] + 0.34 * (bounds[2] - bounds[0])
-    lon0, lat0 = to_geo.transform(x0, y)
-    lon1, lat1 = to_geo.transform(x1, y)
-    distance = _GEOD.inv(lon0, lat0, lon1, lat1)[2]
-    if not math.isfinite(distance) or distance <= 0:
-        raise ValueError("Map scale cannot be derived from CRS/geodesy")
-    step = 10 ** math.floor(math.log10(distance))
-    nice = max(candidate for candidate in (step, 2 * step, 5 * step, 10 * step) if candidate <= distance)
-    px = (x1 - x0) / (bounds[2] - bounds[0]) * (_MAP[2] - _MAP[0]) * nice / distance
-    x, py = _pixel(x0, y, bounds)
-    draw.rectangle((x, py - 16, x + px / 2, py), fill=_NAVY)
-    draw.rectangle((x + px / 2, py - 16, x + px, py), fill="white", outline=_NAVY, width=2)
-    draw.line((x, py - 17, x + px, py - 17), fill=_NAVY, width=2)
-    label = f"0                 {nice / 1000:g} km" if nice >= 1000 else f"0                 {nice:g} m"
-    draw.text((x, py + 6), label + "  (approx. at bar latitude)", font=_font(18), fill=_NAVY)
-    return {"distance_m": nice, "bar_width_px": px, "method": "WGS84 geodesic at scale-bar latitude"}
+def _scale(bands, continuous, value_range, units, has_nodata) -> dict:
+    if continuous:
+        low, high = value_range
+        return {"kind": "gradient", "min": low, "max": high, "unit": units, "stops": [band["color"] for band in bands],
+                "labels": [f"{high:.2f}", f"{low:.2f}", units]}
+    classes = [{"label": band["label"], "color": band["color"]} for band in bands]
+    if has_nodata:
+        classes.append({"label": "No data", "color": "#FFFFFF"})
+    return {"kind": "class_key", "classes": classes}
 
 
-def _locator(draw: ImageDraw.ImageDraw, aoi_bounds):
-    box = (1580, 955, 2070, 1200)
-    draw.rounded_rectangle(box, radius=12, fill="white", outline="#8AA3B8", width=2)
-    draw.text((1600, 970), "GLOBAL LOCATION", font=_font(23, bold=True), fill=_NAVY)
-    globe = (1605, 1010, 2045, 1165)
-    draw.rectangle(globe, fill="#EAF3F8", outline=_GREY, width=2)
-    for longitude in (-120, -60, 0, 60, 120):
-        x = globe[0] + (longitude + 180) / 360 * (globe[2] - globe[0])
-        draw.line((x, globe[1], x, globe[3]), fill="#B9CFDC", width=1)
-    for latitude in (-60, -30, 0, 30, 60):
-        y = globe[1] + (90 - latitude) / 180 * (globe[3] - globe[1])
-        draw.line((globe[0], y, globe[2], y), fill="#B9CFDC", width=1)
-    lon, lat = (aoi_bounds[0] + aoi_bounds[2]) / 2, (aoi_bounds[1] + aoi_bounds[3]) / 2
-    x = globe[0] + (lon + 180) / 360 * (globe[2] - globe[0])
-    y = globe[1] + (90 - lat) / 180 * (globe[3] - globe[1])
-    draw.ellipse((x - 8, y - 8, x + 8, y + 8), fill="#D00000", outline="white", width=2)
-    draw.text((1605, 1175), f"AOI center {lat:.3f}°, {lon:.3f}° - schematic locator",
-              font=_font(17), fill=_GREY)
-
-
-def _wrapped(draw, text: str, x: int, y: int, width: int, font, *, fill=_NAVY, line_height=31):
-    words = text.split()
-    line = ""
-    for word in words:
-        trial = f"{line} {word}".strip()
-        if draw.textlength(trial, font=font) <= width:
-            line = trial
+def _draw_png(map_rgba: Image.Image, box, sheet_size, labels, scale) -> Image.Image:
+    sheet = Image.new("RGB", sheet_size, "white")
+    sheet.paste(map_rgba, (box[0], box[1]), map_rgba)
+    draw = ImageDraw.Draw(sheet)
+    draw.rectangle(box, outline="black", width=3)
+    font = _font(34)
+    for label in labels:
+        if label["axis"] == "x":
+            x = label["position_px"]
+            draw.line((x, box[3], x, box[3] + 18), fill="black", width=3)
+            draw.text((x, box[3] + 24), label["text"], font=font, fill="black", anchor="ma")
         else:
-            draw.text((x, y), line, font=font, fill=fill)
-            y += line_height
-            line = word
-    if line:
-        draw.text((x, y), line, font=font, fill=fill)
-        y += line_height
-    return y
+            y = label["position_px"]
+            draw.line((box[0] - 18, y, box[0], y), fill="black", width=3)
+            draw.text((box[0] - 24, y), label["text"], font=font, fill="black", anchor="rm")
+    panel_x = box[2] + _GAP
+    if scale["kind"] == "gradient":
+        height = min(box[3] - box[1], 900)
+        ramp = _ramp(np.linspace(1, 0, height), scale["stops"])
+        sheet.paste(Image.fromarray(np.repeat(ramp[:, None, :], 70, axis=1), "RGB"), (panel_x, box[1]))
+        draw.rectangle((panel_x, box[1], panel_x + 70, box[1] + height), outline="black", width=2)
+        draw.text((panel_x + 90, box[1]), scale["labels"][0], font=font, fill="black", anchor="lm")
+        draw.text((panel_x + 90, box[1] + height), scale["labels"][1], font=font, fill="black", anchor="lm")
+        draw.text((panel_x, box[1] + height + 30), scale["labels"][2], font=font, fill="black")
+    else:
+        for index, item in enumerate(scale["classes"]):
+            y = box[1] + index * 70
+            draw.rectangle((panel_x, y, panel_x + 60, y + 44), fill=item["color"], outline="black", width=2)
+            draw.text((panel_x + 80, y + 22), item["label"], font=font, fill="black", anchor="lm")
+    return sheet
+
+
+def _draw_pdf(path: Path, map_rgba: Image.Image, box, sheet_size, labels, scale, title: str):
+    pt = 72 / _DPI
+    width, height = sheet_size
+    flip = lambda y: (height - y) * pt  # noqa: E731
+    pdf = canvas.Canvas(str(path), pagesize=(width * pt, height * pt))
+    pdf.setTitle(title)
+    background = Image.new("RGB", map_rgba.size, "white")
+    background.paste(map_rgba, (0, 0), map_rgba)
+    pdf.drawImage(ImageReader(background), box[0] * pt, flip(box[3]), width=(box[2] - box[0]) * pt, height=(box[3] - box[1]) * pt)
+    pdf.setLineWidth(0.8)
+    pdf.rect(box[0] * pt, flip(box[3]), (box[2] - box[0]) * pt, (box[3] - box[1]) * pt)
+    pdf.setFont("Helvetica", 8)
+    for label in labels:
+        if label["axis"] == "x":
+            x = label["position_px"] * pt
+            pdf.line(x, flip(box[3]), x, flip(box[3] + 18))
+            pdf.drawCentredString(x, flip(box[3] + 50), label["text"])
+        else:
+            y = flip(label["position_px"])
+            pdf.line((box[0] - 18) * pt, y, box[0] * pt, y)
+            pdf.drawRightString((box[0] - 24) * pt, y - 3, label["text"])
+    panel_x = (box[2] + _GAP) * pt
+    if scale["kind"] == "gradient":
+        bar = min(box[3] - box[1], 900)
+        steps = 100
+        colors = _ramp(np.linspace(1, 0, steps), scale["stops"])
+        for index, color in enumerate(colors):
+            pdf.setFillColorRGB(*(channel / 255 for channel in color))
+            pdf.rect(panel_x, flip(box[1] + (index + 1) * bar / steps), 70 * pt, bar / steps * pt + 0.2, stroke=0, fill=1)
+        pdf.setFillColorRGB(0, 0, 0)
+        pdf.rect(panel_x, flip(box[1] + bar), 70 * pt, bar * pt, stroke=1, fill=0)
+        pdf.drawString(panel_x + 90 * pt, flip(box[1]) - 3, scale["labels"][0])
+        pdf.drawString(panel_x + 90 * pt, flip(box[1] + bar) - 3, scale["labels"][1])
+        pdf.drawString(panel_x, flip(box[1] + bar + 60), scale["labels"][2])
+    else:
+        for index, item in enumerate(scale["classes"]):
+            y = box[1] + index * 70
+            pdf.setFillColorRGB(*(channel / 255 for channel in _rgb(item["color"])))
+            pdf.rect(panel_x, flip(y + 44), 60 * pt, 44 * pt, stroke=1, fill=1)
+            pdf.setFillColorRGB(0, 0, 0)
+            pdf.drawString(panel_x + 80 * pt, flip(y + 30), item["label"])
+    pdf.showPage()
+    pdf.save()
+
+
+def _qml(bands, continuous, value_range, class_values) -> str:
+    from xml.sax.saxutils import quoteattr
+    if class_values is not None:
+        entries = "".join(f'<paletteEntry value="{value}" color="{band["color"].lower()}" alpha="255" label={quoteattr(band["label"])}/>'
+                          for value, band in zip(class_values, bands))
+        renderer = f'<rasterrenderer type="paletted" band="1" opacity="1" alphaBand="-1"><colorPalette>{entries}</colorPalette></rasterrenderer>'
+    else:
+        low, high = value_range if value_range else (0.0, 1.0)
+        mode = "INTERPOLATED" if continuous else "DISCRETE"
+        values = np.linspace(low, high, len(bands)) if continuous else [band["max"] if band["max"] is not None else high for band in bands]
+        items = "".join(f'<item value="{float(value)!r}" color="{band["color"].lower()}" alpha="255" label={quoteattr(band["label"])}/>'
+                        for value, band in zip(values, bands))
+        renderer = (f'<rasterrenderer type="singlebandpseudocolor" band="1" opacity="1" alphaBand="-1" classificationMin="{low!r}" classificationMax="{high!r}">'
+                    f'<rastershader><colorrampshader colorRampType="{mode}" clip="0">{items}</colorrampshader></rastershader></rasterrenderer>')
+    return f'<qgis version="3.28" styleCategories="Symbology"><pipe>{renderer}</pipe></qgis>\n'
+
+
+def _clr(bands, continuous, value_range, class_values) -> str:
+    if class_values is not None:
+        pairs = zip(class_values, bands)
+    else:
+        low, high = value_range if value_range else (0.0, 1.0)
+        pairs = zip(np.linspace(low, high, len(bands)), bands)
+    return "\n".join(f"{value:g} {' '.join(str(channel) for channel in _rgb(band['color']))}" for value, band in pairs) + "\n"
+
+
+def _readme(key: str, title: str, meta: dict, provenance: dict, continuous: bool, crs: CRS) -> str:
+    from app.services.reporting.data_sources import credit, datasets_with_companions
+    lines = [f"{title} ({key})", "",
+             f"{key}.png  map-only image at the delivered raster grid; no data is transparent.",
+             f"{key}.pgw / {key}.prj  world file and projection, so the PNG opens georeferenced in GIS software.",
+             f"{key}.qml (QGIS) / {key}.clr (ArcGIS)  colour styles for the delivered GeoTIFF/COG of this product.", "",
+             f"CRS: {crs.to_string()}", f"Units: {meta.get('units', 'not recorded')}",
+             f"Representation: {'continuous values' if continuous else 'classes'}"]
+    for name, label in (("target_period", "Target period"), ("baseline_period", "Baseline period")):
+        period = provenance.get(name) or {}
+        if period.get("start") and period.get("end"):
+            lines.append(f"{label}: {period['start']} to {period['end']} (end-exclusive)")
+    lines += ["", "Credits:"] + [f"- {credit(dataset)}" for dataset in dict.fromkeys(datasets_with_companions(provenance))]
+    return "\n".join(lines) + "\n"
 
 
 def _render(output_directory: Path, key: str, entry: dict, provenance: dict, version: int):
     source = _source(output_directory, entry)
     meta = entry.get("gis_metadata") or {}
     bands = _legend(meta.get("legend") or (entry.get("layer") or {}).get("legend"))
-    map_size = (_MAP[2] - _MAP[0], _MAP[3] - _MAP[1])
-    if entry.get("artifact_type") == "raster":
-        layer, crs, bounds = _paint_raster(source, meta, bands, key, map_size)
-    elif entry.get("artifact_type") == "vector":
-        layer, crs, bounds = _paint_vector(source, meta, bands, key, map_size)
-    else:
-        raise ValueError("Map source must be a raster or polygon layer")
-    sheet = Image.new("RGB", _SIZE, "#F5F8FB")
-    draw = ImageDraw.Draw(sheet, "RGBA")
-    draw.rectangle((0, 0, _SIZE[0], 135), fill=_NAVY)
     title = str(meta.get("display_label") or key.replace("_", " ").title())
-    draw.text((100, 42), title, font=_font(49, bold=True), fill="white")
-    draw.text((1500, 65), f"FIRRIS  •  Result version {version}", font=_font(26), fill="white")
-    draw.rectangle(_MAP, fill="white", outline=_NAVY, width=5)
-    sheet.paste(layer, (_MAP[0], _MAP[1]), layer)
-    draw = ImageDraw.Draw(sheet, "RGBA")
-    geographic = _graticule(draw, crs, bounds)
-    scale_info = _north_and_scale(draw, crs, bounds)
-    draw.rectangle(_MAP, outline=_NAVY, width=5)  # neatline
-    draw.rounded_rectangle((1540, 180, 2110, 920), radius=16, fill="white", outline="#A9BDCE", width=2)
-    draw.text((1580, 215), "LEGEND", font=_font(30, bold=True), fill=_NAVY)
-    y = 270
-    for band in bands:
-        draw.rectangle((1585, y, 1635, y + 36), fill=band["color"], outline=_NAVY, width=1)
-        y = _wrapped(draw, band["label"], 1655, y + 2, 400, _font(23), line_height=29) + 16
-    period = meta.get("target_period") or meta.get("analysis_period")
-    if isinstance(period, dict):
-        period_label = f"{period.get('start', 'unknown')} to {period.get('end', 'unknown')}"
+    continuous = _is_continuous(bands)
+    entries: dict[str, dict] = {}
+    if entry.get("artifact_type") == "raster":
+        observed, valid, crs, bounds, transform = _read_raster(source, meta)
+        rgba, value_range = _map_only_rgba(observed, valid, bands, key, continuous)
+        native = Image.fromarray(rgba, "RGBA")
+        map_size = _fit(*native.size)
+        has_nodata = True
     else:
-        period_label = "not supplied"
-    horizontal_datum = crs.datum.name
-    vertical_datum = meta.get("vertical_datum") or meta.get("source_dem_vertical_datum")
-    if vertical_datum is None and meta.get("datum") not in (None, horizontal_datum):
-        vertical_datum = meta["datum"]
-    operation = crs.coordinate_operation
-    if operation is None:
-        projection = "Geographic (unprojected)"
+        continuous = False
+        value_range = None
+        probe, crs, bounds = _paint_vector(source, meta, bands, key, (100, 100))
+        map_size = _fit(bounds[2] - bounds[0], bounds[3] - bounds[1])
+        native = None
+        has_nodata = False
+    if entry.get("artifact_type") == "raster":
+        map_image = native.resize(map_size, Image.Resampling.NEAREST)
     else:
-        projection = operation.name
-        if not projection or projection.lower() == "unnamed":
-            projection = operation.method_name or crs.name
-    details = [
-        f"Units: {meta.get('units') or (entry.get('layer') or {}).get('units') or 'not supplied'}",
-        f"CRS: {crs.to_string()}",
-        f"Horizontal datum: {horizontal_datum}",
-        f"Vertical datum: {vertical_datum or 'not applicable / not supplied'}",
-        f"Projection: {projection}",
-        f"Nodata: {meta.get('nodata', 'not applicable')}",
-        f"Period: {period_label}",
-        f"Acquisition: {meta.get('acquisition_date') or 'not supplied'}",
-        f"Producer: {meta.get('producer') or provenance.get('producer') or 'not supplied'}",
-    ]
-    y = max(y + 25, 590)
-    for line in details:
-        y = _wrapped(draw, line, 1580, y, 495, _font(18), line_height=24) + 4
-    aoi_bounds = _bounds(meta.get("aoi_bounds_wgs84") or geographic)
-    _locator(draw, aoi_bounds)
-    draw.line((100, 1300, 2100, 1300), fill="#A9BDCE", width=3)
-    created = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    digest = hashlib.sha256(json.dumps(provenance, sort_keys=True, default=str).encode()).hexdigest()
-    notes = [
-        f"Created: {created}   |   AOI WGS84: {aoi_bounds[0]:.4f}, {aoi_bounds[1]:.4f}, {aoi_bounds[2]:.4f}, {aoi_bounds[3]:.4f}",
-        f"Source artifact SHA-256: {entry['checksum_sha256']}   |   Provenance SHA-256: {digest}",
-        "Source QA, uncertainty, units, nodata and full lineage are preserved in the protected Result package.",
-    ]
-    method = meta.get("zone_break_policy") or meta.get("methodology") or ""
-    if method:
-        notes.append(f"Method: {method}")
-    for line_no, line in enumerate(notes):
-        _wrapped(draw, line, 105, 1320 + line_no * 47, 1990, _font(21), line_height=27)
-    png = output_directory / f"{key}-cartographic-map.png"
-    pdf = output_directory / f"{key}-cartographic-map.pdf"
-    png_meta = PngImagePlugin.PngInfo()
-    layout = {"title": title, "neatline": True, "north_arrow": "true north from CRS",
-              "scale_bar": scale_info, "graticule": True, "locator": "global WGS84 graticule with AOI center",
-              "labelled_coordinates": True, "created_at": created, "projection": projection,
-              "horizontal_datum": horizontal_datum, "vertical_datum": vertical_datum,
-              "source_artifact_sha256": entry["checksum_sha256"], "provenance_sha256": digest}
-    png_meta.add_text("NOVA_GIS_METADATA", json.dumps({"source": meta, "cartography": layout},
-                                                     sort_keys=True, default=str))
-    sheet.save(png, pnginfo=png_meta, optimize=True)
-    pdf_canvas = canvas.Canvas(str(pdf), pagesize=(1100, 775))
-    pdf_canvas.drawImage(ImageReader(sheet), 0, 0, width=1100, height=775)
-    pdf_canvas.setTitle(title)
-    pdf_canvas.setAuthor(str(meta.get("producer") or provenance.get("producer") or "NOVA GeoRisk"))
-    pdf_canvas.setSubject(f"Protected FIRRIS cartographic export; source SHA-256 {entry['checksum_sha256']}")
-    pdf_canvas.showPage()
-    pdf_canvas.save()
+        map_image, _, _ = _paint_vector(source, meta, bands, key, map_size)
+    box = (_MARGIN_LEFT, _MARGIN_TOP, _MARGIN_LEFT + map_size[0], _MARGIN_TOP + map_size[1])
+    scale = _scale(bands, continuous, value_range, str(meta.get("units", "")), has_nodata)
+    panel_height = 960 if scale["kind"] == "gradient" else 70 * len(scale["classes"])
+    sheet_size = (box[2] + _GAP + _PANEL, max(box[3], box[1] + panel_height) + _MARGIN_BOTTOM)
+    labels = _coordinate_labels(crs, bounds, box)
+    created = datetime.now(timezone.utc).isoformat()
+    layout = {"style": "simple framed map (client decision D5)", "title": title,
+              "elements": ["map", "neatline", "coordinate_labels", "colour_scale"],
+              "map_box_px": list(box), "sheet_px": list(sheet_size), "dpi": _DPI, "crs": crs.to_string(), "bounds": list(bounds),
+              "coordinate_labels": [{k: v for k, v in label.items() if k != "position_px"} for label in labels],
+              "colour_scale": scale, "created_at": created, "source_artifact_sha256": entry["checksum_sha256"],
+              "provenance_sha256": hashlib.sha256(json.dumps(provenance, sort_keys=True, default=str).encode()).hexdigest()}
+    png = output_directory / f"{key}-map.png"
+    pdf = output_directory / f"{key}-map.pdf"
+    info = PngImagePlugin.PngInfo()
+    info.add_text("NOVA_GIS_METADATA", json.dumps({"source": meta, "cartography": layout}, sort_keys=True, default=str))
+    _draw_png(map_image, box, sheet_size, labels, scale).save(png, pnginfo=info, dpi=(_DPI, _DPI), optimize=True)
+    _draw_pdf(pdf, map_image, box, sheet_size, labels, scale, title)
     carto_meta = {**meta, "cartography": layout}
-    return {
-        f"{key}_map_png": artifact_entry(png, label=f"{title} cartographic map PNG",
-            media_type="image/png", artifact_type="report", result_version=version,
-            role="export", product_key=key, delivery_type="map_png", format_name="png",
-            gis_metadata=carto_meta),
-        f"{key}_map_pdf": artifact_entry(pdf, label=f"{title} cartographic map PDF",
-            media_type="application/pdf", artifact_type="report", result_version=version,
-            role="export", product_key=key, delivery_type="map_pdf", format_name="pdf",
-            gis_metadata=carto_meta),
-    }
+    entries[f"{key}_map_png"] = artifact_entry(png, label=f"{title} map PNG (framed, 300 dpi)", media_type="image/png",
+        artifact_type="report", result_version=version, role="export", product_key=key, delivery_type="map_png", format_name="png", gis_metadata=carto_meta)
+    entries[f"{key}_map_pdf"] = artifact_entry(pdf, label=f"{title} map PDF (framed)", media_type="application/pdf",
+        artifact_type="report", result_version=version, role="export", product_key=key, delivery_type="map_pdf", format_name="pdf", gis_metadata=carto_meta)
+    if native is not None:
+        class_values = [0, 1] if key in _CLASS_VALUE_KEYS else (list(range(1, len(bands) + 1)) if key == "flood_hazard_zonation" else None)
+        package = output_directory / f"{key}-gis-layer.zip"
+        buffer = BytesIO()
+        native.save(buffer, format="PNG")
+        world = [transform.a, transform.d, transform.b, transform.e, transform.c + transform.a / 2, transform.f + transform.e / 2]
+        with zipfile.ZipFile(package, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr(f"{key}.png", buffer.getvalue())
+            archive.writestr(f"{key}.pgw", "\n".join(repr(float(value)) for value in world) + "\n")
+            archive.writestr(f"{key}.prj", crs.to_wkt("WKT1_GDAL") + "\n")
+            archive.writestr(f"{key}.qml", _qml(bands, continuous, value_range, class_values))
+            archive.writestr(f"{key}.clr", _clr(bands, continuous, value_range, class_values))
+            archive.writestr("README.txt", _readme(key, title, meta, provenance, continuous, crs))
+        entries[f"{key}_gis_layer"] = artifact_entry(package, label=f"{title} GIS-ready layer (PNG + world file + QGIS/ArcGIS styles)",
+            media_type="application/zip", artifact_type="report", result_version=version, role="export", product_key=key,
+            delivery_type="gis_layer_zip", format_name="zip", gis_metadata={"crs": crs.to_string(), "bounds": list(bounds), "units": meta.get("units")})
+    return entries
 
 
 def build_cartographic_exports(output_directory: Path, *, product_entries: dict[str, dict],
                                provenance: dict, result_version: int) -> dict[str, dict]:
-    """Render at most one final map per supported product key."""
+    """Render at most one simple framed map (and GIS-ready layer) per supported product key."""
     grouped: dict[str, list[tuple[str, dict]]] = {}
     for name, entry in product_entries.items():
         key = entry.get("product_key")

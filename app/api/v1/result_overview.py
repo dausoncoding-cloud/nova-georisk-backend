@@ -8,19 +8,12 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from app.services.reporting.data_sources import SOURCES, credit, datasets_with_companions
+
 DEFAULT_MINIMUM_COVERAGE_PCT = 70.0  # pipeline default when a result did not record its gate value
 DEFAULT_MAX_CLOUD_PCT = 20.0
 INDEPENDENT_THRESHOLD = "compliant Sentinel-2 at both dates; ≥ 50 eligible pixels per class"
 OPTICAL_BANDS = {"source_mndwi_target", "source_mndwi_baseline", "optical_reference"}
-SOURCES = {
-    "COPERNICUS/S1_GRD": ("SAR backscatter, target and baseline (model features and screening labels)", "10 m (IW GRD)", "copernicus"),
-    "COPERNICUS/S2_SR_HARMONIZED": ("Optical surface reflectance (MNDWI) for the independent reference only", "10–20 m", "copernicus"),
-    "UCSB-CHG/CHIRPS/DAILY": ("Daily rainfall over the target window", "0.05° (~5.5 km)", "CHIRPS, UC Santa Barbara Climate Hazards Center"),
-    "USGS/SRTMGL1_003": ("Elevation and slope", "1 arc-second (~30 m)", "SRTM, NASA/USGS"),
-    "JAXA/ALOS/AW3D30/V3_2": ("Elevation and slope", "1 arc-second (~30 m)", "ALOS World 3D-30m, JAXA"),
-    "JRC/GSW1_4/GlobalSurfaceWater": ("Historical surface-water occurrence (permanent-water exclusion)", "30 m", "JRC Global Surface Water v1.4, EC JRC / Google"),
-    "JRC/GSW1_4/Metadata": ("JRC observation footprint (valid_obs) bounding the never-water correction", "30 m", "JRC Global Surface Water v1.4, EC JRC / Google"),
-}
 SCENE_COLLECTIONS = {
     "COPERNICUS/S1_GRD": ("sentinel_1_target", "sentinel_1_baseline"),
     "COPERNICUS/S2_SR_HARMONIZED": ("sentinel_2_target", "sentinel_2_baseline"),
@@ -133,17 +126,12 @@ def _quality_gates(summary: dict, quality: dict, provenance: dict) -> list[dict[
 
 
 def _data_sources(quality: dict, provenance: dict) -> list[dict[str, Any]]:
-    datasets = list(provenance.get("datasets") or [])
-    if "JRC/GSW1_4/GlobalSurfaceWater" in datasets and provenance.get("science_version") == "firris-science-2":
-        datasets.append("JRC/GSW1_4/Metadata")
     sources = []
-    for dataset in datasets:
-        role, resolution, credit = SOURCES.get(dataset, ("Source dataset", "not recorded", dataset))
+    for dataset in datasets_with_companions(provenance):
+        role, resolution, _ = SOURCES.get(dataset, ("Source dataset", "not recorded", dataset))
         dates = sorted({scene["acquired_at"] for scene in _scenes(quality, *SCENE_COLLECTIONS.get(dataset, ())) if scene.get("acquired_at")})
-        if credit == "copernicus":
-            years = sorted({value[:4] for value in dates})
-            credit = f"Contains modified Copernicus Sentinel data {', '.join(years)}" if years else "Contains modified Copernicus Sentinel data"
-        sources.append({"dataset": dataset, "role": role, "resolution": resolution, "scene_dates": dates, "credit": credit})
+        sources.append({"dataset": dataset, "role": role, "resolution": resolution, "scene_dates": dates,
+                        "credit": credit(dataset, sorted({value[:4] for value in dates}))})
     return sources
 
 

@@ -55,22 +55,25 @@ def test_metadata_driven_map_pdf_png_are_protected_package_exports(tmp_path):
     pdf_entry = output["flood_hazard_zonation_map_pdf"]
     assert pdf_entry["media_type"] == "application/pdf"
     assert (tmp_path / pdf_entry["path"]).read_bytes().startswith(b"%PDF")
-    assert png_entry["gis_metadata"]["cartography"]["scale_bar"]["distance_m"] > 0
-    assert png_entry["gis_metadata"]["cartography"]["horizontal_datum"]
+    cartography = png_entry["gis_metadata"]["cartography"]
+    # Client decisions D1/D5: map, neatline, frame coordinates and right-hand colour scale only.
+    assert cartography["elements"] == ["map", "neatline", "coordinate_labels", "colour_scale"]
+    for absent in ("scale_bar", "north_arrow", "locator", "graticule"):
+        assert absent not in cartography
     assert png_entry["gis_metadata"]["vertical_datum"] == "reviewed-MSL"
     with Image.open(tmp_path / png_entry["path"]) as image:
-        assert image.size == (2200, 1550)
-        assert image.getpixel((10, 10)) == (16, 42, 67)  # title band
-        assert image.getpixel((115, 180)) == (16, 42, 67)  # map neatline
-        assert image.getpixel((1600, 285))[:3] == (18, 90, 124)  # first legend class
+        x0, y0, x1, y1 = cartography["map_box_px"]
+        assert image.size == tuple(cartography["sheet_px"])
+        assert image.getpixel((x0, (y0 + y1) // 2))[:3] == (0, 0, 0)  # neatline
+        assert image.getpixel((10, 10))[:3] == (255, 255, 255)  # no title band
         embedded = json.loads(image.info["NOVA_GIS_METADATA"])
         assert embedded["source"]["crs"] == "EPSG:3857"
         assert embedded["source"]["zone_break_policy"].endswith("safety standard")
         assert embedded["cartography"]["source_artifact_sha256"] == entry["checksum_sha256"]
-        assert embedded["cartography"]["projection"].lower() != "unnamed"
-        assert embedded["cartography"]["north_arrow"] == "true north from CRS"
-        assert embedded["cartography"]["graticule"] is True
-        assert embedded["cartography"]["labelled_coordinates"] is True
+        assert embedded["cartography"]["colour_scale"]["kind"] == "class_key"
+        assert [item["label"] for item in embedded["cartography"]["colour_scale"]["classes"]][:5] == [
+            "Relative very low", "Relative low", "Relative moderate", "Relative high", "Relative very high"]
+        assert all(label["text"].endswith((" m E", " m N")) for label in embedded["cartography"]["coordinate_labels"])
     with zipfile.ZipFile(tmp_path / output["report_package"]["path"]) as archive:
         assert f"reports/{png_entry['path']}" in archive.namelist()
         assert f"reports/{pdf_entry['path']}" in archive.namelist()
