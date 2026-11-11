@@ -12,6 +12,11 @@ MAX_SCENES = 500
 
 def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_cloud=100, collection_id=None):
     count = int(collection.size().getInfo())
+    if count == 0 and sensor == "Sentinel-2":
+        raise ValueError(
+            f"No compliant optical scene in the requested window "
+            f"(cloud <= {max_cloud:g}% and degraded MSI = 0% required)"
+        )
     if not 1 <= count <= MAX_SCENES:
         raise ValueError("Required collection is empty or exceeds bounded per-scene QA limit")
     images = collection.toList(count).getInfo()

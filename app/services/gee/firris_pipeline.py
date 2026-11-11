@@ -156,7 +156,7 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
     auth.initialize_gee()
     aoi = ingestion.build_aoi_geometry(aoi_geometry)
     s2 = ingestion.get_sentinel2_collection(
-        aoi, target["start"], target["end"], max_cloud_pct=max_cloud
+        aoi, target["start"], target["end"], max_cloud_pct=max_cloud, require_zero_degraded_msi=True
     )
     s1_target = ingestion.get_sentinel1_collection(aoi, target["start"], target["end"])
     s1_baseline = ingestion.get_sentinel1_collection(aoi, baseline["start"], baseline["end"])

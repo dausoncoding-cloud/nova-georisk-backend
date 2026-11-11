@@ -40,15 +40,24 @@ def get_sentinel2_collection(
     start_date: str,
     end_date: str,
     max_cloud_pct: float = CLOUD_THRESHOLD_LAND_COVER,
+    *,
+    require_zero_degraded_msi: bool = False,
 ) -> ee.ImageCollection:
-    """Sentinel-2 Surface Reflectance, filtered by AOI/date/cloud cover — Doc 0 steps 7-8."""
-    return (
+    """Sentinel-2 Surface Reflectance, filtered by AOI/date/cloud cover — Doc 0 steps 7-8.
+
+    With ``require_zero_degraded_msi`` the provider query also excludes scenes whose
+    ``DEGRADED_MSI_DATA_PERCENTAGE`` is non-zero, so a single degraded scene in the
+    window is left out instead of vetoing the run. The 0% policy is unchanged.
+    """
+    collection = (
         ee.ImageCollection(SENTINEL2_COLLECTION)
         .filterBounds(aoi)
         .filterDate(start_date, end_date)
         .filter(ee.Filter.lte("CLOUDY_PIXEL_PERCENTAGE", max_cloud_pct))
-        .sort("CLOUDY_PIXEL_PERCENTAGE")
     )
+    if require_zero_degraded_msi:
+        collection = collection.filter(ee.Filter.eq("DEGRADED_MSI_DATA_PERCENTAGE", 0))
+    return collection.sort("CLOUDY_PIXEL_PERCENTAGE")
 
 
 def get_landsat_collection(
