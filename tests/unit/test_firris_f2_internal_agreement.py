@@ -135,3 +135,20 @@ def test_other_report_callers_keep_their_heading(tmp_path):
                                       index_summaries=[IndexSummary(name="FRI", mean=0.5, min=0.1, max=0.9, classification="Moderate")]), str(path))
     text = " ".join("".join(page.extract_text() or "" for page in PdfReader(path).pages).split())
     assert "Flood Risk Index Summary" in text
+
+
+def test_api_response_omits_unset_bundle1_dashboard_fields_and_round_trips_stored_dashboards():
+    stored = dict(LEGACY_DASHBOARD)
+    payload = ResultResponse.model_validate(_result(dict(stored))).model_dump(mode="json")
+    assert payload["validation_dashboard"] == stored
+    assert "reference_basis" not in payload["validation_dashboard"]
+    assert "independent_validation" not in payload["validation_dashboard"]
+    with_fields = {**stored, "reference_basis": _basis(), "independent_validation": "not_performed"}
+    payload = ResultResponse.model_validate(_result(dict(with_fields))).model_dump(mode="json")
+    assert payload["validation_dashboard"] == with_fields
+
+
+def test_result_endpoint_json_equals_stored_dashboard(monkeypatch):
+    from fastapi.encoders import jsonable_encoder
+    response = ResultResponse.model_validate(_result(dict(LEGACY_DASHBOARD)))
+    assert jsonable_encoder(response)["validation_dashboard"] == LEGACY_DASHBOARD

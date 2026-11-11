@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_serializer, model_validator
 from app.schemas.strict import StrictModel
 
 
@@ -176,6 +176,16 @@ class ValidationDashboard(StrictModel):
     # Optional so results stored before Bundle 1 still validate.
     reference_basis: ReferenceBasis | None = None
     independent_validation: IndependentValidationStatus | None = None
+
+    @model_serializer(mode='wrap')
+    def _omit_unset_bundle1_fields(self, handler):
+        """Leave the two optional Bundle 1 fields out when unset, so dashboards stored without
+        them (other engines, legacy FIRRIS results) are returned exactly as stored."""
+        data = handler(self)
+        for key in ('reference_basis', 'independent_validation'):
+            if isinstance(data, dict) and data.get(key) is None:
+                data.pop(key, None)
+        return data
 
 
 class DecisionSupportDashboard(StrictModel):
