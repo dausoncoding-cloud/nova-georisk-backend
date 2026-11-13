@@ -51,8 +51,13 @@ _MODEL_SCORE_SEMANTICS = ("Fraction of classifier votes (score) for the SAR scre
                           "not a probability of flooding; not annual exceedance probability (AEP) or return period.")
 
 
+FLOOD_CANDIDATE_EXTENT = "Flood-candidate extent (model-classified)"
+
+
 def satellite_display_label(product: str, algorithm: str | None = "random_forest") -> str:
     """Client-facing name of a satellite-workflow product. API keys are unchanged."""
+    if product == "flood_extent":
+        return FLOOD_CANDIDATE_EXTENT  # F3: a model classification, not an attributed flood event
     if product == "flood_probability":
         if algorithm in (None, "random_forest"):
             return "Model confidence score (Random Forest vote fraction)"
@@ -299,7 +304,7 @@ class FIRRISEngineAdapter(EngineAdapter):
             bounds = context.gis_metadata["bounding_box"]
             west, south, east, north = transform_bounds(context.gis_metadata["crs"], "EPSG:4326", bounds["west"], bounds["south"], bounds["east"], bounds["north"], densify_pts=21)
             vector_layer = {**layer, "layer_type": "vector", "crs": "EPSG:4326", "bounding_box": {"west": west, "south": south, "east": east, "north": north}, "spatial_resolution": None, "nodata": None}
-            entries["flood_extent_vector"] = artifact_entry(vector_path, label="Flood Extent vector", media_type="application/geo+json", artifact_type="vector", result_version=context.result_version, role="product", product_key=product, delivery_type="vector", format_name="geojson", gis_metadata={**product_metadata, "crs": "EPSG:4326", "bounding_box": vector_layer["bounding_box"]}, layer=vector_layer)
+            entries["flood_extent_vector"] = artifact_entry(vector_path, label=f"{FLOOD_CANDIDATE_EXTENT} vector", media_type="application/geo+json", artifact_type="vector", result_version=context.result_version, role="product", product_key=product, delivery_type="vector", format_name="geojson", gis_metadata={**product_metadata, "crs": "EPSG:4326", "bounding_box": vector_layer["bounding_box"]}, layer=vector_layer)
         return entries
 
     def _accuracy_table_exports(self, context: EngineExecutionContext, assessment: dict[str, Any]) -> dict[str, dict[str, Any]]:

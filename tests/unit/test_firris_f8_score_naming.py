@@ -46,7 +46,7 @@ def test_non_default_algorithm_is_not_called_a_random_forest_vote_fraction():
     assert satellite_display_label("flood_probability", "random_forest") == MODEL_SCORE_LABEL
     label = satellite_display_label("flood_probability", "xgboost")
     assert label.startswith("Model confidence score") and "Random Forest" not in label
-    assert satellite_display_label("flood_extent", "random_forest") == "Flood Extent"
+    assert satellite_display_label("flood_extent", "random_forest") == "Flood-candidate extent (model-classified)"
 
 
 def test_cartographic_title_uses_display_label_not_product_key(tmp_path):
