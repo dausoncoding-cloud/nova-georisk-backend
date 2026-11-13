@@ -79,7 +79,7 @@ Growing square AOIs centred on Manyoni (same dates, 12-band contract plus 12 val
 - The Kilosa AOI (20.2 M px) is ~37× over this limit.
 - The provider error surfaces as `ee.EEException` (raised from `HttpError 400`). It is **not** caught by `fetch_feature_stack`, so it currently reaches the user as the generic failure message. Plan items 4.2 and 4.6 are updated accordingly.
 
-## 5. Sentinel-2 degraded-MSI finding (no change made)
+## 5. Sentinel-2 degraded-MSI finding (gate changed by client decision D6)
 
 Compliant scenes (cloud ≤ 20%) intersecting each AOI, January 2019 – June 2025, by ESA processing baseline:
 
@@ -94,11 +94,11 @@ Compliant scenes (cloud ≤ 20%) intersecting each AOI, January 2019 – June 20
 - **Consequences.**
   - It explains why scene QA failed for 80 of 101 eligible Kilosa 2023 scenes (verification §11.2).
   - Since 1.7, the run continues without Sentinel-2. For most post-2022 events the independent accuracy is therefore `not_assessable`.
-- **Decision.** The gate is unchanged. The decision is pending with the client (plan sign-off item S2).
+- **Decision (2026-11-11, client decision D6).** On the evidence above, the client (Dr Makunga, WhatsApp: "Ushauri wenu ni mzuri endeleeni nao") approved a scene threshold of **degraded MSI ≤ 0.1%**, keeping the per-pixel SCL mask of class 1 (saturated/defective) and the cloud classes. The change is implemented as one constant (`scene_qa.MAX_DEGRADED_MSI_PCT`) used by the query filter, the per-scene assertion and both optical QA periods, and recorded per run (`quality.degraded_msi_max_pct`). The runs in §3 were made under the earlier 0% threshold and are not re-run here.
 
 ## 6. Open items
 
-- Decision on the degraded-MSI policy (client; plan S2).
+- ~~Decision on the degraded-MSI policy (client; plan S2).~~ Decided 2026-11-11 (D6, ≤ 0.1%).
 - 4.2 / 4.6: map the provider request-size error to `EXPORT_CAPACITY_EXCEEDED` and use the 48 MiB / 88–93 B·px⁻¹ rule in preflight.
 - 1.8: label rule review, measured once on these four AOIs and windows (plan 1.8).
 - Bundle 5: a flood event with a citable source and compliant Sentinel-2 at both dates.

@@ -242,7 +242,7 @@ def test_full_gee_acquisition_contract_and_provenance(tmp_path, monkeypatch, fai
     s2_baseline_record = copy.deepcopy(s2_record)
     s2_baseline_record["id"] = pipeline.ingestion.SENTINEL2_COLLECTION+"/synthetic-optical-baseline"
     s2_baseline_record["properties"]["system:time_start"] -= 86400000
-    if failure == "no_s2_baseline": s2_baseline_record["properties"]["DEGRADED_MSI_DATA_PERCENTAGE"] = 0.02
+    if failure == "no_s2_baseline": s2_baseline_record["properties"]["DEGRADED_MSI_DATA_PERCENTAGE"] = 0.11
     s2, target, baseline, rainfall = map(fake_collection, (s2_record, s1_record, baseline_record, rainfall_record))
     s2_baseline = fake_collection(s2_baseline_record)
     for optical in (s2, s2_baseline): optical.map.return_value.median.return_value = image
@@ -314,6 +314,8 @@ def test_full_gee_acquisition_contract_and_provenance(tmp_path, monkeypatch, fai
         assert result.provenance["acquisition_artifacts"]["acquired_feature_stack"]["sha256"] == hashlib.sha256(result.source_artifacts["acquired_feature_stack"].read_bytes()).hexdigest()
         assert from_images.call_count == len(optical_pins) + (4 if dem_source=="ALOS" else 3)
         assert set(result.provenance["indices"]) == {"mndwi"}
+        assert result.quality["degraded_msi_max_pct"] == 0.1  # client decision D6
+        assert "degraded MSI <= 0.1%" in result.provenance["optical_reference_policy"]["scene_policy"]
         assert "not a model feature" in result.provenance["indices"]["mndwi"]["role"]
         image.normalizedDifference.assert_any_call(["B3", "B11"])
         assert result.provenance["band_identity"] == bands and len(bands) == 12

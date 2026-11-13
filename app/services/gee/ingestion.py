@@ -41,13 +41,13 @@ def get_sentinel2_collection(
     end_date: str,
     max_cloud_pct: float = CLOUD_THRESHOLD_LAND_COVER,
     *,
-    require_zero_degraded_msi: bool = False,
+    max_degraded_msi_pct: float | None = None,
 ) -> ee.ImageCollection:
     """Sentinel-2 Surface Reflectance, filtered by AOI/date/cloud cover — Doc 0 steps 7-8.
 
-    With ``require_zero_degraded_msi`` the provider query also excludes scenes whose
-    ``DEGRADED_MSI_DATA_PERCENTAGE`` is non-zero, so a single degraded scene in the
-    window is left out instead of vetoing the run. The 0% policy is unchanged.
+    With ``max_degraded_msi_pct`` the provider query also excludes scenes whose
+    ``DEGRADED_MSI_DATA_PERCENTAGE`` exceeds that value, so a single degraded scene in the
+    window is left out instead of vetoing the run (FIRRIS passes scene_qa.MAX_DEGRADED_MSI_PCT).
     """
     collection = (
         ee.ImageCollection(SENTINEL2_COLLECTION)
@@ -55,8 +55,8 @@ def get_sentinel2_collection(
         .filterDate(start_date, end_date)
         .filter(ee.Filter.lte("CLOUDY_PIXEL_PERCENTAGE", max_cloud_pct))
     )
-    if require_zero_degraded_msi:
-        collection = collection.filter(ee.Filter.eq("DEGRADED_MSI_DATA_PERCENTAGE", 0))
+    if max_degraded_msi_pct is not None:
+        collection = collection.filter(ee.Filter.lte("DEGRADED_MSI_DATA_PERCENTAGE", max_degraded_msi_pct))
     return collection.sort("CLOUDY_PIXEL_PERCENTAGE")
 
 

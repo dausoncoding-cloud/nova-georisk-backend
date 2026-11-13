@@ -8,6 +8,11 @@ from shapely.geometry import shape
 from shapely.ops import unary_union
 
 MAX_SCENES = 500
+# Client decision D6 (2026-11-11): a Sentinel-2 scene is eligible if its provider-reported
+# DEGRADED_MSI_DATA_PERCENTAGE is at most 0.1%. Since processing baseline 04.00 almost every
+# scene reports a small non-zero value (~0.02%); defective pixels stay masked per pixel by SCL
+# class 1 (preprocessing.mask_sentinel2_clouds). Previously 0%.
+MAX_DEGRADED_MSI_PCT = 0.1
 
 
 def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_cloud=100, collection_id=None):
@@ -15,7 +20,7 @@ def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_c
     if count == 0 and sensor == "Sentinel-2":
         raise ValueError(
             f"No compliant optical scene in the requested window "
-            f"(cloud <= {max_cloud:g}% and degraded MSI = 0% required)"
+            f"(cloud <= {max_cloud:g}% and degraded MSI <= {MAX_DEGRADED_MSI_PCT:g}% required)"
         )
     if not 1 <= count <= MAX_SCENES:
         raise ValueError("Required collection is empty or exceeds bounded per-scene QA limit")
@@ -87,7 +92,7 @@ def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_c
             tile = properties.get("MGRS_TILE")
             if not tile or any(not isinstance(value, (float, int)) or not math.isfinite(value) or not 0 <= value <= 100 for value in (cloud, degraded)):
                 raise ValueError("Optical scene quality/tile metadata is missing")
-            if cloud > max_cloud or degraded > 0:
+            if cloud > max_cloud or degraded > MAX_DEGRADED_MSI_PCT:
                 raise ValueError("Optical scene cloud/sensor quality requirements are unmet")
             checks = {"tile": tile, "cloud_pct": cloud, "degraded_msi_pct": degraded,
                       "pixel_fault_check": "SCL no-data/defective pixels masked"}
