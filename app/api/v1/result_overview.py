@@ -42,7 +42,7 @@ def _headline(area: dict, provenance: dict) -> dict[str, Any]:
     target, baseline = _period(provenance, "target_period"), _period(provenance, "baseline_period")
     dates = (f"for target {target}, compared with baseline {baseline} (end dates exclusive)" if target and baseline
              else "(target and baseline dates not recorded)")
-    text = (f"Model-classified flood candidates cover {flooded:.2f} km² ({share:.2f}% of the {valid:.2f} km² valid analysed area) {dates}. "
+    text = (f"Model-classified flood candidates cover {flooded:,.2f} km² ({share:.2f}% of the {valid:,.2f} km² valid analysed area) {dates}. "
             "Flood candidates are a model classification trained on SAR screening labels, not confirmed flood observations.")
     return {"text": text, "flood_candidate_area_km2": flooded, "percent_of_valid": share, "valid_area_km2": valid,
             "target_period": target, "baseline_period": baseline}

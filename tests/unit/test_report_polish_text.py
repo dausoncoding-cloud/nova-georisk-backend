@@ -97,3 +97,34 @@ def test_no_page_ends_with_a_heading(run):
     for page in pages[:-1]:
         lines = [line.strip() for line in (page.extract_text() or "").splitlines() if line.strip()]
         assert lines and lines[-1] not in headings, lines[-1]
+
+
+# Second visual review: the reference sentence says "not field-verified" once.
+def test_independent_reference_says_not_field_verified_once(run):
+    _, _, _, text, _, _ = run
+    reference = _section(text, "Reference: Sentinel-2 optical flood reference", "Confusion matrix")
+    assert reference.lower().count("not field-verified") == 1
+
+
+# Second visual review: a table never splits from its caption or loses its last row to the next page.
+def test_confusion_tables_stay_on_one_page(run):
+    _, _, pdf, _, _, _ = run
+    for page in PdfReader(pdf).pages:
+        page_text = page.extract_text() or ""
+        if "Confusion matrix (classified" in page_text:
+            tail = page_text[page_text.index("Confusion matrix (classified"):]
+            assert "Producer's accuracy" in tail
+
+
+# Second visual review: both main maps fit on the page that starts the maps section.
+def test_main_maps_share_one_page(run):
+    _, _, pdf, _, _, _ = run
+    page = next(p for p in PdfReader(pdf).pages if "7. Main maps" in (p.extract_text() or ""))
+    assert len(page.images) == 2
+
+
+# Second visual review: headline areas use thousands separators (large AOIs).
+def test_headline_areas_use_thousands_separators(run):
+    _, _, _, text, _, _ = run
+    summary = _section(text, "1. Executive summary", "2. Study area")
+    assert not re.search(r"\d{4,}\.\d{2} km²", summary)

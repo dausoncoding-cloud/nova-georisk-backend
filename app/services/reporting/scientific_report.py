@@ -19,7 +19,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Image as PdfImage
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from xml.sax.saxutils import escape
 
 from app.services.reporting.figures import scope_figures
@@ -101,7 +101,14 @@ class _Writer:
         self.story.append(Paragraph(escape(text), self.styles["BodyText"]))
         self.doc.add_paragraph(text)
 
+    def keep_together(self, start: int):
+        """Keep everything added since `start` on one PDF page (moves to the next page if needed)."""
+        while start > 0 and isinstance(self.story[start - 1], Paragraph) and getattr(self.story[start - 1].style, "keepWithNext", 0):
+            start -= 1  # take the heading along: keepWithNext does not bind to a KeepTogether block
+        self.story[start:] = [KeepTogether(self.story[start:])]
+
     def table(self, header: list[str], rows: list[list[str]], caption: str | None = None):
+        start = len(self.story)
         if caption:
             self.para(caption)
         data = [header] + rows
@@ -110,16 +117,19 @@ class _Writer:
         table.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, colors.grey), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8eef3")),
                                    ("VALIGN", (0, 0), (-1, -1), "TOP")]))
         self.story += [table, Spacer(1, 0.3 * cm)]
+        self.keep_together(start)  # never split a table from its caption or orphan its last row
         docx_table = self.doc.add_table(rows=len(data), cols=len(header))
         docx_table.style = "Table Grid"
         for r, row in enumerate(data):
             for c, value in enumerate(row):
                 docx_table.cell(r, c).text = str(value)
 
-    def image(self, path: Path, width_cm: float, caption: str):
+    def image(self, path: Path, width_cm: float, caption: str, max_height_cm: float | None = None):
         from PIL import Image
         with Image.open(path) as source:
             ratio = source.height / source.width
+        if max_height_cm and width_cm * ratio > max_height_cm:
+            width_cm = max_height_cm / ratio
         self.story += [PdfImage(str(path), width=width_cm * cm, height=width_cm * ratio * cm), Paragraph(escape(caption), self.styles["Italic"]),
                        Spacer(1, 0.3 * cm)]
         self.doc.add_picture(str(path), width=Inches(width_cm / 2.54))
@@ -131,7 +141,8 @@ def _accuracy_scope(writer: _Writer, scope: dict, figures: dict[str, dict[str, P
     independent = scope["scope"] == "independent_optical"
     method = (f"Census of n = {scope['n']:,} eligible pixels not used for training." if scope["method"] == "census"
               else f"Held-out sample, n = {scope['n']:,}.")
-    writer.para(f"Reference: {scope['reference_basis']}. {method}" + (" Not field-verified." if independent else ""))
+    stated = "not field-verified" in scope["reference_basis"].lower()
+    writer.para(f"Reference: {scope['reference_basis']}. {method}" + (" Not field-verified." if independent and not stated else ""))
     matrix = scope["confusion_matrix"]
     rows = []
     for label, name in (("1", "Classified: flood candidate"), ("0", "Classified: not flood candidate")):
@@ -336,12 +347,16 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     writer.table(["Gate", "Threshold", "Observed", "Status"],
                  [[g["name"], g["threshold"], g["observed"] or "—", GATE_STATUS.get(g["status"], g["status"])] for g in overview["quality_gates"]])
 
+    start = len(writer.story)
     writer.heading("7. Main maps")
     for key, entry in sorted(map_entries.items()):
         if entry.get("delivery_type") == "map_png":
             title = (entry.get("gis_metadata") or {}).get("cartography", {}).get("title", key)
+            # Two maps share one A4 page: each image is at most 10 cm tall.
             writer.image(output_directory / entry["path"], 16, f"{title}. Target {headline['target_period'] or 'not recorded'}; "
-                         f"baseline {headline['baseline_period'] or 'not recorded'}. Coordinates and colour scale are on the map frame.")
+                         f"baseline {headline['baseline_period'] or 'not recorded'}. Coordinates and colour scale are on the map frame.",
+                         max_height_cm=10)
+    writer.keep_together(start)
 
     writer.heading("8. Area statistics")
     writer.table(["Quantity", "Value"], [
