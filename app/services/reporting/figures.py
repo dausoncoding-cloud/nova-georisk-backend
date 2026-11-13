@@ -19,6 +19,8 @@ matplotlib.rcParams["svg.fonttype"] = "none"  # keep figure text as searchable, 
 DPI = 300
 LINE = "#1f4e79"
 REFERENCE = "#7a7a7a"
+# A small margin keeps curves that run along an axis (a perfect classifier) visible.
+LIMITS = (-0.02, 1.02)
 
 
 def _fmt(value, digits=3) -> str:
@@ -37,9 +39,9 @@ def roc_figure(scope: dict[str, Any], stem: Path) -> dict[str, Path]:
     points = [(p["fpr"], p["tpr"]) for p in scope["roc"] if p["fpr"] is not None and p["tpr"] is not None]
     fig, ax = plt.subplots(figsize=(4.2, 4.2))
     ax.plot([0, 1], [0, 1], linestyle="--", color=REFERENCE, linewidth=1, label="chance (1:1)")
-    ax.plot([x for x, _ in points], [y for _, y in points], color=LINE, linewidth=2, label="classifier")
+    ax.plot([x for x, _ in points], [y for _, y in points], color=LINE, linewidth=2, label="classifier", zorder=3, clip_on=False)
     counts = scope["n_per_reference_class"]
-    ax.set(xlim=(0, 1), ylim=(0, 1), xlabel="False positive rate", ylabel="True positive rate", aspect="equal")
+    ax.set(xlim=LIMITS, ylim=LIMITS, xlabel="False positive rate", ylabel="True positive rate", aspect="equal")
     ax.set_title(f"ROC — AUC {_fmt(scope['roc_auc'])}; n = {scope['n']:,} "
                  f"(positives {counts.get('1', 0):,}, negatives {counts.get('0', 0):,})", fontsize=8)
     ax.legend(loc="lower right", fontsize=7, frameon=False)
@@ -51,8 +53,8 @@ def pr_figure(scope: dict[str, Any], stem: Path) -> dict[str, Path]:
     prevalence = scope["prevalence"] or 0.0
     fig, ax = plt.subplots(figsize=(4.2, 4.2))
     ax.axhline(prevalence, linestyle="--", color=REFERENCE, linewidth=1, label=f"chance (prevalence {prevalence:.3f})")
-    ax.plot([x for x, _ in points], [y for _, y in points], color=LINE, linewidth=2, label="classifier")
-    ax.set(xlim=(0, 1), ylim=(0, 1), xlabel="Recall", ylabel="Precision", aspect="equal")
+    ax.plot([x for x, _ in points], [y for _, y in points], color=LINE, linewidth=2, label="classifier", zorder=3, clip_on=False)
+    ax.set(xlim=LIMITS, ylim=LIMITS, xlabel="Recall", ylabel="Precision", aspect="equal")
     ax.set_title(f"Precision–recall — AP {_fmt(scope['average_precision'])}; n = {scope['n']:,}", fontsize=8)
     ax.legend(loc="lower left", fontsize=7, frameon=False)
     return _save(fig, stem)
@@ -93,7 +95,8 @@ def class_metrics_figure(scope: dict[str, Any], stem: Path) -> dict[str, Path]:
     ax.set_xticks(range(len(labels)), labels, fontsize=7)
     ax.set(ylim=(0, 100), ylabel="%")
     ax.set_title(f"Per-class accuracy; n = {scope['n']:,}", fontsize=8)
-    ax.legend(fontsize=7, frameon=False, loc="lower right")
+    # Legend below the axes so it never covers a bar.
+    ax.legend(fontsize=7, frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.14), ncol=3)
     return _save(fig, stem)
 
 
