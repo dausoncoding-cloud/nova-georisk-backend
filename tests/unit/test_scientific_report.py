@@ -14,7 +14,7 @@ from app.services.gee import firris_pipeline as pipeline
 
 SECTIONS = ["1. Executive summary", "Scope of this report: not included in this version", "2. Study area", "3. Target and baseline periods", "4. Input data", "5. Method",
             "6. Quality gates", "7. Main maps", "8. Area statistics",
-            "9. Accuracy assessment", "10. Limitations and what is not claimed", "11. Provenance summary", "Appendix: downloads"]
+            "9. Accuracy assessment", "10. Limitations and what is not claimed", "11. Provenance summary", "Appendix A: Internal agreement", "Appendix B: downloads"]
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
@@ -75,7 +75,7 @@ def test_docx_report_opens_with_the_same_headings_tables_and_figures(run):
     document = Document(directory / entry["path"])
     headings = [p.text for p in document.paragraphs if p.style.name.startswith("Heading")]
     for section in SECTIONS:
-        assert section in headings
+        assert any(heading.startswith(section) for heading in headings), section
     assert len(document.tables) >= 6  # gates, sources, area, 2x2 and per-class tables for each scope
     assert len(document.inline_shapes) >= 4  # maps and ROC/PR figures
     flat = " ".join(cell.text for table in document.tables for row in table.rows for cell in row.cells)

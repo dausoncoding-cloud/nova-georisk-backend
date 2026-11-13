@@ -138,8 +138,17 @@ class _Writer:
         self.doc.add_paragraph(caption)
 
 
-def _accuracy_scope(writer: _Writer, scope: dict, figures: dict[str, dict[str, Path]], audit: dict | None):
-    writer.heading(scope["title"], 2)
+def internal_agreement_sentence(scope: dict) -> str:
+    """Section 9 keeps one sentence on internal agreement: why it is high and why it is not accuracy."""
+    labels = "the SAR screening labels" if scope["scope"] == "internal_screening" else "the supplied labels"
+    return (f"Internal agreement with {labels} on {scope['n']:,} held-out pixels is {_num(scope['overall_accuracy_pct'], 1)}% "
+            f"(kappa {_num(scope['cohens_kappa'], 3)}) because the classifier is trained to reproduce these labels from the same "
+            "inputs, so it shows how well the labelling rule was learned and is not map accuracy (details in Appendix A).")
+
+
+def _accuracy_scope(writer: _Writer, scope: dict, figures: dict[str, dict[str, Path]], audit: dict | None, title: bool = True):
+    if title:
+        writer.heading(scope["title"], 2)
     independent = scope["scope"] == "independent_optical"
     method = (f"Census of n = {scope['n']:,} eligible pixels not used for training." if scope["method"] == "census"
               else f"Held-out sample, n = {scope['n']:,}.")
@@ -411,12 +420,17 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     writer.heading("9. Accuracy assessment")
     if status != "assessed":
         writer.para(f"Independent accuracy: {STATUS.get(status, status)}." + (f" {reason}" if reason else ""))
+    internal_scopes = []
     for scope in assessment.get("scopes", []):
         figures = scope_figures(output_directory, scope)
         for kind, paths in figures.items():
             figure_files[f"figure_{scope['scope']}_{kind}_png"] = (paths["png"], "image/png")
             figure_files[f"figure_{scope['scope']}_{kind}_svg"] = (paths["svg"], "image/svg+xml")
-        _accuracy_scope(writer, scope, figures, (summary.get("independent_accuracy") or {}).get("audit_sample"))
+        if scope["scope"] == "independent_optical":
+            _accuracy_scope(writer, scope, figures, (summary.get("independent_accuracy") or {}).get("audit_sample"))
+        else:
+            internal_scopes.append((scope, figures))
+            writer.para(internal_agreement_sentence(scope))
 
     writer.heading("10. Limitations and what is not claimed")
     # The paired-observation disclaimer is generic to the diagnostics tool, not about this map.
@@ -438,7 +452,11 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
         ["Datasets", ", ".join(provenance.get("datasets") or []) or "not recorded"],
         ["Full provenance", "provenance.json in the result package"]])
 
-    writer.heading("Appendix: downloads")
+    for scope, figures in internal_scopes:
+        writer.heading("Appendix A: " + scope["title"], 1)
+        _accuracy_scope(writer, scope, figures, None, title=False)
+
+    writer.heading("Appendix B: downloads")
     report_entries = [("scientific_report_pdf", {"format": "pdf", "label": "Scientific report (PDF)"}),
                       ("scientific_report_word", {"format": "docx", "label": "Scientific report (Word)"})]
     figure_entries = [(name, {"format": name.rsplit("_", 1)[1]}) for name in figure_files]
