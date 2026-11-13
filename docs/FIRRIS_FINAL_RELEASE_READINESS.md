@@ -21,6 +21,20 @@ Existing image `firris-final-full-20261006-integration-test:latest`, ID `b4d862e
 - Required installed public CA bundles, authentication modules, API discovery schemas and parser constants have narrowly reviewed path/content/rule-bound exceptions in `scripts/docker_packaging_exceptions.json`. They are not credential assets. Actual service-account JSON, unsafe paths and application/home/runtime credential locations cannot be excepted. CPython bytecode fingerprints exclude only the 16-byte installation timestamp header while scanning all bytes for secrets. New/changed dependency bytes require review; this is not a blanket vendor-directory exemption or a general vulnerability certification.
 - `scripts/verify_docker_packaging.py --image nova-georisk-backend:firris-packaging-remediated` is the end-to-end release gate. It builds a synthetic negative image with an overwritten fake marker and prohibited payload classes, checks actual Docker context contents with 30 harmless untracked sentinels, builds the default production image from the checkout, and scans all layers. It removes only its own sentinel files, context/negative images and containers. The synthetic marker has no private-key body or real credential.
 
+### Dependency upgrade procedure
+
+`certifi`, `google-auth` and `google-api-python-client` reach the image through `earthengine-api` and carry files covered by hash-pinned exceptions. They are therefore pinned in `requirements.txt` to the exact versions whose files match `scripts/docker_packaging_exceptions.json`. Without pins, a rebuild silently picked up newer releases and failed the scan (2026-11-13: certifi 2026.10.23, google-auth 2.62.2, google-api-python-client 2.202.0).
+
+Raising these pins is a deliberate task, not drift:
+- **When.** At least once per quarter, and whenever a security advisory affects one of the packages.
+- **How.**
+  1. Bump the pin.
+  2. Rebuild the image.
+  3. Review every file the scan reports as changed, and confirm it is public library code, a CA bundle or a discovery schema, not a credential.
+  4. Update only those paths' `sha256` values in the exceptions file, with the reason.
+  5. Re-run `scripts/verify_docker_packaging.py`.
+- **Commit.** Commit the pin and the exception changes together.
+
 ## Current verification
 
 | Gate | Final evidence |
