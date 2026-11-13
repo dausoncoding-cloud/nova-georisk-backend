@@ -188,6 +188,7 @@ def test_result_list_and_detail_hide_storage_paths(client, db_session):
     assert listed.status_code == 200
     assert listed.json()["total"] == 1
     assert listed.json()["items"][0]["id"] == str(result.id)
+    assert "private/result/path.png" not in listed.text
 
     detail = client.get(f"/api/v1/results/{result.id}")
     assert detail.status_code == 200
@@ -207,8 +208,10 @@ def test_result_list_and_detail_hide_storage_paths(client, db_session):
             "result_version": 1,
             "file_size_bytes": None,
             "checksum_sha256": None,
+            "deliverable_group": "audit",
         }
     ]
+    assert all("path" not in product for product in detail.json()["products"])
     assert detail.json()["layers"] == []
     assert detail.json()["exports"] == []
     assert "private/result/path.png" not in detail.text
