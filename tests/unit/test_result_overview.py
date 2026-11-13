@@ -160,3 +160,11 @@ def test_legacy_results_without_a_recorded_threshold_keep_the_zero_percent_gate(
     summary["quality"]["per_collection"]["sentinel_2_target"]["scenes"][0]["degraded_msi_pct"] = 0.02
     gates = {gate["name"]: gate for gate in build_result_overview(_result(summary))["quality_gates"]}
     assert gates["Sentinel-2 degraded MSI"]["status"] == "fail"
+
+
+@pytest.mark.parametrize("products", [[{"product_key": "flood_hazard"}], "not-a-dict", None, {"flood_extent": ["x"]},
+                                      {"flood_extent": {"area_statistics": ["x"]}}])
+def test_overview_tolerates_non_dict_product_summaries(products):
+    summary = {"status": "completed", "products": products}
+    assert build_result_overview(_result(summary=summary)) is None
+    assert serialize_result(_result(summary=summary)).overview is None

@@ -151,8 +151,11 @@ def _limitations(summary: dict) -> list[str]:
 def build_result_overview(result) -> dict[str, Any] | None:
     summary = result.summary if isinstance(result.summary, dict) else {}
     provenance = result.provenance if isinstance(result.provenance, dict) else {}
-    area = (((summary.get("products") or {}).get("flood_extent") or {}).get("area_statistics")) or {}
-    if result.engine_key != "firris" or not {"flooded_area_km2", "flooded_percent_of_valid", "valid_area_km2"} <= set(area):
+    products = summary.get("products")
+    extent = products.get("flood_extent") if isinstance(products, dict) else None
+    area = extent.get("area_statistics") if isinstance(extent, dict) else None
+    if (result.engine_key != "firris" or not isinstance(area, dict)
+            or not {"flooded_area_km2", "flooded_percent_of_valid", "valid_area_km2"} <= set(area)):
         return None
     quality = summary.get("quality") or {}
     return {"headline": _headline(area, provenance), "area_accounting": _area_accounting(area, quality, provenance),
