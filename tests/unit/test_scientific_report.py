@@ -12,9 +12,9 @@ from app.platform.engines.firris import FIRRISEngineAdapter
 from tests.unit.test_firris_independent_accuracy import AOI, _gee_stack
 from app.services.gee import firris_pipeline as pipeline
 
-SECTIONS = ["1. Executive summary", "2. Study area", "3. Target and baseline periods", "4. Input data", "5. Method",
-            "6. Quality gates", "7. Main maps", "8. Water delineation", "9. Trend outputs", "10. Area statistics",
-            "11. Accuracy assessment", "12. Limitations and what is not claimed", "13. Provenance summary", "Appendix: downloads"]
+SECTIONS = ["1. Executive summary", "Scope of this report: not included in this version", "2. Study area", "3. Target and baseline periods", "4. Input data", "5. Method",
+            "6. Quality gates", "7. Main maps", "8. Area statistics",
+            "9. Accuracy assessment", "10. Limitations and what is not claimed", "11. Provenance summary", "Appendix: downloads"]
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
@@ -52,7 +52,7 @@ def test_pdf_report_has_every_section_in_order_and_the_headline(run):
     assert "Model-classified flood candidates cover" in text
     assert "Accuracy assessment against an independent Sentinel-2 optical reference" in text
     assert "Internal agreement with SAR screening labels" in text
-    assert "Not part of this release" in text  # water delineation and trends arrive in Bundle 3
+    assert "Water delineation" in text and "Trend analysis" in text  # listed under the report scope only
 
 
 def test_title_block_uses_names_not_uuids_when_names_exist(run):

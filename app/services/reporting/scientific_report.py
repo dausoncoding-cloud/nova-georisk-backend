@@ -27,11 +27,59 @@ from app.services.reporting.figures import scope_figures
 STATUS = {"not_assessable": "not assessable", "insufficient_reference_samples": "insufficient reference samples",
           "not_performed": "not performed", "assessed": "assessed"}
 GATE_STATUS = {"pass": "Pass", "fail": "Fail", "not_recorded": "Not recorded", "not_applicable": "Not applicable"}
-NOT_IN_RELEASE = "Not part of this release. Water delineation and trend outputs are delivered in Bundle 3 of the remediation plan."
+# Outputs this report does not contain yet; listed by name only, never as empty sections.
+NOT_INCLUDED = ["Water delineation", "Trend analysis"]
+SCOPE_SHORT = {"independent_optical": "Independent optical reference", "internal_screening": "Internal agreement (not independent)"}
 
 
 def _num(value, digits=2) -> str:
     return "—" if value is None else f"{value:,.{digits}f}"
+
+
+def _count(value) -> str:
+    return "—" if value is None else f"{int(value):,}"
+
+
+def fraction_text(fraction: str | None) -> str:
+    """'2807/5736' -> '2,807/5,736'."""
+    if not fraction:
+        return "—"
+    numerator, denominator = fraction.split("/")
+    return f"{int(numerator):,}/{int(denominator):,}"
+
+
+def _sentence(text: str) -> str:
+    text = text.strip()
+    return (text[:1].upper() + text[1:]).rstrip(".") + "."
+
+
+def share_phrase(pct: float) -> str:
+    """Plain-language share for an accuracy percentage."""
+    if pct < 10:
+        return "very little"
+    if pct < 25:
+        return "less than a quarter"
+    if pct < 40:
+        return "about a third"
+    if pct < 60:
+        return "about half"
+    if pct < 75:
+        return "about two thirds"
+    if pct < 90:
+        return "most"
+    return "nearly all"
+
+
+def _independent_summary(scope: dict) -> list[str]:
+    flood = next(row for row in scope["per_class"] if row["class_label"] == "1")
+    ua, pa = flood["users_accuracy_pct"], flood["producers_accuracy_pct"]
+    lines = [f"Independent accuracy against the Sentinel-2 optical reference (census, n = {scope['n']:,} pixels not used for training): "
+             f"overall accuracy {_num(scope['overall_accuracy_pct'], 1)}%, kappa {_num(scope['cohens_kappa'], 3)}, "
+             f"F1 {_num(scope['f1_flooded'], 3)}; flood candidate user's accuracy {_num(ua, 1)}% and producer's accuracy {_num(pa, 1)}%."]
+    if ua is not None and pa is not None:
+        lines.append(f"In plain terms, the model detects {share_phrase(pa)} of the new open water seen by the optical reference, "
+                     f"and {share_phrase(ua)} of its flood-candidate pixels are new open water in the optical reference.")
+    return lines
 
 
 class _Writer:
@@ -39,6 +87,8 @@ class _Writer:
 
     def __init__(self):
         self.styles = getSampleStyleSheet()
+        for name in ("Heading1", "Heading2", "Heading3"):
+            self.styles[name].keepWithNext = 1  # a heading never ends a page
         self.story: list = []
         self.doc = Document()
 
@@ -75,22 +125,22 @@ class _Writer:
         self.doc.add_paragraph(caption)
 
 
-def _accuracy_scope(writer: _Writer, scope: dict, figures: dict[str, dict[str, Path]], wording: str | None):
+def _accuracy_scope(writer: _Writer, scope: dict, figures: dict[str, dict[str, Path]], audit: dict | None):
     writer.heading(scope["title"], 2)
-    if wording:
-        writer.para(wording)
+    independent = scope["scope"] == "independent_optical"
     method = (f"Census of n = {scope['n']:,} eligible pixels not used for training." if scope["method"] == "census"
               else f"Held-out sample, n = {scope['n']:,}.")
-    writer.para(f"Reference: {scope['reference_basis']}. {method}")
+    writer.para(f"Reference: {scope['reference_basis']}. {method}" + (" Not field-verified." if independent else ""))
     matrix = scope["confusion_matrix"]
     rows = []
     for label, name in (("1", "Classified: flood candidate"), ("0", "Classified: not flood candidate")):
         values = matrix["classified"][label]
         ua = values["users_accuracy"]
-        rows.append([name, f"{values['reference_1']:,}", f"{values['reference_0']:,}", f"{values['total']:,}", f"{ua['fraction']} ({_num(ua['pct'], 1)}%)"])
+        rows.append([name, f"{values['reference_1']:,}", f"{values['reference_0']:,}", f"{values['total']:,}", f"{fraction_text(ua['fraction'])} ({_num(ua['pct'], 1)}%)"])
     rows.append(["Total", f"{matrix['reference_totals']['1']:,}", f"{matrix['reference_totals']['0']:,}", f"{matrix['reference_totals']['all']:,}", ""])
     pa = matrix["producers_accuracy"]
-    rows.append(["Producer's accuracy", f"{pa['1']['fraction']} ({_num(pa['1']['pct'], 1)}%)", f"{pa['0']['fraction']} ({_num(pa['0']['pct'], 1)}%)", "", ""])
+    rows.append(["Producer's accuracy", f"{fraction_text(pa['1']['fraction'])} ({_num(pa['1']['pct'], 1)}%)",
+                 f"{fraction_text(pa['0']['fraction'])} ({_num(pa['0']['pct'], 1)}%)", "", ""])
     writer.table(["Classified \\ Reference", "Reference: flood candidate", "Reference: not flood candidate", "Total", "User's accuracy"], rows,
                  caption="Confusion matrix (classified × reference).")
     writer.table(["Class", "Area (ha)", "Omission error (%)", "Commission error (%)", "User's accuracy (%)", "Producer's accuracy (%)", "F1"],
@@ -107,9 +157,18 @@ def _accuracy_scope(writer: _Writer, scope: dict, figures: dict[str, dict[str, P
         writer.para(f"95% interval ({intervals['method']}): OA {span(intervals['overall_accuracy_pct'], 1)}%, "
                     f"Kappa {span(intervals['cohens_kappa'], 3)}, AUC {span(intervals['roc_auc'], 3)}.")
     else:
-        writer.para(scope["interval_note"] + ".")
-    for kind, caption in (("roc", "ROC curve with the 1:1 chance line."), ("pr", "Precision–recall curve with the prevalence baseline.")):
-        writer.image(figures[kind]["png"], 8, f"{scope['title']}: {caption}")
+        writer.para(_sentence(scope["interval_note"]))
+    weighted = (audit or {}).get("weighted_estimates") if independent else None
+    if weighted:
+        per_class = audit.get("per_class") or {}
+        writer.para(f"Audit sample (stratified by reference class, {_count(per_class.get('1'))} + {_count(per_class.get('0'))} pixels; "
+                    f"area-weighted estimates, Olofsson et al. 2014): overall accuracy {_num(weighted.get('overall_accuracy_pct'), 1)}%, "
+                    f"kappa {_num(weighted.get('cohens_kappa'), 3)}, flood candidate user's accuracy {_num(weighted.get('users_accuracy_flooded_pct'), 1)}% "
+                    f"and producer's accuracy {_num(weighted.get('producers_accuracy_flooded_pct'), 1)}%. "
+                    "The audit sample is for visual checking; the census metrics are the reported accuracy.")
+    short = SCOPE_SHORT.get(scope["scope"], scope["title"])
+    for kind, caption in (("roc", "ROC curve with the 1:1 chance line."), ("pr", "precision–recall curve with the prevalence baseline.")):
+        writer.image(figures[kind]["png"], 8, f"{short}: {caption}")
 
 
 def score_limitations(summary: dict, assessment: dict) -> list[str]:
@@ -154,13 +213,23 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     writer.para(overview["headline"]["text"])
     status = assessment.get("independent_status") or (summary.get("independent_accuracy") or {}).get("status") or "not_performed"
     reason = assessment.get("independent_reason") or (summary.get("independent_accuracy") or {}).get("reason")
-    writer.para(f"Independent accuracy: {STATUS.get(status, status)}." + (f" {reason}" if reason and status != "assessed" else ""))
+    independent = next((s for s in assessment.get("scopes", []) if s["scope"] == "independent_optical"), None)
+    if status == "assessed" and independent:
+        for line in _independent_summary(independent):
+            writer.para(line)
+    else:
+        writer.para(f"Independent accuracy: {STATUS.get(status, status)}." + (f" {reason}" if reason else ""))
+    writer.heading("Scope of this report: not included in this version", 2)
+    for name in NOT_INCLUDED:
+        writer.para(f"• {name}")
 
     area = overview["area_accounting"]
     writer.heading("2. Study area")
     box = gis_metadata.get("bounding_box") or {}
-    writer.para(f"{aoi}. Estimated AOI area {_num(area['aoi_area_km2_estimate'])} km² ({area['aoi_cells'] or '—'} cells); "
-                f"bounding box {box.get('west')}, {box.get('south')} to {box.get('east')}, {box.get('north')} ({gis_metadata.get('crs', 'CRS not recorded')}).")
+    corner = lambda value: "—" if value is None else f"{value:.5f}"  # noqa: E731 - ~1 m at the equator
+    writer.para(f"{aoi}. Estimated AOI area {_num(area['aoi_area_km2_estimate'])} km² ({_count(area['aoi_cells'])} cells); "
+                f"bounding box {corner(box.get('west'))}, {corner(box.get('south'))} to {corner(box.get('east'))}, {corner(box.get('north'))} "
+                f"({gis_metadata.get('crs', 'CRS not recorded')}).")
 
     writer.heading("3. Target and baseline periods")
     headline = overview["headline"]
@@ -192,20 +261,15 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
             writer.image(output_directory / entry["path"], 16, f"{title}. Target {headline['target_period'] or 'not recorded'}; "
                          f"baseline {headline['baseline_period'] or 'not recorded'}. Coordinates and colour scale are on the map frame.")
 
-    writer.heading("8. Water delineation")
-    writer.para(NOT_IN_RELEASE)
-    writer.heading("9. Trend outputs")
-    writer.para(NOT_IN_RELEASE)
-
-    writer.heading("10. Area statistics")
+    writer.heading("8. Area statistics")
     writer.table(["Quantity", "Value"], [
         ["Valid analysed area", f"{_num(area['valid_area_km2'])} km² ({_num(area['valid_pct_of_aoi'])}% of AOI)"],
-        ["Excluded (no valid data)", f"{_num(area['excluded_area_km2_estimate'])} km² ({area['excluded_cells'] if area['excluded_cells'] is not None else '—'} cells)"],
+        ["Excluded (no valid data)", f"{_num(area['excluded_area_km2_estimate'])} km² ({_count(area['excluded_cells'])} cells)"],
         ["Flood candidates", f"{_num(area['flood_candidate_area_km2'])} km² ({_num(area['flood_candidate_pct_of_valid'])}% of valid; {_num(area['flood_candidate_pct_of_aoi'])}% of AOI)"]])
     writer.para(area["method_note"])
 
     figure_files: dict[str, tuple[Path, str]] = {}
-    writer.heading("11. Accuracy assessment")
+    writer.heading("9. Accuracy assessment")
     if status != "assessed":
         writer.para(f"Independent accuracy: {STATUS.get(status, status)}." + (f" {reason}" if reason else ""))
     for scope in assessment.get("scopes", []):
@@ -213,15 +277,15 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
         for kind, paths in figures.items():
             figure_files[f"figure_{scope['scope']}_{kind}_png"] = (paths["png"], "image/png")
             figure_files[f"figure_{scope['scope']}_{kind}_svg"] = (paths["svg"], "image/svg+xml")
-        _accuracy_scope(writer, scope, figures, assessment.get("independent_wording") if scope["scope"] == "independent_optical" else None)
+        _accuracy_scope(writer, scope, figures, (summary.get("independent_accuracy") or {}).get("audit_sample"))
 
-    writer.heading("12. Limitations and what is not claimed")
+    writer.heading("10. Limitations and what is not claimed")
     for text in overview["limitations"] + score_limitations(summary, assessment) + ["Flood candidates are a model classification, not confirmed flood observations.",
                                            "No result is field-verified.",
                                            "Depth, velocity, hazard, return period, exposure, vulnerability and risk are not produced (client decision D2)."]:
         writer.para(f"• {text}")
 
-    writer.heading("13. Provenance summary")
+    writer.heading("11. Provenance summary")
     writer.table(["Item", "Value"], [
         ["Science version", str(provenance.get("science_version", "not recorded"))],
         ["Workflow version", str(provenance.get("workflow_version", "not recorded"))],
