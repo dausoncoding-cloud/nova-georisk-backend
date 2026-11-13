@@ -21,7 +21,7 @@ from rasterio.crs import CRS
 from app.services.gee import auth, indices, ingestion, preprocessing, screening_pipeline
 from app.services.gee.firris_contracts import INDEX_BANDS, CORRECTIONS, periods, validate_aoi, validate_grid, assess_pixels
 from app.services.gee.band_export import assemble_export, request_contract, EXPORT_FORMAT, VALIDITY_PREFIX
-from app.services.gee.scene_qa import inspect_collection, inspect_static_image
+from app.services.gee.scene_qa import MAX_DEGRADED_MSI_PCT, inspect_collection, inspect_static_image
 from pyproj import CRS as ProjectionCRS
 from pyproj.exceptions import CRSError
 
@@ -43,7 +43,8 @@ OPTICAL_REFERENCE_POLICY = {
     "definition": ("flooded (1) = MNDWI > 0 on the target composite AND MNDWI <= 0 on the baseline composite "
                    "AND JRC occurrence < 90%; not flooded (0) = every other eligible pixel"),
     "mndwi": "(B3 - B11) / (B3 + B11), Sentinel-2 SR harmonized, SCL cloud/shadow/cirrus/snow masked, median composite",
-    "scene_policy": "cloud <= max_cloud_pct and degraded MSI = 0% (query filter + per-scene assertion), both periods",
+    "scene_policy": (f"cloud <= max_cloud_pct and degraded MSI <= {MAX_DEGRADED_MSI_PCT:g}% (client decision D6; "
+                     "query filter + per-scene assertion), both periods; SCL class 1 and cloud classes masked per pixel"),
     "eligibility": "admitted pixels whose optical bands are valid at both dates",
     "independence": "optical indices are not model features; the reference never enters the feature matrix",
     "limitations": ["Optical water misses flooded vegetation and water under cloud",
@@ -230,7 +231,7 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
     for key, period in (("target", target), ("baseline", baseline)):
         try:
             collection = ingestion.get_sentinel2_collection(
-                aoi, period["start"], period["end"], max_cloud_pct=max_cloud, require_zero_degraded_msi=True)
+                aoi, period["start"], period["end"], max_cloud_pct=max_cloud, max_degraded_msi_pct=MAX_DEGRADED_MSI_PCT)
             record = inspect_collection(collection, sensor="Sentinel-2", period=period, aoi=aoi_geometry,
                 required_bands=list(OPTICAL_REFERENCE_MNDWI_BANDS), max_cloud=max_cloud,
                 collection_id=ingestion.SENTINEL2_COLLECTION)
@@ -407,6 +408,7 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
             "sentinel_1_baseline": baseline_count,
         },
         "max_cloud_pct": max_cloud,
+        "degraded_msi_max_pct": MAX_DEGRADED_MSI_PCT,
     }
     return GEEFeatureStack(
         feature_layers=feature_layers,

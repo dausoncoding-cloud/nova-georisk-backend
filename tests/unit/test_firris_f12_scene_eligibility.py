@@ -1,8 +1,8 @@
 """F12: degraded-MSI eligibility is enforced at scene selection, not by vetoing the whole window.
 
 Synthetic provider metadata only; this proves selection logic, not field accuracy.
-Policy is unchanged: cloud <= max_cloud and DEGRADED_MSI_DATA_PERCENTAGE == 0 for every
-scene that enters the composite.
+Policy: cloud <= max_cloud and DEGRADED_MSI_DATA_PERCENTAGE <= MAX_DEGRADED_MSI_PCT (0.1%,
+client decision D6, 2026-11-11; previously 0%) for every scene that enters the composite.
 """
 import copy
 from types import SimpleNamespace
@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.services.gee import ingestion
-from app.services.gee.scene_qa import inspect_collection
+from app.services.gee.scene_qa import MAX_DEGRADED_MSI_PCT, inspect_collection
 from tests.unit.test_firris_bundle1 import AOI, scene
 
 
@@ -66,11 +66,11 @@ def _s2(identifier, *, cloud=5.0, degraded=0.0):
     return record
 
 
-def _select_and_inspect(records, *, max_cloud=20.0, require_zero_degraded_msi=True):
+def _select_and_inspect(records, *, max_cloud=20.0, max_degraded_msi_pct=MAX_DEGRADED_MSI_PCT):
     with patch.object(ingestion, "ee", _fake_ee(records)):
         collection = ingestion.get_sentinel2_collection(
             MagicMock(name="aoi"), "2024-03-01", "2024-04-01",
-            max_cloud_pct=max_cloud, require_zero_degraded_msi=require_zero_degraded_msi,
+            max_cloud_pct=max_cloud, max_degraded_msi_pct=max_degraded_msi_pct,
         )
         return inspect_collection(
             collection, sensor="Sentinel-2", period={"start": "2024-03-01", "end": "2024-04-01"},
@@ -80,20 +80,19 @@ def _select_and_inspect(records, *, max_cloud=20.0, require_zero_degraded_msi=Tr
 
 
 @patch("app.services.gee.ingestion.ee")
-def test_query_filters_both_cloud_and_zero_degraded_msi_when_required(mock_ee):
+def test_query_filters_both_cloud_and_degraded_msi_when_required(mock_ee):
     collection = mock_ee.ImageCollection.return_value
     after_date = collection.filterBounds.return_value.filterDate.return_value
     after_cloud = after_date.filter.return_value
     after_degraded = after_cloud.filter.return_value
 
     result = ingestion.get_sentinel2_collection(
-        MagicMock(), "2024-03-01", "2024-04-01", max_cloud_pct=20, require_zero_degraded_msi=True
+        MagicMock(), "2024-03-01", "2024-04-01", max_cloud_pct=20, max_degraded_msi_pct=MAX_DEGRADED_MSI_PCT
     )
 
-    mock_ee.Filter.lte.assert_called_once_with("CLOUDY_PIXEL_PERCENTAGE", 20)
-    mock_ee.Filter.eq.assert_called_once_with("DEGRADED_MSI_DATA_PERCENTAGE", 0)
+    assert mock_ee.Filter.lte.call_args_list == [(("CLOUDY_PIXEL_PERCENTAGE", 20),), (("DEGRADED_MSI_DATA_PERCENTAGE", 0.1),)]
     after_date.filter.assert_called_once_with(mock_ee.Filter.lte.return_value)
-    after_cloud.filter.assert_called_once_with(mock_ee.Filter.eq.return_value)
+    after_cloud.filter.assert_called_once_with(mock_ee.Filter.lte.return_value)
     after_degraded.sort.assert_called_once_with("CLOUDY_PIXEL_PERCENTAGE")
     assert result == after_degraded.sort.return_value
 
@@ -101,11 +100,11 @@ def test_query_filters_both_cloud_and_zero_degraded_msi_when_required(mock_ee):
 @patch("app.services.gee.ingestion.ee")
 def test_default_query_is_unchanged_for_other_callers(mock_ee):
     ingestion.get_sentinel2_collection(MagicMock(), "2024-03-01", "2024-04-01", max_cloud_pct=20)
-    mock_ee.Filter.eq.assert_not_called()
+    mock_ee.Filter.lte.assert_called_once_with("CLOUDY_PIXEL_PERCENTAGE", 20)
 
 
 def test_mixed_window_selects_only_compliant_scenes_instead_of_failing():
-    records = [_s2("degraded", cloud=0.026, degraded=0.0213), _s2("clean-a", cloud=3.0), _s2("clean-b", cloud=7.5)]
+    records = [_s2("degraded", cloud=0.026, degraded=0.15), _s2("clean-a", cloud=3.0), _s2("clean-b", cloud=7.5)]
 
     result = _select_and_inspect(records)
 
@@ -123,7 +122,7 @@ def test_cloud_gate_is_not_weakened_by_the_new_filter():
 
 
 def test_window_with_only_degraded_scenes_fails_with_specific_reason():
-    records = [_s2("degraded-a", degraded=0.01), _s2("degraded-b", degraded=0.0995)]
+    records = [_s2("degraded-a", degraded=0.11), _s2("degraded-b", degraded=0.25)]
     with pytest.raises(ValueError, match="No compliant optical scene"):
         _select_and_inspect(records)
 
@@ -137,7 +136,7 @@ def test_per_scene_assertion_still_rejects_a_forged_degraded_record():
     # Defence in depth: if the provider query ever returned a degraded scene, the
     # per-scene QA must still refuse it (the old whole-window behaviour).
     with pytest.raises(ValueError, match="Optical scene cloud/sensor quality requirements are unmet"):
-        _select_and_inspect([_s2("clean"), _s2("forged", degraded=0.0213)], require_zero_degraded_msi=False)
+        _select_and_inspect([_s2("clean"), _s2("forged", degraded=0.11)], max_degraded_msi_pct=None)
 
 
 def test_empty_sar_collection_keeps_generic_reason():
@@ -175,5 +174,5 @@ def test_firris_pipeline_requests_query_level_degraded_filter_for_both_optical_p
     with pytest.raises(_Stop):
         pipeline._fetch_feature_stack(config, AOI, tmp_path)
 
-    assert calls == [{"start": "2024-03-05", "max_cloud_pct": 20.0, "require_zero_degraded_msi": True},
-                     {"start": "2024-03-04", "max_cloud_pct": 20.0, "require_zero_degraded_msi": True}]
+    assert calls == [{"start": "2024-03-05", "max_cloud_pct": 20.0, "max_degraded_msi_pct": 0.1},
+                     {"start": "2024-03-04", "max_cloud_pct": 20.0, "max_degraded_msi_pct": 0.1}]
