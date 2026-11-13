@@ -97,6 +97,18 @@ def bootstrap_intervals(truth, predicted, scores, *, resamples: int = BOOTSTRAP_
     return result
 
 
+REFERENCE_COLUMNS = {
+    "independent_optical": ("Reference: new open water (optical)", "Reference: no new open water"),
+    "internal_screening": ("SAR screening label: flood candidate", "SAR screening label: not flood candidate"),
+    "internal_supplied": ("Supplied label: flood", "Supplied label: not flood"),
+}
+
+
+def reference_columns(scope: str) -> tuple[str, str]:
+    """Names of the reference classes (1, 0) for a scope, shared by report tables, CSV and figures."""
+    return REFERENCE_COLUMNS.get(scope, ("Reference: flood candidate", "Reference: not flood candidate"))
+
+
 def accuracy_scope(scope: str, truth, predicted, scores, *, method: str, title: str, basis: str,
                    class_area_ha: dict[str, float] | None = None) -> dict[str, Any]:
     """One accuracy scope (independent optical census or internal held-out sample)."""

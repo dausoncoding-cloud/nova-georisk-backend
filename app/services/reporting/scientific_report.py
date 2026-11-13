@@ -23,6 +23,7 @@ from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Space
 from xml.sax.saxutils import escape
 
 from app.services.reporting.figures import scope_figures
+from app.services.validation.accuracy_tables import reference_columns
 
 STATUS = {"not_assessable": "not assessable", "insufficient_reference_samples": "insufficient reference samples",
           "not_performed": "not performed", "assessed": "assessed"}
@@ -153,7 +154,7 @@ def _accuracy_scope(writer: _Writer, scope: dict, figures: dict[str, dict[str, P
     pa = matrix["producers_accuracy"]
     rows.append(["Producer's accuracy", f"{fraction_text(pa['1']['fraction'])} ({_num(pa['1']['pct'], 1)}%)",
                  f"{fraction_text(pa['0']['fraction'])} ({_num(pa['0']['pct'], 1)}%)", "", ""])
-    writer.table(["Classified \\ Reference", "Reference: flood candidate", "Reference: not flood candidate", "Total", "User's accuracy"], rows,
+    writer.table(["Classified \\ Reference", *reference_columns(scope["scope"]), "Total", "User's accuracy"], rows,
                  caption="Confusion matrix (classified × reference).")
     writer.table(["Class", "Area (ha)", "Omission error (%)", "Commission error (%)", "User's accuracy (%)", "Producer's accuracy (%)", "F1"],
                  [[row["class_name"], _num(row["area_ha"]), _num(row["omission_error_pct"], 1), _num(row["commission_error_pct"], 1),

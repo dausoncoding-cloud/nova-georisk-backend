@@ -48,7 +48,8 @@ def test_tables_are_exported_as_csv_matching_the_dashboard(tmp_path, monkeypatch
     for name, scope in scopes.items():
         confusion = pd.read_csv(tmp_path / f"accuracy-{name}-confusion.csv")
         flooded_row = confusion[confusion["classified"] == "Flood candidate"].iloc[0]
-        assert int(flooded_row["reference_flood_candidate"]) == scope.confusion_matrix.classified["1"].reference_1
+        from app.services.validation.accuracy_tables import reference_columns
+        assert int(flooded_row[reference_columns(name)[0]]) == scope.confusion_matrix.classified["1"].reference_1
         summary = pd.read_csv(tmp_path / f"accuracy-{name}-summary.csv")
         assert set(summary.columns) >= {"class", "area_ha", "omission_error_pct", "commission_error_pct",
                                         "users_accuracy_pct", "producers_accuracy_pct", "overall_accuracy_pct", "f1_score", "cohens_kappa"}

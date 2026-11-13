@@ -14,6 +14,8 @@ matplotlib.use("Agg")  # headless; the container also sets MPLBACKEND=Agg
 
 import matplotlib.pyplot as plt  # noqa: E402
 
+from app.services.validation.accuracy_tables import reference_columns  # noqa: E402
+
 matplotlib.rcParams["svg.fonttype"] = "none"  # keep figure text as searchable, accessible SVG text
 
 DPI = 300
@@ -75,7 +77,7 @@ def confusion_figure(scope: dict[str, Any], stem: Path) -> dict[str, Path]:
             # White text on dark cells keeps every count readable.
             ax.text(col, row, f"{cells[row][col]:,}", ha="center", va="center", fontsize=10,
                     color=confusion_text_color(cells[row][col], peak))
-    ax.set_xticks([0, 1], ["Reference:\nflood candidate", "Reference:\nnot flood candidate"], fontsize=7)
+    ax.set_xticks([0, 1], [name.replace(": ", ":\n") for name in reference_columns(scope["scope"])], fontsize=7)
     ax.set_yticks([0, 1], ["Classified:\nflood candidate", "Classified:\nnot flood candidate"], fontsize=7)
     ax.set_title(f"Confusion matrix; n = {scope['n']:,}", fontsize=8)
     return _save(fig, stem)

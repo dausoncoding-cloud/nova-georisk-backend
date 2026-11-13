@@ -309,20 +309,22 @@ class FIRRISEngineAdapter(EngineAdapter):
 
     def _accuracy_table_exports(self, context: EngineExecutionContext, assessment: dict[str, Any]) -> dict[str, dict[str, Any]]:
         """CSV versions of the 2.2 tables (Makunga et al. 2025 Table 1 and Table 8) and curves."""
+        from app.services.validation.accuracy_tables import reference_columns
         entries: dict[str, dict[str, Any]] = {}
         names = {"1": "Flood candidate", "0": "Not flood candidate"}
         for scope in assessment.get("scopes", []):
             key, matrix = scope["scope"], scope["confusion_matrix"]
-            rows = [{"classified": names[label], "reference_flood_candidate": matrix["classified"][label]["reference_1"],
-                     "reference_not_flood_candidate": matrix["classified"][label]["reference_0"],
+            ref_1, ref_0 = reference_columns(key)
+            rows = [{"classified": names[label], ref_1: matrix["classified"][label]["reference_1"],
+                     ref_0: matrix["classified"][label]["reference_0"],
                      "total": matrix["classified"][label]["total"],
                      "users_accuracy_fraction": matrix["classified"][label]["users_accuracy"]["fraction"],
                      "users_accuracy_pct": matrix["classified"][label]["users_accuracy"]["pct"]} for label in ("1", "0")]
-            rows.append({"classified": "Reference total", "reference_flood_candidate": matrix["reference_totals"]["1"],
-                         "reference_not_flood_candidate": matrix["reference_totals"]["0"], "total": matrix["reference_totals"]["all"]})
+            rows.append({"classified": "Reference total", ref_1: matrix["reference_totals"]["1"],
+                         ref_0: matrix["reference_totals"]["0"], "total": matrix["reference_totals"]["all"]})
             rows.append({"classified": "Producer's accuracy",
-                         "reference_flood_candidate": matrix["producers_accuracy"]["1"]["fraction"],
-                         "reference_not_flood_candidate": matrix["producers_accuracy"]["0"]["fraction"],
+                         ref_1: matrix["producers_accuracy"]["1"]["fraction"],
+                         ref_0: matrix["producers_accuracy"]["0"]["fraction"],
                          "users_accuracy_pct": None})
             summary = [{"class": row["class_name"], "area_ha": row["area_ha"], "omission_error_pct": row["omission_error_pct"],
                         "commission_error_pct": row["commission_error_pct"], "users_accuracy_pct": row["users_accuracy_pct"],
