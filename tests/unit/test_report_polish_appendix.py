@@ -21,3 +21,10 @@ def test_appendix_is_grouped_with_readable_unique_labels(run):
     assert len(labels) == len(set(labels))
     for raw in ("roc data", "confusion counts", "source sar baseline", "jrc occurrence", "independent optical roc"):
         assert raw not in labels
+
+
+def test_figure_labels_cover_every_accuracy_scope():
+    from app.services.reporting.scientific_report import figure_label
+    assert figure_label("figure_internal_supplied_roc_png") == "Internal agreement with supplied labels (not independent) — ROC curve (PNG, 300 dpi)"
+    assert figure_label("figure_independent_optical_class_metrics_svg") == "Independent optical reference — per-class accuracy (SVG)"
+    assert figure_label("figure_other_scope_roc_png") == "Other scope roc (PNG, 300 dpi)"  # unknown scopes never fail the run

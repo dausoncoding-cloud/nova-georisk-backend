@@ -29,7 +29,8 @@ STATUS = {"not_assessable": "not assessable", "insufficient_reference_samples": 
 GATE_STATUS = {"pass": "Pass", "fail": "Fail", "not_recorded": "Not recorded", "not_applicable": "Not applicable"}
 # Outputs this report does not contain yet; listed by name only, never as empty sections.
 NOT_INCLUDED = ["Water delineation", "Trend analysis"]
-SCOPE_SHORT = {"independent_optical": "Independent optical reference", "internal_screening": "Internal agreement (not independent)"}
+SCOPE_SHORT = {"independent_optical": "Independent optical reference", "internal_screening": "Internal agreement (not independent)",
+               "internal_supplied": "Internal agreement with supplied labels (not independent)"}
 
 
 def _num(value, digits=2) -> str:
@@ -199,9 +200,11 @@ FORMAT_SUFFIXES = {" gpkg": " (GeoPackage)", " kml": " (KML)", " shapefile_zip":
 def figure_label(name: str) -> str:
     """'figure_independent_optical_roc_png' -> 'Independent optical reference — ROC curve (PNG, 300 dpi)'."""
     stem, fmt = name.removeprefix("figure_").rsplit("_", 1)
-    scope = next(s for s in SCOPE_SHORT if stem.startswith(s + "_"))
-    kind = stem.removeprefix(scope + "_")
-    return f"{SCOPE_SHORT[scope]} — {FIGURE_KINDS.get(kind, kind)} ({'PNG, 300 dpi' if fmt == 'png' else fmt.upper()})"
+    scope = next((s for s in SCOPE_SHORT if stem.startswith(s + "_")), None)
+    kind = stem.removeprefix(scope + "_") if scope else stem
+    prefix = SCOPE_SHORT[scope] + " — " if scope else ""
+    text = f"{prefix}{FIGURE_KINDS.get(kind, kind.replace('_', ' '))} ({'PNG, 300 dpi' if fmt == 'png' else fmt.upper()})"
+    return text[:1].upper() + text[1:]
 
 
 def appendix_label(key: str, entry: dict) -> str:
