@@ -24,12 +24,13 @@ from xml.sax.saxutils import escape
 
 from app.services.reporting.figures import scope_figures
 from app.services.validation.accuracy_tables import reference_columns
+from app.services.validation.diagnostics import LIMITATIONS as DIAGNOSTIC_LIMITATIONS
 
 STATUS = {"not_assessable": "not assessable", "insufficient_reference_samples": "insufficient reference samples",
           "not_performed": "not performed", "assessed": "assessed"}
 GATE_STATUS = {"pass": "Pass", "fail": "Fail", "not_recorded": "Not recorded", "not_applicable": "Not applicable"}
 # Outputs this report does not contain yet; listed by name only, never as empty sections.
-NOT_INCLUDED = ["Water delineation", "Trend analysis"]
+NOT_INCLUDED = ["Water delineation", "Trend analysis", "Permanent and seasonal water classes (JRC) on the main map"]
 SCOPE_SHORT = {"independent_optical": "Independent optical reference", "internal_screening": "Internal agreement (not independent)",
                "internal_supplied": "Internal agreement with supplied labels (not independent)"}
 
@@ -275,6 +276,31 @@ def scene_selection_text(quality: dict) -> str:
             "are masked per pixel.")
 
 
+def _midpoint(period: dict | None):
+    from datetime import date
+    if not period or not period.get("start") or not period.get("end"):
+        return None
+    start, end = date.fromisoformat(str(period["start"])[:10]), date.fromisoformat(str(period["end"])[:10])
+    return start + (end - start) / 2
+
+
+def baseline_gap_text(target: dict | None, baseline: dict | None, *, max_days: int = 90, max_season_days: int = 45) -> str | None:
+    """Limitation when the baseline is far from the target or at another time of year (from the run's periods)."""
+    target_mid, baseline_mid = _midpoint(target), _midpoint(baseline)
+    if target_mid is None or baseline_mid is None:
+        return None
+    gap = (target_mid - baseline_mid).days
+    offset = abs(target_mid.timetuple().tm_yday - baseline_mid.timetuple().tm_yday)
+    season = min(offset, 365 - offset)
+    if abs(gap) <= max_days and season <= max_season_days:
+        return None
+    direction = "before" if gap >= 0 else "after"
+    return (f"The baseline period ({baseline['start']} to {baseline['end']}) is {abs(gap):,} days {direction} the target period "
+            f"({target['start']} to {target['end']}), measured between period midpoints, and {season} days apart in the annual "
+            "cycle; seasonal changes in vegetation, soil moisture and standing water can therefore be mixed with flooding in the "
+            "change signal.")
+
+
 def score_limitations(summary: dict, assessment: dict) -> list[str]:
     """Plan review defect 12: near-binary Random Forest scores and tied ROC operating points, from the run."""
     distribution = ((summary.get("products") or {}).get("flood_probability") or {}).get("score_distribution")
@@ -370,7 +396,7 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
             title = (entry.get("gis_metadata") or {}).get("cartography", {}).get("title", key)
             # Two maps share one A4 page: each image is at most 10 cm tall.
             writer.image(output_directory / entry["path"], 16, f"{title}. Target {headline['target_period'] or 'not recorded'}; "
-                         f"baseline {headline['baseline_period'] or 'not recorded'}. Coordinates and colour scale are on the map frame.",
+                         f"baseline {headline['baseline_period'] or 'not recorded'}.",
                          max_height_cm=10)
     writer.keep_together(start)
 
@@ -393,7 +419,10 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
         _accuracy_scope(writer, scope, figures, (summary.get("independent_accuracy") or {}).get("audit_sample"))
 
     writer.heading("10. Limitations and what is not claimed")
-    for text in overview["limitations"] + score_limitations(summary, assessment) + ["Flood candidates are a model classification, not confirmed flood observations.",
+    # The paired-observation disclaimer is generic to the diagnostics tool, not about this map.
+    general = [text for text in overview["limitations"] if text != DIAGNOSTIC_LIMITATIONS[0]]
+    gap = baseline_gap_text(gis_metadata.get("target_period"), gis_metadata.get("baseline_period"))
+    for text in general + ([gap] if gap else []) + score_limitations(summary, assessment) + ["Flood candidates are a model classification, not confirmed flood observations.",
                                            "No result is field-verified.",
                                            "Depth, velocity, hazard, return period, exposure, vulnerability and risk are not produced: they require institutional data "
                                            "(for example surveyed river cross-sections, gauge records and asset registers) that this analysis does not have, "

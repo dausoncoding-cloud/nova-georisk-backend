@@ -183,8 +183,9 @@ def reference_basis(provider: str, label_source: str, features, y_train, y_test,
         "label_source": label_source,
         "rule": _sar_screening_rule() if sar else None,
         "features_overlapping_rule": sorted(set(features) & set(SAR_RULE_INPUT_FEATURES)) if sar else [],
-        "split_method": (f"{strategy.replace('_', ' ')} sampling; stratified random pixel split "
-                         f"(train fraction {train_fraction:g}); test pixels come from the same scene and are "
+        "split_method": (("stratified random sampling and pixel split" if strategy == "stratified_random"
+                          else f"{strategy.replace('_', ' ')} sampling; stratified random pixel split")
+                         + f" (train fraction {train_fraction:g}); test pixels come from the same scene and are "
                          "interleaved with training pixels, so they are not spatially independent"),
         "n_train_per_class": _per_class(y_train),
         "n_test_per_class": _per_class(y_test),
