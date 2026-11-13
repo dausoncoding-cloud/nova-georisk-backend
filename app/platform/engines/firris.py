@@ -462,8 +462,8 @@ class FIRRISEngineAdapter(EngineAdapter):
             reports[key] = artifact_entry(path, label=label, media_type="application/json", artifact_type="metadata", result_version=context.result_version, role="export", delivery_type="metadata_json", format_name="json")
         numeric_metrics = {key: value for key, value in workflow.validation_metrics.items() if isinstance(value, (int, float)) and np.isfinite(value)}
         report_context = ReportContext(
-            project_name=str(context.project_id),
-            aoi_name=str(context.aoi_id),
+            project_name=context.project_name or f"Project ID {context.project_id}",
+            aoi_name=context.aoi_name or f"AOI ID {context.aoi_id}",
             index_summaries=[
                 IndexSummary(name=satellite_display_label(key, _workflow_algorithm(context)), mean=float(value["mean"]), min=float(value["min"]), max=float(value["max"]), classification="Model output")
                 for key, value in summaries.items() if isinstance(value, dict) and {"mean", "min", "max"} <= set(value)
@@ -612,6 +612,7 @@ class FIRRISEngineAdapter(EngineAdapter):
             provenance=provenance, gis_metadata=context.gis_metadata,
             product_entries={key: entry for key, entry in outputs.items() if entry.get("role") == "product"},
             supplemental_entries=reports,
+            project_name=context.project_name, aoi_name=context.aoi_name,
         ))
         progress_callback(98)
         return EngineExecutionOutput(

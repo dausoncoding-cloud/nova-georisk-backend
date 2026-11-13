@@ -18,6 +18,7 @@ from app.core.artifact_storage import require_artifact_storage_ready
 from app.db.session import SessionLocal
 from app.models.result import Result
 from app.models.aoi import AOI
+from app.models.project import Project
 from app.services.source_data.boundaries import revalidate_boundary_aoi
 from app.models.task import Task, TaskStatus
 from app.platform.engines import get_engine_adapter
@@ -475,6 +476,8 @@ def execute_engine_task(db, task_id: uuid.UUID) -> None:
                         if (aoi := db.get(AOI, task.aoi_id)) is not None
                         else None
                     ),
+                    project_name=getattr(db.get(Project, task.project_id), "name", None),
+                    aoi_name=getattr(aoi, "name", None),
                 ),
                 _progress,
             )

@@ -23,6 +23,9 @@ class EngineExecutionContext:
     gis_metadata: dict[str, Any]
     result_version: int
     aoi_geometry: dict[str, Any] | None = None
+    # Human-readable names for report title blocks (plan 2.4); IDs are used when absent.
+    project_name: str | None = None
+    aoi_name: str | None = None
 
 
 @dataclass(frozen=True)

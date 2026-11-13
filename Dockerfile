@@ -31,8 +31,13 @@ COPY requirements.txt ./
 RUN ldconfig \
     && addgroup --system nova \
     && adduser --system --ingroup nova --home /home/nova nova \
-    && mkdir -p /app/outputs \
+    && mkdir -p /app/outputs /home/nova/.config/matplotlib \
     && chown -R nova:nova /app /home/nova
+
+# Report figures (plan 2.4) render headless; matplotlib's cache/config must be
+# writable by the unprivileged runtime user.
+ENV MPLBACKEND=Agg \
+    MPLCONFIGDIR=/home/nova/.config/matplotlib
 
 # Migrations and the source catalogue live under app; requirements.txt is also
 # read at runtime by execution provenance. Never copy the repository wholesale.
