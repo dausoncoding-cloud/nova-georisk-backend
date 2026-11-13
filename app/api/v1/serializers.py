@@ -88,12 +88,15 @@ def legacy_interpretation_notice(result: Result) -> str | None:
 
 
 CLIENT_DELIVERABLE_KEYS = {"scientific_report_pdf", "scientific_report_word", "firris_excel_report", "report_package"}
+AUDIT_KEY_PREFIXES = ("samples",)
 GIS_DELIVERY_TYPES = {"gis_layer_zip", "gpkg", "kml", "shapefile_zip"}
 
 
 def deliverable_group(key: str, entry: dict) -> str:
     """Plan item 2.5: which download group an artifact belongs to (also for legacy results)."""
     delivery = entry.get("delivery_type")
+    if key.startswith(AUDIT_KEY_PREFIXES):
+        return "audit"  # model sample points are evidence for checking the model, not map data
     if key in CLIENT_DELIVERABLE_KEYS or delivery in {"map_png", "map_pdf"}:
         return "client_deliverable"
     if (entry.get("role", "product") == "product" and entry.get("artifact_type") in {"raster", "vector"}) or delivery in GIS_DELIVERY_TYPES:

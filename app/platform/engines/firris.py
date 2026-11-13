@@ -431,7 +431,7 @@ class FIRRISEngineAdapter(EngineAdapter):
             })
         sample_geojson_path = context.output_directory / "samples.geojson"
         _write_json(sample_geojson_path, {"type": "FeatureCollection", "features": sample_features})
-        reports["samples_geojson"] = artifact_entry(sample_geojson_path, label="Georeferenced samples", media_type="application/geo+json", artifact_type="vector", result_version=context.result_version, role="export", delivery_type="geojson", format_name="geojson", gis_metadata={"crs": "EPSG:4326", "producer": "NOVA GeoRisk"})
+        reports["samples_geojson"] = artifact_entry(sample_geojson_path, label="Model training and test sample points, with features, scores and predictions (GeoJSON)", media_type="application/geo+json", artifact_type="vector", result_version=context.result_version, role="export", delivery_type="geojson", format_name="geojson", gis_metadata={"crs": "EPSG:4326", "producer": "NOVA GeoRisk"})
         # Shapefile fields are intentionally short and stable; CSV/GeoJSON
         # retain the full feature inventory without DBF field-name truncation.
         sample_zip = context.output_directory / "samples-shapefile.zip"
@@ -452,7 +452,7 @@ class FIRRISEngineAdapter(EngineAdapter):
                 for path in sorted(Path(directory).glob("samples.*")):
                     archive.write(path, arcname=path.name)
         reports["samples_shapefile"] = artifact_entry(
-            sample_zip, label="Georeferenced analysis samples Shapefile",
+            sample_zip, label="Model training and test sample points, label and split only (Shapefile)",
             media_type="application/zip", artifact_type="vector", result_version=context.result_version,
             role="export", delivery_type="shapefile_zip", format_name="zip",
             gis_metadata={"crs": "EPSG:4326", "producer": "NOVA GeoRisk",

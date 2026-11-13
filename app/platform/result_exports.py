@@ -57,6 +57,9 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
 
 
+VECTOR_FORMAT_SUFFIXES = {"gpkg": " (GeoPackage)", "kml": " (KML)", "shapefile_zip": " (Shapefile)"}
+
+
 def build_result_exports(
     output_directory: Path,
     *,
@@ -131,7 +134,7 @@ def build_result_exports(
             if entry.get("artifact_type") == "vector" and entry.get("format") == "geojson":
                 for format_name, (path, metadata) in export_vector_formats(output_directory, name, entry, provenance).items():
                     delivery_entries[name + "_" + format_name] = artifact_entry(path,
-                        label=entry.get("label", name) + " " + format_name,
+                        label=entry.get("label", name).removesuffix(" (GeoJSON)") + VECTOR_FORMAT_SUFFIXES[format_name],
                         media_type={"gpkg": "application/geopackage+sqlite3", "kml": "application/vnd.google-earth.kml+xml", "shapefile_zip": "application/zip"}[format_name],
                         artifact_type="vector", result_version=result_version, role="export",
                         product_key=entry.get("product_key"), delivery_type=format_name, format_name=format_name,
