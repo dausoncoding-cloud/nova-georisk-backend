@@ -264,6 +264,16 @@ def _appendix(writer: _Writer, downloads: list[tuple[str, dict]]):
                 writer.para(f"• {label}")
 
 
+def scene_selection_text(quality: dict) -> str:
+    """Sentinel-2 scene and pixel rules in words, from the values recorded for the run."""
+    cloud, degraded = quality.get("max_cloud_pct"), quality.get("degraded_msi_max_pct")
+    scene = (f"cloud cover ≤ {cloud:g}%" if cloud is not None else "cloud cover threshold not recorded") + " and " + (
+        f"degraded MSI ≤ {degraded:g}%" if degraded is not None else "degraded-MSI threshold not recorded")
+    return (f"Sentinel-2 scene selection: {scene} per scene, in both periods (applied in the scene query and checked for every "
+            "scene). Within the scenes used, clouds, cloud shadow, cirrus, snow and saturated or defective pixels (SCL class 1) "
+            "are masked per pixel.")
+
+
 def score_limitations(summary: dict, assessment: dict) -> list[str]:
     """Plan review defect 12: near-binary Random Forest scores and tied ROC operating points, from the run."""
     distribution = ((summary.get("products") or {}).get("flood_probability") or {}).get("score_distribution")
@@ -341,7 +351,8 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
                 f"split: {basis.get('split_method', 'not recorded')}.")
     policy = provenance.get("optical_reference_policy") or {}
     if policy:
-        writer.para(f"Independent optical reference: {policy.get('definition')}. Scene policy: {policy.get('scene_policy')}.")
+        writer.para(f"Independent optical reference: {policy.get('definition')}.")
+    writer.para(scene_selection_text(summary.get("quality") or {}))
 
     writer.heading("6. Quality gates")
     writer.table(["Gate", "Threshold", "Observed", "Status"],
@@ -379,7 +390,9 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     writer.heading("10. Limitations and what is not claimed")
     for text in overview["limitations"] + score_limitations(summary, assessment) + ["Flood candidates are a model classification, not confirmed flood observations.",
                                            "No result is field-verified.",
-                                           "Depth, velocity, hazard, return period, exposure, vulnerability and risk are not produced (client decision D2)."]:
+                                           "Depth, velocity, hazard, return period, exposure, vulnerability and risk are not produced: they require institutional data "
+                                           "(for example surveyed river cross-sections, gauge records and asset registers) that this analysis does not have, "
+                                           "and no proxy versions are made."]:
         writer.para(f"• {text}")
 
     writer.heading("11. Provenance summary")

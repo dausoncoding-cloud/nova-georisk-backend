@@ -416,7 +416,7 @@ def _render(output_directory: Path, key: str, entry: dict, provenance: dict, ver
     sheet_size = (box[2] + _GAP + panel_width, max(box[3], box[1] + panel_height) + _MARGIN_BOTTOM)
     labels = _coordinate_labels(crs, bounds, box)
     created = datetime.now(timezone.utc).isoformat()
-    layout = {"style": "simple framed map (client decision D5)", "title": title,
+    layout = {"style": "simple framed map", "title": title,
               "elements": ["map", "neatline", "coordinate_labels", "colour_scale"],
               "map_box_px": list(box), "sheet_px": list(sheet_size), "dpi": _DPI, "crs": crs.to_string(), "bounds": list(bounds),
               "coordinate_labels": [{k: v for k, v in label.items() if k != "position_px"} for label in labels],

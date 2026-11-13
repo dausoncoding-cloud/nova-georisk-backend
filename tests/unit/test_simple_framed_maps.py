@@ -67,7 +67,7 @@ def test_map_keeps_true_geometry_and_has_no_other_map_furniture(tmp_path):
     assert layout["elements"] == ["map", "neatline", "coordinate_labels", "colour_scale"]
     for absent in ("north_arrow", "scale_bar", "locator", "title_band", "notes"):
         assert absent not in layout
-    assert layout["style"] == "simple framed map (client decision D5)"
+    assert layout["style"] == "simple framed map"
 
 
 def test_frame_coordinate_labels_lie_within_the_raster_bounds(tmp_path):

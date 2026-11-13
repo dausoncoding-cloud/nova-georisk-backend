@@ -7,7 +7,7 @@ from pypdf import PdfReader
 from app.services.reporting.scientific_report import fraction_text, share_phrase
 from tests.unit._report_run import report_run, section as _section
 
-INTERNAL_WORDS = re.compile(r"\bbundle\b|remediation plan|not part of this release", re.IGNORECASE)
+INTERNAL_WORDS = re.compile(r"\bbundle\b|remediation plan|not part of this release|client decision", re.IGNORECASE)
 
 
 @pytest.fixture(scope="module")
@@ -128,3 +128,20 @@ def test_headline_areas_use_thousands_separators(run):
     _, _, _, text, _, _ = run
     summary = _section(text, "1. Executive summary", "2. Study area")
     assert not re.search(r"\d{4,}\.\d{2} km²", summary)
+
+
+# Decision codes are written out in words for the client.
+def test_method_and_limitations_state_decisions_in_words(run):
+    _, _, _, text, _, _ = run
+    assert "client decision" not in text.lower()
+    method = _section(text, "5. Method", "6. Quality gates")
+    assert "degraded" in method and "per pixel" in method and "SCL class 1" in method
+    limitations = _section(text, "Limitations and what is not claimed", "Provenance summary")
+    assert "institutional data" in limitations
+
+
+def test_scene_selection_text_states_the_recorded_thresholds():
+    from app.services.reporting.scientific_report import scene_selection_text
+    text = scene_selection_text({"max_cloud_pct": 20.0, "degraded_msi_max_pct": 0.1})
+    assert "cloud cover ≤ 20%" in text and "degraded MSI ≤ 0.1%" in text and "masked per pixel" in text
+    assert "degraded-MSI threshold not recorded" in scene_selection_text({"max_cloud_pct": 20.0})

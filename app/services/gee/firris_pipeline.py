@@ -43,8 +43,8 @@ OPTICAL_REFERENCE_POLICY = {
     "definition": ("flooded (1) = MNDWI > 0 on the target composite AND MNDWI <= 0 on the baseline composite "
                    "AND JRC occurrence < 90%; not flooded (0) = every other eligible pixel"),
     "mndwi": "(B3 - B11) / (B3 + B11), Sentinel-2 SR harmonized, SCL cloud/shadow/cirrus/snow masked, median composite",
-    "scene_policy": (f"cloud <= max_cloud_pct and degraded MSI <= {MAX_DEGRADED_MSI_PCT:g}% (client decision D6; "
-                     "query filter + per-scene assertion), both periods; SCL class 1 and cloud classes masked per pixel"),
+    "scene_policy": (f"cloud <= max_cloud_pct and degraded MSI <= {MAX_DEGRADED_MSI_PCT:g}% (query filter + "
+                     "per-scene assertion), both periods; SCL class 1 and cloud classes masked per pixel"),
     "eligibility": "admitted pixels whose optical bands are valid at both dates",
     "independence": "optical indices are not model features; the reference never enters the feature matrix",
     "limitations": ["Optical water misses flooded vegetation and water under cloud",
