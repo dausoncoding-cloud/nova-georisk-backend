@@ -126,6 +126,16 @@ def build_result_exports(
                 provenance, analytics, interpretation).items():
             delivery_entries[name] = artifact_entry(path, label=appendix_labels.get(name, name.replace("_", " ").title()),
                 media_type=media, artifact_type="report", result_version=result_version, role="export")
+        # Vector formats first, so the report appendix lists them too.
+        for name, entry in {**product_entries, **(supplemental_entries or {})}.items():
+            if entry.get("artifact_type") == "vector" and entry.get("format") == "geojson":
+                for format_name, (path, metadata) in export_vector_formats(output_directory, name, entry, provenance).items():
+                    delivery_entries[name + "_" + format_name] = artifact_entry(path,
+                        label=entry.get("label", name) + " " + format_name,
+                        media_type={"gpkg": "application/geopackage+sqlite3", "kml": "application/vnd.google-earth.kml+xml", "shapefile_zip": "application/zip"}[format_name],
+                        artifact_type="vector", result_version=result_version, role="export",
+                        product_key=entry.get("product_key"), delivery_type=format_name, format_name=format_name,
+                        gis_metadata=metadata)
         from app.services.reporting.scientific_report import build_scientific_report, figure_label
         report_labels = {"scientific_report_pdf": "Scientific report (PDF)", "scientific_report_word": "Scientific report (Word)"}
         downloads = list({**product_entries, **map_entries, **delivery_entries, **(supplemental_entries or {})}.items())
@@ -137,15 +147,6 @@ def build_result_exports(
             label = report_labels.get(name) or figure_label(name)
             delivery_entries[name] = artifact_entry(path, label=label, media_type=media, artifact_type="report",
                                                     result_version=result_version, role="export")
-        for name, entry in {**product_entries, **(supplemental_entries or {})}.items():
-            if entry.get("artifact_type") == "vector" and entry.get("format") == "geojson":
-                for format_name, (path, metadata) in export_vector_formats(output_directory, name, entry, provenance).items():
-                    delivery_entries[name + "_" + format_name] = artifact_entry(path,
-                        label=entry.get("label", name) + " " + format_name,
-                        media_type={"gpkg": "application/geopackage+sqlite3", "kml": "application/vnd.google-earth.kml+xml", "shapefile_zip": "application/zip"}[format_name],
-                        artifact_type="vector", result_version=result_version, role="export",
-                        product_key=entry.get("product_key"), delivery_type=format_name, format_name=format_name,
-                        gis_metadata=metadata)
 
     _write_json(summary_path, {**common, "summary": summary})
     _write_json(

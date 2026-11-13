@@ -30,3 +30,10 @@ def test_result_package_contains_a_readme_listing_every_file(run):
             assert name in readme, name
     for group in ("Client deliverables", "GIS data", "Figures and accuracy tables", "Audit and provenance"):
         assert group in readme
+
+
+def test_downloads_appendix_lists_every_vector_format_like_the_readme(run):
+    _, _, _, _, docx, _ = run
+    texts = [p.text for p in docx.paragraphs]
+    for suffix in ("(GeoPackage)", "(KML)", "(Shapefile)"):
+        assert f"• Flood-candidate extent (model-classified) vector {suffix}" in texts, suffix
