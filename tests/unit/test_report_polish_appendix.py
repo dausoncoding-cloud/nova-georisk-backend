@@ -28,3 +28,9 @@ def test_figure_labels_cover_every_accuracy_scope():
     assert figure_label("figure_internal_supplied_roc_png") == "Internal agreement with supplied labels (not independent) — ROC curve (PNG, 300 dpi)"
     assert figure_label("figure_independent_optical_class_metrics_svg") == "Independent optical reference — per-class accuracy (SVG)"
     assert figure_label("figure_other_scope_roc_png") == "Other scope roc (PNG, 300 dpi)"  # unknown scopes never fail the run
+
+
+def test_appendix_lists_the_scientific_report_with_its_download_labels(run):
+    _, _, _, _, docx, _ = run
+    texts = [p.text for p in docx.paragraphs]
+    assert "• Scientific report (PDF)" in texts and "• Scientific report (Word)" in texts

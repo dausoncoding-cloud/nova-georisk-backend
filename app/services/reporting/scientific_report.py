@@ -392,7 +392,8 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
         ["Full provenance", "provenance.json in the result package"]])
 
     writer.heading("Appendix: downloads")
-    report_entries = [("scientific_report_pdf", {"format": "pdf"}), ("scientific_report_word", {"format": "docx"})]
+    report_entries = [("scientific_report_pdf", {"format": "pdf", "label": "Scientific report (PDF)"}),
+                      ("scientific_report_word", {"format": "docx", "label": "Scientific report (Word)"})]
     figure_entries = [(name, {"format": name.rsplit("_", 1)[1]}) for name in figure_files]
     _appendix(writer, downloads + report_entries + figure_entries)
 
