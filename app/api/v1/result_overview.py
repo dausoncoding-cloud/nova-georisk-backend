@@ -86,8 +86,11 @@ def _quality_gates(summary: dict, quality: dict, provenance: dict) -> list[dict[
                        f"max {max(clouds):.1f}% over {len(clouds)} scenes" if clouds else None,
                        ("pass" if max(clouds) <= max_cloud else "fail") if clouds else "not_recorded"))
     degraded = [scene["degraded_msi_pct"] for scene in optical if isinstance(scene.get("degraded_msi_pct"), (int, float))]
-    gates.append(_gate("Sentinel-2 degraded MSI", "= 0%", f"max {max(degraded):.2f}% over {len(degraded)} scenes" if degraded else None,
-                       ("pass" if max(degraded) == 0 else "fail") if degraded else "not_recorded"))
+    # Runs since client decision D6 record their scene threshold; earlier results ran at 0%.
+    degraded_limit = float(quality.get("degraded_msi_max_pct", 0.0))
+    degraded_threshold = f"≤ {degraded_limit:g}% per scene" if degraded_limit else "= 0%"
+    gates.append(_gate("Sentinel-2 degraded MSI", degraded_threshold, f"max {max(degraded):.2f}% over {len(degraded)} scenes" if degraded else None,
+                       ("pass" if max(degraded) <= degraded_limit else "fail") if degraded else "not_recorded"))
     orbits = [sorted({scene["relative_orbit"] for scene in _scenes(quality, key) if "relative_orbit" in scene})
               for key in ("sentinel_1_target", "sentinel_1_baseline")]
     if all(orbits):

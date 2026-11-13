@@ -142,3 +142,21 @@ def test_only_firris_flood_results_get_an_overview_and_it_validates_and_serializ
 def test_overview_is_null_when_not_applicable():
     payload = serialize_result(_result(engine_key="source_bound")).model_dump(mode="json")
     assert payload["overview"] is None
+
+
+def test_degraded_msi_gate_uses_the_threshold_recorded_by_the_run():
+    summary = copy.deepcopy(SUMMARY)
+    summary["quality"]["degraded_msi_max_pct"] = 0.1  # client decision D6
+    summary["quality"]["per_collection"]["sentinel_2_target"]["scenes"][0]["degraded_msi_pct"] = 0.02
+    gates = {gate["name"]: gate for gate in build_result_overview(_result(summary))["quality_gates"]}
+    assert gates["Sentinel-2 degraded MSI"] == {"name": "Sentinel-2 degraded MSI", "threshold": "≤ 0.1% per scene",
+                                                "observed": "max 0.02% over 2 scenes", "status": "pass"}
+
+
+def test_legacy_results_without_a_recorded_threshold_keep_the_zero_percent_gate():
+    gates = {gate["name"]: gate for gate in build_result_overview(_result())["quality_gates"]}
+    assert gates["Sentinel-2 degraded MSI"]["threshold"] == "= 0%" and gates["Sentinel-2 degraded MSI"]["status"] == "pass"
+    summary = copy.deepcopy(SUMMARY)
+    summary["quality"]["per_collection"]["sentinel_2_target"]["scenes"][0]["degraded_msi_pct"] = 0.02
+    gates = {gate["name"]: gate for gate in build_result_overview(_result(summary))["quality_gates"]}
+    assert gates["Sentinel-2 degraded MSI"]["status"] == "fail"
