@@ -124,14 +124,14 @@ def build_result_exports(
                 provenance, analytics, interpretation).items():
             delivery_entries[name] = artifact_entry(path, label=appendix_labels.get(name, name.replace("_", " ").title()),
                 media_type=media, artifact_type="report", result_version=result_version, role="export")
-        from app.services.reporting.scientific_report import build_scientific_report
+        from app.services.reporting.scientific_report import build_scientific_report, figure_label
         report_labels = {"scientific_report_pdf": "Scientific report (PDF)", "scientific_report_word": "Scientific report (Word)"}
-        downloads = [entry.get("label", key) for key, entry in {**product_entries, **map_entries, **delivery_entries, **(supplemental_entries or {})}.items()]
+        downloads = list({**product_entries, **map_entries, **delivery_entries, **(supplemental_entries or {})}.items())
         for name, (path, media) in build_scientific_report(
                 output_directory, ids={"project": project_id, "aoi": aoi_id}, names={"project": project_name, "aoi": aoi_name},
                 result_version=result_version, summary=summary, provenance=provenance, gis_metadata=gis_metadata,
-                map_entries=map_entries, download_labels=downloads + list(report_labels.values())).items():
-            label = report_labels.get(name) or name.removeprefix("figure_").replace("_", " ").replace(" png", " (PNG, 300 dpi)").replace(" svg", " (SVG)")
+                map_entries=map_entries, downloads=downloads).items():
+            label = report_labels.get(name) or figure_label(name)
             delivery_entries[name] = artifact_entry(path, label=label, media_type=media, artifact_type="report",
                                                     result_version=result_version, role="export")
         for name, entry in {**product_entries, **(supplemental_entries or {})}.items():

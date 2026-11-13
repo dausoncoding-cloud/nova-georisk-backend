@@ -171,6 +171,85 @@ def _accuracy_scope(writer: _Writer, scope: dict, figures: dict[str, dict[str, P
         writer.image(figures[kind]["png"], 8, f"{short}: {caption}")
 
 
+APPENDIX_GROUPS = [("client_deliverable", "Client deliverables"), ("gis_data", "GIS data"),
+                   ("figures", "Figures and accuracy tables"), ("audit", "Audit and provenance")]
+FIGURE_KINDS = {"roc": "ROC curve", "pr": "precision–recall curve", "confusion": "confusion matrix", "class_metrics": "per-class accuracy"}
+TABLE_KINDS = {"confusion": "confusion matrix", "summary": "per-class accuracy summary", "roc": "ROC curve points", "pr": "precision–recall curve points"}
+APPENDIX_LABELS = {
+    "validation_confusion_counts_plot": "Internal validation: confusion counts plot (SVG)",
+    "validation_class_imbalance_plot": "Internal validation: class support plot (SVG)",
+    "validation_roc_plot": "Internal validation: ROC plot (SVG)",
+    "validation_precision_recall_plot": "Internal validation: precision–recall plot (SVG)",
+    "validation_threshold_f1_plot": "Internal validation: F1 by threshold plot (SVG)",
+    "validation_roc_data": "Internal validation: ROC points (CSV)",
+    "validation_precision_recall_data": "Internal validation: precision–recall points (CSV)",
+    "validation_thresholds_data": "Internal validation: threshold sweep (CSV)",
+    "acquired_feature_stack": "Received Earth Engine export, as downloaded",
+    "extracted_feature_stack": "Received Earth Engine export, extracted GeoTIFF",
+    "source_sar_baseline": "Sentinel-1 VV composite, baseline period (COG)",
+    "source_sar_target": "Sentinel-1 VV composite, target period (COG)",
+    "source_mndwi_baseline": "Sentinel-2 MNDWI, baseline period (COG)",
+    "source_mndwi_target": "Sentinel-2 MNDWI, target period (COG)",
+    "jrc_occurrence": "JRC surface-water occurrence (COG)",
+    "optical_reference": "Independent optical reference layer (COG)",
+}
+FORMAT_SUFFIXES = {" gpkg": " (GeoPackage)", " kml": " (KML)", " shapefile_zip": " (Shapefile)"}
+
+
+def figure_label(name: str) -> str:
+    """'figure_independent_optical_roc_png' -> 'Independent optical reference — ROC curve (PNG, 300 dpi)'."""
+    stem, fmt = name.removeprefix("figure_").rsplit("_", 1)
+    scope = next(s for s in SCOPE_SHORT if stem.startswith(s + "_"))
+    kind = stem.removeprefix(scope + "_")
+    return f"{SCOPE_SHORT[scope]} — {FIGURE_KINDS.get(kind, kind)} ({'PNG, 300 dpi' if fmt == 'png' else fmt.upper()})"
+
+
+def appendix_label(key: str, entry: dict) -> str:
+    if key in APPENDIX_LABELS:
+        return APPENDIX_LABELS[key]
+    if key.startswith("figure_"):
+        return figure_label(key)
+    if key.startswith("accuracy_"):
+        scope = next((s for s in SCOPE_SHORT if key.startswith(f"accuracy_{s}_")), None)
+        if scope:
+            kind = key.removeprefix(f"accuracy_{scope}_")
+            return f"{SCOPE_SHORT[scope]} — {TABLE_KINDS.get(kind, kind)} (CSV)"
+    label = str(entry.get("label") or key.replace("_", " "))
+    for raw, suffix in FORMAT_SUFFIXES.items():
+        if label.endswith(raw):
+            label = label[: -len(raw)] + suffix
+    return label[:1].upper() + label[1:]
+
+
+def _client_rank(key: str, entry: dict) -> int:
+    if key.startswith("scientific_report"):
+        return 0
+    if entry.get("delivery_type") in {"map_png", "map_pdf"}:
+        return 1
+    return 3 if key == "report_package" else 2
+
+
+def _appendix(writer: _Writer, downloads: list[tuple[str, dict]]):
+    from app.api.v1.serializers import deliverable_group
+
+    grouped: dict[str, list[tuple[str, dict]]] = {}
+    for key, entry in downloads:
+        grouped.setdefault(deliverable_group(key, entry), []).append((key, entry))
+    for group, title in APPENDIX_GROUPS:
+        items = sorted(grouped.get(group, []), key=lambda item: _client_rank(*item)) if group == "client_deliverable" else grouped.get(group, [])
+        labels: list[str] = []
+        for key, entry in items:
+            label = appendix_label(key, entry)
+            if label in labels and entry.get("format"):
+                label = f"{label} ({str(entry['format']).upper()})"
+            if label not in labels:
+                labels.append(label)
+        if labels:
+            writer.heading(title, 2)
+            for label in labels:
+                writer.para(f"• {label}")
+
+
 def score_limitations(summary: dict, assessment: dict) -> list[str]:
     """Plan review defect 12: near-binary Random Forest scores and tied ROC operating points, from the run."""
     distribution = ((summary.get("products") or {}).get("flood_probability") or {}).get("score_distribution")
@@ -194,7 +273,7 @@ def score_limitations(summary: dict, assessment: dict) -> list[str]:
 
 def build_scientific_report(output_directory: Path, *, ids: dict[str, str], names: dict[str, str | None], result_version: int,
                             summary: dict, provenance: dict, gis_metadata: dict, map_entries: dict[str, dict],
-                            download_labels: list[str]) -> dict[str, tuple[Path, str]]:
+                            downloads: list[tuple[str, dict]]) -> dict[str, tuple[Path, str]]:
     from app.api.v1.result_overview import build_result_overview
 
     overview = build_result_overview(SimpleNamespace(engine_key="firris", summary=summary, provenance=provenance))
@@ -295,8 +374,9 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
         ["Full provenance", "provenance.json in the result package"]])
 
     writer.heading("Appendix: downloads")
-    for label in download_labels:
-        writer.para(f"• {label}")
+    report_entries = [("scientific_report_pdf", {"format": "pdf"}), ("scientific_report_word", {"format": "docx"})]
+    figure_entries = [(name, {"format": name.rsplit("_", 1)[1]}) for name in figure_files]
+    _appendix(writer, downloads + report_entries + figure_entries)
 
     pdf = output_directory / "scientific-report.pdf"
     SimpleDocTemplate(str(pdf), pagesize=A4, title="FIRRIS scientific report", leftMargin=2 * cm, rightMargin=2 * cm).build(writer.story)
