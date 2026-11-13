@@ -162,12 +162,19 @@ def build_result_exports(
     _write_json(provenance_path, {**common, "provenance": provenance})
 
     with zipfile.ZipFile(package_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for path in [summary_path, metadata_path, provenance_path]:
+        packaged: list[tuple[str, str, dict]] = []
+        for key, path, label in (("analysis_summary", summary_path, "Analysis summary"), ("result_metadata", metadata_path, "Result metadata report"),
+                                 ("provenance", provenance_path, "Provenance report")):
             archive.write(path, arcname=path.name)
-        for entry in [*product_entries.values(), *map_entries.values(), *delivery_entries.values(), *(supplemental_entries or {}).values()]:
+            packaged.append((path.name, key, {"label": label, "artifact_type": "report", "role": "export"}))
+        for key, entry in [*product_entries.items(), *map_entries.items(), *delivery_entries.items(), *(supplemental_entries or {}).items()]:
             product_path = output_directory / str(entry["path"])
             folder = "products" if entry.get("role") == "product" else "reports"
             archive.write(product_path, arcname=f"{folder}/{product_path.name}")
+            packaged.append((f"{folder}/{product_path.name}", key, entry))
+        if engine_key == "firris":
+            from app.services.reporting.scientific_report import package_readme
+            archive.writestr("README.txt", package_readme(packaged))
 
     return {
         **map_entries,

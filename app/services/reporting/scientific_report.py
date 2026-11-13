@@ -254,25 +254,52 @@ def _client_rank(key: str, entry: dict) -> int:
     return 3 if key == "report_package" else 2
 
 
-def _appendix(writer: _Writer, downloads: list[tuple[str, dict]]):
+# The report lists what a client opens first; everything else is listed in the package README.
+REPORT_APPENDIX_GROUPS = ("client_deliverable", "gis_data")
+README_POINTER = ("Figures, accuracy tables, audit and provenance files are listed in README.txt inside the FIRRIS result package "
+                  "(firris-result-package.zip).")
+
+
+def grouped_downloads(downloads: list[tuple[str, dict]], *, unique: bool = True) -> list[tuple[str, str, list[tuple[str, dict, str]]]]:
+    """Downloads by group (download-page order) with readable labels; unique=True drops repeated labels."""
     from app.api.v1.serializers import deliverable_group
 
     grouped: dict[str, list[tuple[str, dict]]] = {}
     for key, entry in downloads:
         grouped.setdefault(deliverable_group(key, entry), []).append((key, entry))
+    result = []
     for group, title in APPENDIX_GROUPS:
         items = sorted(grouped.get(group, []), key=lambda item: _client_rank(*item)) if group == "client_deliverable" else grouped.get(group, [])
-        labels: list[str] = []
+        rows: list[tuple[str, dict, str]] = []
         for key, entry in items:
             label = appendix_label(key, entry)
-            if label in labels and entry.get("format"):
+            if label in [row[2] for row in rows] and entry.get("format"):
                 label = f"{label} ({str(entry['format']).upper()})"
-            if label not in labels:
-                labels.append(label)
-        if labels:
+            if not unique or label not in [row[2] for row in rows]:
+                rows.append((key, entry, label))
+        if rows:
+            result.append((group, title, rows))
+    return result
+
+
+def _appendix(writer: _Writer, downloads: list[tuple[str, dict]]):
+    for group, title, rows in grouped_downloads(downloads):
+        if group in REPORT_APPENDIX_GROUPS:
             writer.heading(title, 2)
-            for label in labels:
+            for _, _, label in rows:
                 writer.para(f"• {label}")
+    writer.para(README_POINTER)
+
+
+def package_readme(files: list[tuple[str, str, dict]]) -> str:
+    """README.txt for the result package: every file (archive name) by download group, with its label."""
+    by_key = {key: arcname for arcname, key, _ in files}
+    lines = ["FIRRIS result package", "", "Files in this package, grouped as on the download page.", ""]
+    for _, title, rows in grouped_downloads([(key, entry) for _, key, entry in files], unique=False):
+        lines += [title, "-" * len(title)]
+        lines += [f"{by_key[key]}  —  {label}" for key, _, label in rows]
+        lines.append("")
+    return "\n".join(lines)
 
 
 def scene_selection_text(quality: dict) -> str:
