@@ -112,6 +112,27 @@ def _accuracy_scope(writer: _Writer, scope: dict, figures: dict[str, dict[str, P
         writer.image(figures[kind]["png"], 8, f"{scope['title']}: {caption}")
 
 
+def score_limitations(summary: dict, assessment: dict) -> list[str]:
+    """Plan review defect 12: near-binary Random Forest scores and tied ROC operating points, from the run."""
+    distribution = ((summary.get("products") or {}).get("flood_probability") or {}).get("score_distribution")
+    if not distribution:
+        return []
+    lines = [f"Random Forest confidence scores are near-binary: {distribution['exact_0_pct']:.1f}% of valid pixels score exactly 0 "
+             f"and {distribution['exact_1_pct']:.1f}% exactly 1 ({distribution['between_pct']:.1f}% in between). The training labels "
+             "come from the deterministic SAR screening rule, which the classifier reproduces almost exactly. The model and its "
+             "scores are reported unchanged."]
+    independent = next((s for s in assessment.get("scopes", []) if s["scope"] == "independent_optical"), None)
+    points = [(p["fpr"], p["tpr"]) for p in (independent or {}).get("roc", []) if p["fpr"] is not None and p["tpr"] is not None]
+    inner = [point for point in points if point[0] < 1]
+    if independent and independent.get("roc_auc") and inner:
+        fpr, tpr = max(inner)
+        segment = (1 - fpr) * (tpr + 1) / 2
+        lines.append(f"Pixels tied at the lowest score form one straight ROC segment from false positive rate {fpr:.3f} to 1; "
+                     f"that segment contributes {segment:.3f} of the independent AUC {independent['roc_auc']:.3f}. "
+                     "ROC and precision–recall curves therefore have few distinct operating points.")
+    return lines
+
+
 def build_scientific_report(output_directory: Path, *, ids: dict[str, str], names: dict[str, str | None], result_version: int,
                             summary: dict, provenance: dict, gis_metadata: dict, map_entries: dict[str, dict],
                             download_labels: list[str]) -> dict[str, tuple[Path, str]]:
@@ -195,7 +216,7 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
         _accuracy_scope(writer, scope, figures, assessment.get("independent_wording") if scope["scope"] == "independent_optical" else None)
 
     writer.heading("12. Limitations and what is not claimed")
-    for text in overview["limitations"] + ["Flood candidates are a model classification, not confirmed flood observations.",
+    for text in overview["limitations"] + score_limitations(summary, assessment) + ["Flood candidates are a model classification, not confirmed flood observations.",
                                            "No result is field-verified.",
                                            "Depth, velocity, hazard, return period, exposure, vulnerability and risk are not produced (client decision D2)."]:
         writer.para(f"• {text}")

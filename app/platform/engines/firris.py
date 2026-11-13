@@ -483,7 +483,7 @@ class FIRRISEngineAdapter(EngineAdapter):
         generate_pdf_report(report_context, str(pdf_path))
         generate_excel_report(
             {
-                "Product Summary": pd.DataFrame([{"product": key, **{field: item for field, item in value.items() if field != "area_statistics"}} for key, value in summaries.items()]),
+                "Product Summary": pd.DataFrame([{"product": key, **{field: item for field, item in value.items() if not isinstance(item, dict)}} for key, value in summaries.items()]),
                 "Area Statistics": pd.DataFrame([{"product": key, **{field: item for field, item in value["area_statistics"].items() if field != "class_areas"}} for key, value in summaries.items() if "area_statistics" in value]),
                 "Class Areas": pd.DataFrame([{"product": key, **class_area} for key, value in summaries.items() for class_area in value.get("area_statistics", {}).get("class_areas", [])]),
                 "Validation Metrics": pd.DataFrame([{"metric": key, "value": json.dumps(value) if isinstance(value, dict) else value} for key, value in workflow.validation_metrics.items()]),
@@ -578,6 +578,12 @@ class FIRRISEngineAdapter(EngineAdapter):
             values = np.asarray(computed["values"])
             finite = values[np.isfinite(values.astype(float))]
             summaries[product] = {"cells": int(values.size), "units": computed["units"], "mean": float(np.mean(finite)), "min": float(np.min(finite)), "max": float(np.max(finite))}
+            if workflow is not None and product == "flood_probability" and finite.size:
+                # Reported as-is so the report can state how many scores are tied at 0 or 1.
+                scores = finite.astype(float)
+                summaries[product]["score_distribution"] = {
+                    "valid_cells": int(scores.size), "exact_0_pct": float((scores == 0).mean() * 100),
+                    "exact_1_pct": float((scores == 1).mean() * 100), "between_pct": float(((scores > 0) & (scores < 1)).mean() * 100)}
             if workflow is not None and values.ndim == 2:
                 summaries[product]["area_statistics"] = raster_area_statistics(workflow.product_arrays[product], workflow.raster_spec, nodata_mask=workflow.valid_mask)
             metadata_path = context.output_directory / f"{product}.json"
