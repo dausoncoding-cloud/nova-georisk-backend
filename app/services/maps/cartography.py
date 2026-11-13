@@ -248,11 +248,15 @@ def _coordinate_labels(crs: CRS, bounds, box) -> list[dict]:
     return labels
 
 
-def _scale(bands, continuous, value_range, units, has_nodata) -> dict:
+# Colour-bar titles written for readers; the layer's units metadata is unchanged.
+SCALE_TITLES = {"flood_probability": "Model confidence (0–1)"}
+
+
+def _scale(bands, continuous, value_range, units, has_nodata, title: str | None = None) -> dict:
     if continuous:
         low, high = value_range
-        return {"kind": "gradient", "min": low, "max": high, "unit": units, "stops": [band["color"] for band in bands],
-                "labels": [f"{high:.2f}", f"{low:.2f}", units]}
+        return {"kind": "gradient", "min": low, "max": high, "unit": units, "title": title or units,
+                "stops": [band["color"] for band in bands], "labels": [f"{high:.2f}", f"{low:.2f}", title or units]}
     classes = [{"label": band["label"], "color": band["color"]} for band in bands]
     if has_nodata:
         classes.append({"label": "No data", "color": "#FFFFFF"})
@@ -403,7 +407,7 @@ def _render(output_directory: Path, key: str, entry: dict, provenance: dict, ver
     else:
         map_image, _, _ = _paint_vector(source, meta, bands, key, map_size)
     box = (_MARGIN_LEFT, _MARGIN_TOP, _MARGIN_LEFT + map_size[0], _MARGIN_TOP + map_size[1])
-    scale = _scale(bands, continuous, value_range, str(meta.get("units", "")), has_nodata)
+    scale = _scale(bands, continuous, value_range, str(meta.get("units", "")), has_nodata, SCALE_TITLES.get(key))
     font = _font(34)
     texts = scale["labels"] if scale["kind"] == "gradient" else [item["label"] for item in scale["classes"]]
     swatch = 90 if scale["kind"] == "gradient" else 80
