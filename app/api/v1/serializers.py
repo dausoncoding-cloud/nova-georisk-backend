@@ -87,6 +87,22 @@ def legacy_interpretation_notice(result: Result) -> str | None:
     return None if provenance.get("science_version") == FIRRIS_SCIENCE_VERSION else LEGACY_FIRRIS_NOTICE
 
 
+CLIENT_DELIVERABLE_KEYS = {"scientific_report_pdf", "scientific_report_word", "firris_excel_report", "report_package"}
+GIS_DELIVERY_TYPES = {"gis_layer_zip", "gpkg", "kml", "shapefile_zip"}
+
+
+def deliverable_group(key: str, entry: dict) -> str:
+    """Plan item 2.5: which download group an artifact belongs to (also for legacy results)."""
+    delivery = entry.get("delivery_type")
+    if key in CLIENT_DELIVERABLE_KEYS or delivery in {"map_png", "map_pdf"}:
+        return "client_deliverable"
+    if (entry.get("role", "product") == "product" and entry.get("artifact_type") in {"raster", "vector"}) or delivery in GIS_DELIVERY_TYPES:
+        return "gis_data"
+    if key.startswith(("figure_", "accuracy_")):
+        return "figures"
+    return "audit"
+
+
 def serialize_result(result: Result) -> ResultResponse:
     """Serialize result metadata without leaking server filesystem paths."""
     products = []
@@ -115,6 +131,7 @@ def serialize_result(result: Result) -> ResultResponse:
             result_version=entry.get("result_version", result.version),
             file_size_bytes=entry.get("file_size_bytes"),
             checksum_sha256=entry.get("checksum_sha256"),
+            deliverable_group=deliverable_group(key, entry),
         )
         if role == "export":
             exports.append(artifact)

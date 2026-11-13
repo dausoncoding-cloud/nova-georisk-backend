@@ -25,6 +25,8 @@ class ResultProductResponse(BaseModel):
     result_version: int
     file_size_bytes: int | None = None
     checksum_sha256: str | None = None
+    # Plan item 2.5: curated download group, computed at read time.
+    deliverable_group: Literal["client_deliverable", "gis_data", "figures", "audit"] | None = None
 
 
 class ResultLayerResponse(BaseModel):

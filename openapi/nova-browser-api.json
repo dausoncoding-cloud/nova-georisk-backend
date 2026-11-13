@@ -5587,6 +5587,23 @@
             ],
             "title": "Checksum Sha256"
           },
+          "deliverable_group": {
+            "anyOf": [
+              {
+                "enum": [
+                  "client_deliverable",
+                  "gis_data",
+                  "figures",
+                  "audit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deliverable Group"
+          },
           "delivery_type": {
             "title": "Delivery Type",
             "type": "string"
