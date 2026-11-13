@@ -18,7 +18,7 @@ SECTIONS = ["1. Executive summary", "Scope of this report: not included in this 
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 
 
-def _run(tmp_path, monkeypatch, *, names=True, optical_status=None):
+def _run(tmp_path, monkeypatch, *, names=True, optical_status=None, **context_extra):
     monkeypatch.setattr(pipeline, "fetch_feature_stack", lambda *args, **kwargs: _gee_stack(optical_status))
     return FIRRISEngineAdapter().execute(EngineExecutionContext(
         task_id=uuid.uuid4(), project_id=uuid.uuid4(), aoi_id=uuid.uuid4(), output_directory=tmp_path,
@@ -29,7 +29,7 @@ def _run(tmp_path, monkeypatch, *, names=True, optical_status=None):
                                  "model": {"algorithm": "random_forest", "version": "test", "n_estimators": 20}}},
         gis_metadata={"crs": "EPSG:4326", "bounding_box": {"west": 36, "south": -1.6, "east": 36.6, "north": -1},
                       "spatial_resolution": {"x": 0.01, "y": 0.01, "unit": "degree"}, "producer": "NOVA GeoRisk"},
-        result_version=1), lambda _: None)
+        result_version=1, **context_extra), lambda _: None)
 
 
 def _pdf_text(path):

@@ -26,6 +26,9 @@ class EngineExecutionContext:
     # Human-readable names for report title blocks (plan 2.4); IDs are used when absent.
     project_name: str | None = None
     aoi_name: str | None = None
+    # Report title page: the organization running the analysis, and whether this is a sample (demonstration) report.
+    organization_name: str | None = None
+    sample_report: bool = False
 
 
 @dataclass(frozen=True)

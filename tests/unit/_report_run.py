@@ -9,11 +9,11 @@ from pypdf import PdfReader
 from tests.unit.test_scientific_report import _pdf_text, _run
 
 
-def report_run(tmp_path_factory):
+def report_run(tmp_path_factory, **context_extra):
     directory = tmp_path_factory.mktemp("polish")
     monkeypatch = pytest.MonkeyPatch()
     try:
-        result = _run(directory, monkeypatch)
+        result = _run(directory, monkeypatch, **context_extra)
     finally:
         monkeypatch.undo()
     pdf = directory / result.output_files["scientific_report_pdf"]["path"]

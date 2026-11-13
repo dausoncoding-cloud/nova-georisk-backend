@@ -74,6 +74,8 @@ def build_result_exports(
     supplemental_entries: dict[str, dict[str, Any]] | None = None,
     project_name: str | None = None,
     aoi_name: str | None = None,
+    organization_name: str | None = None,
+    sample_report: bool = False,
 ) -> dict[str, dict[str, Any]]:
     """Create truthful JSON reports and one ZIP containing delivered artifacts."""
     common = {
@@ -128,7 +130,8 @@ def build_result_exports(
         report_labels = {"scientific_report_pdf": "Scientific report (PDF)", "scientific_report_word": "Scientific report (Word)"}
         downloads = list({**product_entries, **map_entries, **delivery_entries, **(supplemental_entries or {})}.items())
         for name, (path, media) in build_scientific_report(
-                output_directory, ids={"project": project_id, "aoi": aoi_id}, names={"project": project_name, "aoi": aoi_name},
+                output_directory, ids={"project": project_id, "aoi": aoi_id}, names={"project": project_name, "aoi": aoi_name, "organization": organization_name},
+                sample_report=sample_report,
                 result_version=result_version, summary=summary, provenance=provenance, gis_metadata=gis_metadata,
                 map_entries=map_entries, downloads=downloads).items():
             label = report_labels.get(name) or figure_label(name)

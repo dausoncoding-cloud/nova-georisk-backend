@@ -297,7 +297,7 @@ def score_limitations(summary: dict, assessment: dict) -> list[str]:
 
 def build_scientific_report(output_directory: Path, *, ids: dict[str, str], names: dict[str, str | None], result_version: int,
                             summary: dict, provenance: dict, gis_metadata: dict, map_entries: dict[str, dict],
-                            downloads: list[tuple[str, dict]]) -> dict[str, tuple[Path, str]]:
+                            downloads: list[tuple[str, dict]], sample_report: bool = False) -> dict[str, tuple[Path, str]]:
     from app.api.v1.result_overview import build_result_overview
 
     overview = build_result_overview(SimpleNamespace(engine_key="firris", summary=summary, provenance=provenance))
@@ -308,6 +308,10 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     writer.heading("FIRRIS flood-candidate analysis — scientific report", 0)
     project = names.get("project") or f"Project ID {ids['project']}"
     aoi = names.get("aoi") or f"AOI ID {ids['aoi']}"
+    if sample_report:
+        writer.para("Sample report")
+    if names.get("organization"):
+        writer.para(f"Prepared by: {names['organization']}")
     writer.para(f"Project: {project}")
     writer.para(f"Area of interest: {aoi}")
     writer.para(f"Result version {result_version} · generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")

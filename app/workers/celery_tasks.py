@@ -478,6 +478,7 @@ def execute_engine_task(db, task_id: uuid.UUID) -> None:
                     ),
                     project_name=getattr(db.get(Project, task.project_id), "name", None),
                     aoi_name=getattr(aoi, "name", None),
+                    organization_name=getattr(getattr(db.get(Project, task.project_id), "organization", None), "name", None),
                 ),
                 _progress,
             )

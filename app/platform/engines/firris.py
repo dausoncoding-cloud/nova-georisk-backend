@@ -624,6 +624,7 @@ class FIRRISEngineAdapter(EngineAdapter):
             product_entries={key: entry for key, entry in outputs.items() if entry.get("role") == "product"},
             supplemental_entries=reports,
             project_name=context.project_name, aoi_name=context.aoi_name,
+            organization_name=context.organization_name, sample_report=context.sample_report,
         ))
         progress_callback(98)
         return EngineExecutionOutput(
