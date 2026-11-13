@@ -403,6 +403,18 @@ Replace fixed default dates in `src/features/analyses/parameters.ts` with empty 
 | Out of scope | Tiled large-area processing (excluded from this sprint, §1) |
 | Acceptance | The Kilosa AOI at 30 m is flagged before submission with its estimate and a suggested resolution; no task row is created |
 
+### 4.7 Terminology consistency (backlog; F3)
+
+On 2026-11-14 the report-polish branch gave every client surface of a satellite run one name for `flood_extent`: "Flood-candidate extent (model-classified)". The API key is unchanged. Three remaining uses of the unqualified term are deferred by choice, with these reasons:
+
+| Location | Current text | Reason deferred |
+|---|---|---|
+| OpenAPI `summary` of the legacy Flood Maps endpoint (`openapi/nova-browser-api.json`, `nova-internal-api.json`) | "Flood Extent" | Changing it alters both OpenAPI exports and their SHA-256. That requires the paired JSON and `.d.ts` regeneration in both repositories. It is API documentation, not client output. Batch it with the next approved OpenAPI change |
+| Deterministic (non-satellite) FIRRIS path, `_LABELS["flood_extent"]` in `app/platform/engines/firris.py` | "Flood Extent" | Not reached by Earth Engine runs. That product is a parameter-driven computation, not a model classification, so the satellite name does not fit. It needs its own qualified name, agreed when that path is next reviewed |
+| Screening Atlas, `app/services/gee/atlas_orchestrator.py` | "Screening Binary Flood Extent" | Already qualified as screening, and a separate product family. Align its wording with F3 when the atlas outputs are reviewed |
+
+Acceptance: no client-visible text uses "Flood Extent" without qualification, and a test guards each surface. This matches the existing test for the satellite report and downloads.
+
 ---
 
 ## 6. Bundle 5 — Production acceptance evidence
