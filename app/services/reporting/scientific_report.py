@@ -23,6 +23,7 @@ from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Space
 from xml.sax.saxutils import escape
 
 from app.services.reporting.figures import scope_figures
+from app.services.reporting.fonts import embed_in_styles, register_fonts
 from app.services.validation.accuracy_tables import reference_columns
 from app.services.validation.diagnostics import LIMITATIONS as DIAGNOSTIC_LIMITATIONS
 
@@ -90,6 +91,7 @@ class _Writer:
 
     def __init__(self):
         self.styles = getSampleStyleSheet()
+        embed_in_styles(self.styles)  # embedded DejaVu Sans: ², ≤, ≥, κ, – and · always render
         for name in ("Heading1", "Heading2", "Heading3"):
             self.styles[name].keepWithNext = 1  # a heading never ends a page
         self.story: list = []
@@ -116,7 +118,7 @@ class _Writer:
         data = [header] + rows
         cell = self.styles["BodyText"].clone("cell", fontSize=7, leading=8.5)
         table = Table([[Paragraph(escape(str(value)), cell) for value in row] for row in data], repeatRows=1)
-        table.setStyle(TableStyle([("GRID", (0, 0), (-1, -1), 0.4, colors.grey), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8eef3")),
+        table.setStyle(TableStyle([("FONTNAME", (0, 0), (-1, -1), register_fonts()), ("GRID", (0, 0), (-1, -1), 0.4, colors.grey), ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8eef3")),
                                    ("VALIGN", (0, 0), (-1, -1), "TOP")]))
         self.story += [table, Spacer(1, 0.3 * cm)]
         self.keep_together(start)  # never split a table from its caption or orphan its last row
@@ -136,6 +138,11 @@ class _Writer:
                        Spacer(1, 0.3 * cm)]
         self.doc.add_picture(str(path), width=Inches(width_cm / 2.54))
         self.doc.add_paragraph(caption)
+
+
+def write_pdf(writer: "_Writer", path: Path) -> None:
+    SimpleDocTemplate(str(path), pagesize=A4, title="FIRRIS scientific report", leftMargin=2 * cm, rightMargin=2 * cm,
+                      initialFontName=register_fonts()).build(writer.story)
 
 
 def internal_agreement_sentence(scope: dict) -> str:
@@ -490,7 +497,7 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     _appendix(writer, downloads + report_entries + figure_entries)
 
     pdf = output_directory / "scientific-report.pdf"
-    SimpleDocTemplate(str(pdf), pagesize=A4, title="FIRRIS scientific report", leftMargin=2 * cm, rightMargin=2 * cm).build(writer.story)
+    write_pdf(writer, pdf)
     docx = output_directory / "scientific-report.docx"
     writer.doc.save(docx)
     return {"scientific_report_pdf": (pdf, "application/pdf"),
