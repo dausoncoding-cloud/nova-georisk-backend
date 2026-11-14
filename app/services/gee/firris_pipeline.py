@@ -219,7 +219,10 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
     orbit_sets = [{record["relative_orbit"] for record in scene_qa[key]["scenes"]}
                   for key in ("sentinel_1_target", "sentinel_1_baseline")]
     if orbit_sets[0] != orbit_sets[1] or len(orbit_sets[0]) != 1:
-        raise ValueError("SAR change requires one matching relative orbit in both periods")
+        found = "; ".join(f"{name}: {', '.join(map(str, sorted(orbits))) or 'none'}"
+                          for name, orbits in zip(("target", "baseline"), orbit_sets))
+        raise ValueError("The target and baseline windows must each contain Sentinel-1 passes from exactly one relative orbit, "
+                         f"the same in both ({found}).")
     def pin(collection_record):
         return ingestion.ee.ImageCollection.fromImages([ingestion.ee.Image(record["scene_id"]) for record in collection_record["scenes"]])
     s1_target=pin(scene_qa["sentinel_1_target"])

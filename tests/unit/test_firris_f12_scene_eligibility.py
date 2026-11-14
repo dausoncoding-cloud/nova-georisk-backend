@@ -139,10 +139,10 @@ def test_per_scene_assertion_still_rejects_a_forged_degraded_record():
         _select_and_inspect([_s2("clean"), _s2("forged", degraded=0.11)], max_degraded_msi_pct=None)
 
 
-def test_empty_sar_collection_keeps_generic_reason():
+def test_empty_sar_collection_names_the_window():
     collection = MagicMock()
     collection.size.return_value.getInfo.return_value = 0
-    with pytest.raises(ValueError, match="Required collection is empty or exceeds bounded per-scene QA limit"):
+    with pytest.raises(ValueError, match=r"No Sentinel-1 scene over the area between 2024-03-01 and 2024-04-01 \(end date exclusive\)\."):
         inspect_collection(collection, sensor="Sentinel-1", period={"start": "2024-03-01", "end": "2024-04-01"},
                            aoi=AOI, required_bands=["VV"])
 

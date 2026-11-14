@@ -119,7 +119,9 @@ def _mark_failed(db, task: Task, error: Exception) -> None:
     task.error_message = str(error)
     if isinstance(getattr(error, "quality_record", None), dict):
         task.result_payload = {**(task.result_payload or {}), "quality": error.quality_record}
-    task.error_summary = "Analysis execution failed. Please retry or contact support with the request ID."
+    # Plan 4.2: only allow-listed, plain-language FIRRIS quality messages are shown to users.
+    from app.services.firris.user_messages import public_error_summary
+    task.error_summary = public_error_summary(error)
     try:
         append_event(task, "failed")
     except (ValueError, TypeError, KeyError):
