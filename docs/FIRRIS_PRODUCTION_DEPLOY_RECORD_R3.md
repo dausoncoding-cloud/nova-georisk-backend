@@ -111,3 +111,68 @@ The cutover used the fixed script: a 300 s health deadline per service, logs and
    - **Tests:** extension in both directions, the S2-loss hint, and the existing blocked/ok/warning cases. 137 tests pass, plus `api:check`, `typecheck` and `build`.
    - No backend change is needed: nearest passes are already filtered to the other window's orbit, and a wider window that picks up a second orbit is still blocked by preflight.
 3. **Backlog** (plan §4.7, analysis-period UX): inclusive end dates in the UI, a green "ready" box, MiB used consistently, and a baseline-far-from-target preflight warning.
+
+---
+
+## 7. Release r3.1 (2026-11-14)
+
+**Scope:** "Use nearest pass" now extends the window instead of replacing it. The Sentinel-2 note sits next to Continue. Wording changed to "will not be assessable" in the backend preflight warning and in the UI.
+
+The release was planned as gateway-only. It became a backend + gateway release because the warning text is served by the API (owner choice B).
+
+### Code, tags and images
+
+| | Backend | Frontend |
+|---|---|---|
+| Deployed commit (ff-only from r3) | **`4258a1173cb4d032c505dcfbf9fb7f5baf24f824`** (`fix(firris): 'will not be assessable'…`; 3 lines incl. test) | **`0367688435f6c090d54c87e7170ddd69000f4386`** (`4e4aa75` nearest-pass extension + `0367688` wording) |
+| Tag | `firris-science-2-r3.1` | `firris-science-2-r3.1` |
+| Image | `nova-georisk-backend:r3.1-4258a11-20261114` = `sha256:f03d92c3fa60609087d7b7360bf83a48f07db6ada284d71d00096c5ff041dda1` | `nova-georisk-frontend:r3.1-0367688-20261114` = `sha256:640bcaa02803cc091533ac3d9241348ebbdbabf715d386aa8cbd5a56b74f0430` |
+| Rollback (`:rollback-before-r3.1`) | `sha256:45f4c24abd65…` (r3) | `sha256:29adb771c847…` (r3) |
+
+- **Release directory:** `/home/deploy/nova-releases/r3.1-4258a11-20261114/`.
+- **No change to:** schema, migrations (Alembic `f1a2b3c4d5e6`), OpenAPI (browser SHA still `41ae7d03…`) or environment.
+
+### Gates
+
+| Check | Result |
+|---|---|
+| Backend unit / integration (56432) / packaging | 1,050 / 185 / NEGATIVE, CONTEXT, LOCK PASS (109), PACKAGING REGRESSION PASS |
+| Frontend (`0367688`) | `api:check`, `typecheck`, `build`; 137 tests / 31 files |
+| Remaining "be not assessable" | none, in the backend (`app`, `scripts`, split strings included), the frontend source or the built frontend assets |
+| Server builds (sequential, production up) | Backend 4 s (all layers cached; lock unchanged). Frontend 48 s. Minimum MemAvailable **474 MB** (frontend build) |
+| Image gates | Backend packaging 0 findings (44 reviewed). Frontend: the 2 reviewed CA symlinks (same base layer and target). `pip freeze` = lock. MPL `Agg`. Bundled DejaVu map font with "–". OpenAPI `41ae7d03…`. New wording present in both images |
+| One-off worker (throwaway queue) | Healthy in **17.9 s**. Healthcheck ×5: 2.0–5.1 s, rc 0. 0 tasks received |
+
+### Backup and cutover
+
+| Item | Value |
+|---|---|
+| DB dump | `backup/production-20261114T2338Z.dump`, 524,991 B, 26 TABLE DATA, SHA-256 `976d753374474bc8c964bf91e4bec639f642a344aa946dd0b720bb7abfabc7dc` |
+| Artifacts | `backup/artifacts-20261114T2338Z.tar.gz`, 118,809,816 B, 645 entries (`tar -tzf` OK), SHA-256 `c553e8d5f040445eaa0a0d571cf4433207ce672e4fabe32d7c2274290f32f20e` |
+| Quiesce → new API/BFF/worker healthy | 23:38:28 → 23:39:30 UTC: **62.0 s** |
+| Gateway swap + nginx reload | 7.4 s |
+
+**Why the downtime was longer than r3 (48.9 s):** the artifacts archive grew to 119 MB with the new production runs and is taken while services are stopped. See backlog §4.7 item 7.
+
+### Post-deploy checks
+
+| Check | Result |
+|---|---|
+| Services | api, bff and worker on `f03d92c3…` (rev `4258a11`); gateway on `640bcaa0…` (rev `0367688`); all healthy, 0 restarts |
+| URLs | app `/` 200, `/auth/session` 200, `api…/health` 200; `/auth/login` 302 → Auth0 |
+| Without a session | protected download 401; `POST /api/v1/analyses/preflight` 401 |
+| Worker | `inspect ping` → 1 node online |
+| Logs 23:39:40–23:44:49 UTC | 0 errors / 5xx in api, bff, worker, gateway and edge nginx |
+
+### Owner browser tests (after a hard refresh; baseline 2024-03-01→04-01)
+
+| Test | Result |
+|---|---|
+| Target 2024-05-21→23 → "Use nearest pass" | Blocked first; then **2024-05-21→26**, Ready, target with 1 compliant Sentinel-2 scene, Continue enabled: **OK** |
+| Target 2024-04-18→20 | Blue warnings and the note next to Continue read "will not be assessable": **OK** |
+
+### Findings added to the backlog (plan §4.7, not implemented)
+
+- **Item 5:** the note next to Continue must name the window(s) lacking a compliant Sentinel-2 scene. In test 1 the baseline, not the target, had 0 scenes.
+- **Item 6:** baseline seasonality warning based on CHIRPS rainfall against the long-term monthly mean. March–May is the long rains in coastal Tanzania; the warning should recommend a dry-season baseline near the event.
+- **Item 7:** take the artifacts backup before quiescing, then only an incremental rsync while services are stopped.
