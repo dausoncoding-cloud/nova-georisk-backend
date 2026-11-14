@@ -25,15 +25,30 @@ Existing image `firris-final-full-20261006-integration-test:latest`, ID `b4d862e
 
 `certifi`, `google-auth` and `google-api-python-client` reach the image through `earthengine-api` and carry files covered by hash-pinned exceptions. They are therefore pinned in `requirements.txt` to the exact versions whose files match `scripts/docker_packaging_exceptions.json`. Without pins, a rebuild silently picked up newer releases and failed the scan (2026-11-13: certifi 2026.10.23, google-auth 2.62.2, google-api-python-client 2.202.0).
 
-Raising these pins is a deliberate task, not drift:
-- **When.** At least once per quarter, and whenever a security advisory affects one of the packages.
+**Lock.** The image installs only `requirements.lock`, with `pip install --require-hashes --no-deps`.
+
+- **What it is.** The lock pins every installed package (109) to an exact version with SHA-256 hashes. It was generated on 2026-11-14 from `pip freeze --all` inside the production image `sha256:ea114d5d…`, so it reproduces that image exactly.
+- **Why it exists.** An unpinned rebuild had pulled `kombu` 5.7.0, whose Redis transport refuses redis-py 5.0.8 at runtime, and stopped the production worker.
+- **Not locked.** `pip` and `wheel` come from the pinned base image.
+- **Role of `requirements.txt`.** It stays the human-edited list of direct dependencies, and execution provenance reads it. Every pin in it must match the lock (unit-tested).
+- **Release gate.** `scripts/verify_docker_packaging.py` fails if the built image contains any package or version that differs from the lock (`LOCK PASS` otherwise).
+
+Upgrading any package is a deliberate task, not drift:
+- **When.** At least once per quarter, and whenever a security advisory affects an installed package.
 - **How.**
-  1. Bump the pin.
-  2. Rebuild the image.
-  3. Review every file the scan reports as changed, and confirm it is public library code, a CA bundle or a discovery schema, not a credential.
-  4. Update only those paths' `sha256` values in the exceptions file, with the reason.
-  5. Re-run `scripts/verify_docker_packaging.py`.
-- **Commit.** Commit the pin and the exception changes together.
+  1. Edit `requirements.txt` for direct dependencies. Add an explicit pin for any transitive package that must change.
+  2. Regenerate the lock with the exact production interpreter and platform, keeping every unchanged package at its locked version:
+     ```
+     uv pip compile requirements.txt requirements.lock --generate-hashes --python-version 3.11.17 \
+         --python-platform x86_64-manylinux_2_28 --no-header --no-annotate -o requirements.lock
+     ```
+     Then restore the three-line header.
+  3. Review the lock diff. Only the intended packages, and the dependencies they truly need, may change.
+  4. Rebuild the image and run `scripts/verify_docker_packaging.py` (`LOCK PASS` and packaging scan).
+  5. For the hash-pinned exception files (`certifi`, `google-auth`, `google-api-python-client`): review every changed file the scan reports, and update only those paths' `sha256` in `scripts/docker_packaging_exceptions.json`, with the reason.
+  6. Start a one-off worker on a throwaway queue and confirm it reaches `ready` and answers the healthcheck. This catches runtime-only incompatibilities such as kombu ↔ redis-py.
+  7. Run the unit, integration and packaging suites.
+- **Commit.** Commit `requirements.txt`, `requirements.lock` and any exception changes together.
 
 ## Current verification
 

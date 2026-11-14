@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from contextlib import contextmanager
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -21,6 +22,32 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.check_image_packaging import load_exceptions, scan_image
 
 ROOT = Path(__file__).resolve().parents[1]
+# Installed by the pinned python base image, not by requirements.lock.
+BASE_IMAGE_TOOLS = {'pip', 'wheel'}
+
+
+def _norm(name: str) -> str:
+    return re.sub(r'[-_.]+', '-', name).lower()
+
+
+def parse_lock(text: str) -> dict[str, str]:
+    """name -> version for every 'name==version' requirement line of a hash lock."""
+    return {_norm(m.group(1)): m.group(2) for m in re.finditer(r'^([A-Za-z0-9_.-]+)==([^\s\\;]+)', text, re.MULTILINE)}
+
+
+def lock_mismatches(freeze: str, lock: str) -> list[str]:
+    """Differences between an image's 'pip freeze --all' and requirements.lock (empty when identical)."""
+    image = {name: version for name, version in parse_lock(freeze).items() if name not in BASE_IMAGE_TOOLS}
+    locked = parse_lock(lock)
+    problems = []
+    for name in sorted(set(image) | set(locked)):
+        if name not in locked:
+            problems.append(f'{name}: image {image[name]}, not in lock')
+        elif name not in image:
+            problems.append(f'{name}: in lock {locked[name]}, missing from image')
+        elif image[name] != locked[name]:
+            problems.append(f'{name}: image {image[name]}, lock {locked[name]}')
+    return problems
 
 
 @contextmanager
@@ -120,7 +147,7 @@ def main():
             names = context_members(probe)
             if any('context/' + name in names for name in excluded):
                 raise RuntimeError('Prohibited synthetic file reached Docker context')
-            required = {'app/main.py', 'requirements.txt', 'alembic.ini',
+            required = {'app/main.py', 'requirements.txt', 'requirements.lock', 'alembic.ini',
                         'app/db/migrations/env.py', 'app/db/migrations/script.py.mako',
                         'app/services/source_data/firris_catalogue.json'}
             if not {'context/' + name for name in required} <= names:
@@ -135,6 +162,13 @@ def main():
                     raise RuntimeError('Prohibited path reached Docker context')
             print(f'CONTEXT PASS: {len(excluded)} synthetic sentinels excluded; required runtime files present', flush=True)
             subprocess.run(['docker', 'build', '--progress=plain', '-t', args.image, '.'], cwd=ROOT, check=True)
+            freeze = subprocess.run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'pip', args.image,
+                                     'freeze', '--all'], capture_output=True, text=True, check=True).stdout
+            mismatches = lock_mismatches(freeze, (ROOT / 'requirements.lock').read_text())
+            if mismatches:
+                print(json.dumps({'lock_mismatches': mismatches}, indent=2))
+                raise RuntimeError('Production image packages differ from requirements.lock')
+            print(f'LOCK PASS: image packages identical to requirements.lock ({len(parse_lock(freeze)) - len(BASE_IMAGE_TOOLS)} locked)', flush=True)
             result = scan_image(args.image, load_exceptions())
             print(json.dumps(result, indent=2, sort_keys=True))
             if result['findings']:

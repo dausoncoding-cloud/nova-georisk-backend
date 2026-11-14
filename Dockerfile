@@ -9,8 +9,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gdal-bin libgdal-dev libgeos-dev libproj-dev gcc g++ \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install exactly the hash-locked set (generated from the production image; see the
+# dependency upgrade procedure). --no-deps: nothing outside the lock is resolved.
+COPY requirements.lock .
+RUN pip install --no-cache-dir --require-hashes --no-deps -r requirements.lock
 
 # Wheels supply GDAL/GEOS/PROJ. Only their external C++/OpenMP/XML runtime libraries
 # are needed from the build environment; compilers, system GDAL and crypto-library

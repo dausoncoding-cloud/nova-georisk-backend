@@ -4,6 +4,7 @@
 !Dockerfile
 !.dockerignore
 !requirements.txt
+!requirements.lock
 !alembic.ini
 !app/
 !app/**/
