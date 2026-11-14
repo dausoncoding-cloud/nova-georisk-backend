@@ -2,8 +2,10 @@
 
 Checks, before any task exists and without downloading pixels:
 - sensor date bounds: Sentinel-1 GRD starts on 2014-10-03; windows may not end after today (UTC);
-- capacity: the synchronous Earth Engine download limit (48 MiB per request, measured at
-  88-93 bytes per bounding-box pixel for the 12-band contract plus validity bands);
+- capacity: the synchronous Earth Engine download limit (48 MiB per request). Earth Engine counts
+  exactly 93 bytes per output pixel for the current 12-band contract plus validity bands (calibrated
+  2026-11-14, tests/unit/test_firris_preflight_capacity.py), and the pixel count below is an upper
+  bound of its snapped output grid, so the estimate is never below the real request;
 - Sentinel-1 availability: each window needs passes from exactly one relative orbit, the same in
   both windows (the rule enforced by the pipeline); empty windows report the nearest passes;
 - Sentinel-2: compliant scenes per window (warning only; without them the independent accuracy
@@ -35,7 +37,7 @@ logger = logging.getLogger(__name__)
 SENTINEL1_START = date(2014, 10, 3)
 SENTINEL2_SR_START = date(2017, 3, 28)
 REQUEST_LIMIT_BYTES = 50_331_648  # Earth Engine getDownloadURL limit (staging §0.7)
-BYTES_PER_PIXEL = 93  # upper measured cost of the current band contract per bbox pixel
+BYTES_PER_PIXEL = 93  # Earth Engine's request cost per output pixel for the current band contract (calibrated)
 METRES_PER_DEGREE = 111_319.49079327357  # Earth Engine's EPSG:4326 scale conversion
 NEAREST_SEARCH_DAYS = 90
 SUGGESTED_SCALES = (60, 90, 120, 150, 200, 250, 300, 500, 1000)
@@ -79,6 +81,7 @@ def date_issues(windows: dict[str, tuple[date, date]], today: date) -> list[Anal
 def capacity_estimate(bounds: tuple[float, float, float, float], scale: float) -> dict[str, Any]:
     west, south, east, north = bounds
     step = scale / METRES_PER_DEGREE
+    # Upper bound of Earth Engine's output grid (bbox snapped outward to the global pixel grid).
     pixels = (math.ceil((east - west) / step) + 1) * (math.ceil((north - south) / step) + 1)
     estimated = pixels * BYTES_PER_PIXEL
     suggested = None
