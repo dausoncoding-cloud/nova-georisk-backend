@@ -39,3 +39,24 @@ def embed_in_styles(styles) -> None:
             style.fontName = REPLACEMENTS[style.fontName]
         if getattr(style, "bulletFontName", None) in REPLACEMENTS or getattr(style, "bulletFontName", None) == "Symbol":
             style.bulletFontName = REGULAR
+
+
+def embed_in_drawing(drawing) -> None:
+    """Point the strings and chart axis labels of a ReportLab drawing at the embedded face (PDF use)."""
+    register_fonts()
+    if drawing.__class__.__name__ == "Drawing":
+        drawing.initialFontName = REGULAR  # the renderer's initial graphics state
+    for item in getattr(drawing, "contents", []):
+        if getattr(item, "fontName", None) is not None:
+            item.fontName = REPLACEMENTS.get(item.fontName, REGULAR)
+        for axis in ("xValueAxis", "yValueAxis", "categoryAxis", "valueAxis"):
+            labels = getattr(getattr(item, axis, None), "labels", None)
+            if labels is not None:
+                labels.fontName = REGULAR
+        if getattr(item, "contents", None):
+            embed_in_drawing(item)
+
+
+def pdf_template_kwargs() -> dict:
+    """SimpleDocTemplate arguments that keep the canvas default font embedded."""
+    return {"initialFontName": register_fonts()}

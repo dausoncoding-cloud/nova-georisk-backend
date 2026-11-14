@@ -53,3 +53,11 @@ def test_framed_map_pdfs_embed_every_font(run):
     for key in ("flood_extent_map_pdf", "flood_probability_map_pdf"):
         fonts = pdf_fonts(directory / result.output_files[key]["path"])
         assert fonts and all(embedded for _, embedded in fonts), (key, fonts)
+
+
+@pytest.mark.parametrize("key", ["complete_report_pdf", "firris_pdf_report", "validation_report"])
+def test_audit_pdfs_embed_every_font(run, key):
+    result, directory, _, _, _, _ = run
+    fonts = pdf_fonts(directory / result.output_files[key]["path"])
+    assert fonts and all(embedded for _, embedded in fonts), (key, fonts)
+    assert all("DejaVuSans" in name for name, _ in fonts), (key, fonts)

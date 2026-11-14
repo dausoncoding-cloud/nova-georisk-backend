@@ -18,6 +18,8 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from app.services.reporting.fonts import BOLD, REGULAR, embed_in_styles, pdf_template_kwargs
+
 
 @dataclass
 class IndexSummary:
@@ -49,8 +51,9 @@ def generate_pdf_report(context: ReportContext, output_path: str) -> str:
     Build a summary PDF: title block, FIRRIS index summary table, and
     (if provided) validation metric tables. Returns the path written.
     """
-    doc = SimpleDocTemplate(output_path, pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm)
+    doc = SimpleDocTemplate(output_path, pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm, **pdf_template_kwargs())
     styles = getSampleStyleSheet()
+    embed_in_styles(styles)  # embedded DejaVu Sans
     story = []
 
     story.append(Paragraph("NOVA-GeoRisk Intelligence Suite — FIRRIS Report", styles["Title"]))
@@ -107,7 +110,8 @@ def _styled_table(data: list[list[str]]) -> Table:
             [
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E78")),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTNAME", (0, 0), (-1, -1), REGULAR),
+                ("FONTNAME", (0, 0), (-1, 0), BOLD),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F2F2F2")]),
                 ("FONTSIZE", (0, 0), (-1, -1), 9),

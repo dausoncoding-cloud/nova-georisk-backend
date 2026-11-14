@@ -16,6 +16,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from sklearn.metrics import roc_curve, precision_recall_curve, average_precision_score
 
 from app.platform.result_exports import artifact_entry
+from app.services.reporting.fonts import embed_in_drawing, embed_in_styles, pdf_template_kwargs
 from app.services.reporting.complete_report import _spreadsheet_safe
 from app.services.source_data.bundle4 import clean
 from app.services.validation.regression_metrics import compute_regression_metrics
@@ -161,13 +162,16 @@ def write_diagnostic_artifacts(directory, observed, predicted, *, kind, units, s
         _spreadsheet_safe(pd.DataFrame(flat)).to_csv(path, index=False)
         entries['validation_'+key+'_data'] = artifact_entry(path, label=key+' data', media_type='text/csv', artifact_type='report', role='export', format_name='csv', result_version=version)
     styles = getSampleStyleSheet()
+    embed_in_styles(styles)  # embedded DejaVu Sans; SVG plots above keep their own fonts
     story = [Paragraph('FIRRIS supplied-observation diagnostics', styles['Heading1']), Paragraph(escape(scope), styles['BodyText'])]
     for text in LIMITATIONS: story.append(Paragraph(escape(text), styles['BodyText']))
     for name, value in result['metrics'].items():
         if not isinstance(value, dict): story.append(Paragraph(escape(f'{name}: {value if value is not None else "undefined"}'), styles['BodyText']))
-    for drawing in drawings.values(): story.extend([Spacer(1, 12), drawing])
+    for drawing in drawings.values():
+        embed_in_drawing(drawing)
+        story.extend([Spacer(1, 12), drawing])
     pdf = directory/'validation-report.pdf'
-    SimpleDocTemplate(str(pdf)).build(story)
+    SimpleDocTemplate(str(pdf), **pdf_template_kwargs()).build(story)
     entries['validation_report'] = artifact_entry(pdf, label='Validation metrics and plots', media_type='application/pdf', artifact_type='report', role='export', format_name='pdf', result_version=version)
     dashboard = {'kind': kind, 'metrics': result['metrics'], 'availability': result['availability'], 'plots': [key for key in entries if key.endswith('_plot')],
                  'scope': scope, 'units': units, 'limitations': LIMITATIONS}

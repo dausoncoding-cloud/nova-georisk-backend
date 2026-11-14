@@ -7,10 +7,11 @@ from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape
 
 import pandas as pd
-from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
+from app.services.reporting.fonts import embed_in_styles, pdf_template_kwargs
 from app.services.reporting.report_builder import export_csv, generate_excel_report
 
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -78,6 +79,7 @@ def complete_report(directory, common, metadata, summary, provenance, analytics,
         ("External data and scientific limitations", interpretation["limitations"]),
     ]
     styles = getSampleStyleSheet()
+    embed_in_styles(styles)  # embedded DejaVu Sans
     story = []
     for title, lines in sections:
         story.append(Paragraph(escape(title), styles["Heading2"]))
@@ -85,7 +87,7 @@ def complete_report(directory, common, metadata, summary, provenance, analytics,
             story.append(Paragraph(escape(line), styles["BodyText"]))
         story.append(Spacer(1, 8))
     pdf = directory / "complete-evidence-report.pdf"
-    SimpleDocTemplate(str(pdf), pagesize=A4).build(story)
+    SimpleDocTemplate(str(pdf), pagesize=A4, **pdf_template_kwargs()).build(story)
     docx = directory / "complete-evidence-report.docx"
     _write_docx(sections, docx)
     excel = directory / "complete-evidence-report.xlsx"
