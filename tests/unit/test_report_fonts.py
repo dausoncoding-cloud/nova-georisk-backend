@@ -46,3 +46,10 @@ def test_every_special_character_renders_and_extracts(tmp_path):
     for char in SPECIAL:
         assert text.count(char) >= 3, char
     assert all(embedded for _, embedded in pdf_fonts(path))
+
+
+def test_framed_map_pdfs_embed_every_font(run):
+    result, directory, _, _, _, _ = run
+    for key in ("flood_extent_map_pdf", "flood_probability_map_pdf"):
+        fonts = pdf_fonts(directory / result.output_files[key]["path"])
+        assert fonts and all(embedded for _, embedded in fonts), (key, fonts)

@@ -25,6 +25,7 @@ from reportlab.pdfgen import canvas
 from shapely.geometry import shape
 
 from app.platform.result_exports import artifact_entry
+from app.services.reporting.fonts import register_fonts
 
 
 MAP_KEYS = frozenset({
@@ -299,14 +300,14 @@ def _draw_pdf(path: Path, map_rgba: Image.Image, box, sheet_size, labels, scale,
     pt = 72 / _DPI
     width, height = sheet_size
     flip = lambda y: (height - y) * pt  # noqa: E731
-    pdf = canvas.Canvas(str(path), pagesize=(width * pt, height * pt))
+    pdf = canvas.Canvas(str(path), pagesize=(width * pt, height * pt), initialFontName=register_fonts())
     pdf.setTitle(title)
     background = Image.new("RGB", map_rgba.size, "white")
     background.paste(map_rgba, (0, 0), map_rgba)
     pdf.drawImage(ImageReader(background), box[0] * pt, flip(box[3]), width=(box[2] - box[0]) * pt, height=(box[3] - box[1]) * pt)
     pdf.setLineWidth(0.8)
     pdf.rect(box[0] * pt, flip(box[3]), (box[2] - box[0]) * pt, (box[3] - box[1]) * pt)
-    pdf.setFont("Helvetica", 8)
+    pdf.setFont(register_fonts(), 8)  # embedded DejaVu Sans
     for label in labels:
         if label["axis"] == "x":
             x = label["position_px"] * pt
