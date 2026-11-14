@@ -25,7 +25,7 @@ from reportlab.pdfgen import canvas
 from shapely.geometry import shape
 
 from app.platform.result_exports import artifact_entry
-from app.services.reporting.fonts import register_fonts
+from app.services.reporting.fonts import font_path, register_fonts
 
 
 MAP_KEYS = frozenset({
@@ -39,16 +39,13 @@ _NAVY = "#102A43"
 
 
 def _font(size: int, *, bold: bool = False):
+    """Map text font: an explicit override, else DejaVu Sans bundled with matplotlib (the face embedded
+    in the report PDFs). The production image has no system fonts, and PIL's bitmap fallback lacks
+    glyphs such as '–' (rendered as a box), so it is never used."""
     configured = os.environ.get("NOVA_MAP_FONT_BOLD_PATH" if bold else "NOVA_MAP_FONT_PATH")
-    candidates = (
-        Path(configured) if configured else None,
-        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold
-             else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-    )
-    for path in candidates:
-        if path is not None and path.is_file():
-            return ImageFont.truetype(str(path), size)
-    return ImageFont.load_default()
+    if configured and Path(configured).is_file():
+        return ImageFont.truetype(configured, size)
+    return ImageFont.truetype(str(font_path(bold=bold)), size)
 
 
 def _bounds(value) -> tuple[float, float, float, float]:

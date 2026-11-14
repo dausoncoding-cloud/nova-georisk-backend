@@ -20,10 +20,15 @@ REPLACEMENTS = {"Helvetica": REGULAR, "Helvetica-Bold": BOLD, "Helvetica-Oblique
                 "Times-Roman": REGULAR, "Times-Bold": BOLD, "Times-Italic": ITALIC, "Times-BoldItalic": BOLD_ITALIC}
 
 
+def font_path(*, bold: bool = False) -> Path:
+    """Path of the DejaVu Sans face bundled with matplotlib (present in every image)."""
+    return Path(matplotlib.get_data_path()) / "fonts" / "ttf" / f"{BOLD if bold else REGULAR}.ttf"
+
+
 @lru_cache(maxsize=1)
 def register_fonts() -> str:
     """Register DejaVu Sans (all four faces) once; returns the regular face name."""
-    directory = Path(matplotlib.get_data_path()) / "fonts" / "ttf"
+    directory = font_path().parent
     for name in (REGULAR, BOLD, ITALIC, BOLD_ITALIC):
         pdfmetrics.registerFont(TTFont(name, str(directory / f"{name}.ttf")))
     for bold, italic, face in ((0, 0, REGULAR), (1, 0, BOLD), (0, 1, ITALIC), (1, 1, BOLD_ITALIC)):
