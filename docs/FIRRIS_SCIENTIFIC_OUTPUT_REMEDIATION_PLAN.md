@@ -415,6 +415,12 @@ On 2026-11-14 the report-polish branch gave every client surface of a satellite 
 
 Acceptance: no client-visible text uses "Flood Extent" without qualification, and a test guards each surface. This matches the existing test for the satellite report and downloads.
 
+**Analysis-period UX backlog (added 2026-11-14 after the r3 browser test; not yet implemented):**
+1. Inclusive end dates in the UI. The user enters the last day of a window, and the UI adds one day internally before sending the API's exclusive end date.
+2. A green "ready" status box, the counterpart of the red blocked box and the blue warnings box.
+3. Use MiB consistently for sizes (the download estimate and the 48 MiB limit), instead of mixing MB and MiB.
+4. A preflight warning when the baseline window is far from the target (more than 90 days, or a different season), the same rule as the report's baseline-gap limitation.
+
 ---
 
 ## 6. Bundle 5 — Production acceptance evidence
