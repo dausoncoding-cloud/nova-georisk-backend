@@ -93,7 +93,8 @@ def test_missing_compliant_sentinel2_is_a_warning_only(availability):
     availability(_period(["2024-04-19"], [57], s2=0), _period(["2022-08-28"], [57], s2=2))
     result = preflight.run_preflight(aoi_geometry=RUFIJI, source=_source(("2024-04-18", "2024-04-20")), today=TODAY)
     assert result.ok and codes(result, "warnings") == ["no_compliant_sentinel2"]
-    assert "not assessable" in result.warnings[0].message and result.warnings[0].period == "target"
+    assert "independent accuracy will not be assessable" in result.warnings[0].message and result.warnings[0].period == "target"
+    assert "be not assessable" not in result.warnings[0].message
 
 
 # 4.6 capacity -----------------------------------------------------------------------------------

@@ -195,7 +195,7 @@ def run_preflight(*, aoi_geometry: dict, source: SatelliteSourceConfig, today: d
                       if period.start < SENTINEL2_SR_START else "")
             warnings.append(_issue("no_compliant_sentinel2",
                                    f"No Sentinel-2 scene with cloud ≤ {source.max_cloud_pct:g}% and degraded MSI ≤ 0.1% in "
-                                   f"the {name} window: the analysis can run, but its independent accuracy will be not "
+                                   f"the {name} window: the analysis can run, but its independent accuracy will not be "
                                    f"assessable.{reason}", name))
     shared = sorted(set(periods["target"].relative_orbits) & set(periods["baseline"].relative_orbits))
     return AnalysisPreflightResponse(ok=not blocking, target=periods["target"], baseline=periods["baseline"],
