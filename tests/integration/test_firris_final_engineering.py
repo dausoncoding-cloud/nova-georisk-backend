@@ -134,6 +134,10 @@ def test_m01_acquired_bytes_and_before_target_sar_are_persisted_and_protected(cl
     from app.services.maps.export import RasterSpec
     from rasterio.io import MemoryFile
     monkeypatch.setattr(get_settings(),'output_storage_dir',str(tmp_path))
+    # The fixture AOI is a 1° square (~25x the download limit); this test is about persisted bytes, not capacity
+    # (capacity is covered in test_firris_preflight_api.py).
+    from app.services.firris import preflight
+    monkeypatch.setattr(preflight,'REQUEST_LIMIT_BYTES',10**12)
     organization,headers=tenant(db_session,'synthetic-final-gee');_,foreign=tenant(db_session,'synthetic-final-gee-foreign')
     project,aoi=_project_aoi(db_session,organization);db_session.commit()
     rows,cols=np.indices((16,16));labels=((rows>6)&(cols<10)).astype('uint8')

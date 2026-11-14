@@ -89,3 +89,21 @@ def client(db_session, monkeypatch):
         test_client.headers.update({"X-Internal-Secret": INTERNAL_SECRET})
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_earth_engine_in_submission_preflight(monkeypatch):
+    """Submissions run a metadata-only Earth Engine preflight; integration tests never call GEE.
+
+    Default: one shared Sentinel-1 orbit and a compliant Sentinel-2 scene in both windows.
+    Preflight tests patch `scene_availability` with their own scenarios.
+    """
+    from datetime import timedelta
+
+    from app.services.firris import preflight
+
+    def available(_aoi, windows, _max_cloud):
+        return {name: {"sentinel1_pass_dates": [start + timedelta(days=0)], "relative_orbits": [57],
+                       "sentinel2_compliant_scenes": 1, "nearest_pass_before": None, "nearest_pass_after": None}
+                for name, (start, _end) in windows.items()}
+    monkeypatch.setattr(preflight, "scene_availability", available)

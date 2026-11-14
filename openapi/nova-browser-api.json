@@ -678,6 +678,219 @@
         "title": "AnalysisDateRange",
         "type": "object"
       },
+      "AnalysisPreflightCapacity": {
+        "properties": {
+          "bbox_pixels": {
+            "title": "Bbox Pixels",
+            "type": "integer"
+          },
+          "estimated_request_bytes": {
+            "title": "Estimated Request Bytes",
+            "type": "integer"
+          },
+          "limit_bytes": {
+            "title": "Limit Bytes",
+            "type": "integer"
+          },
+          "ratio": {
+            "title": "Ratio",
+            "type": "number"
+          },
+          "scale_m": {
+            "title": "Scale M",
+            "type": "number"
+          },
+          "suggested_scale_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggested Scale M"
+          }
+        },
+        "required": [
+          "scale_m",
+          "bbox_pixels",
+          "estimated_request_bytes",
+          "limit_bytes",
+          "ratio"
+        ],
+        "title": "AnalysisPreflightCapacity",
+        "type": "object"
+      },
+      "AnalysisPreflightIssue": {
+        "description": "A blocking reason or a warning, in plain language.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "enum": [
+                  "target",
+                  "baseline"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "AnalysisPreflightIssue",
+        "type": "object"
+      },
+      "AnalysisPreflightPeriod": {
+        "properties": {
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "nearest_pass_after": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nearest Pass After"
+          },
+          "nearest_pass_before": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nearest Pass Before"
+          },
+          "relative_orbits": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Relative Orbits",
+            "type": "array"
+          },
+          "sentinel1_pass_dates": {
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "title": "Sentinel1 Pass Dates",
+            "type": "array"
+          },
+          "sentinel2_compliant_scenes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentinel2 Compliant Scenes"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "AnalysisPreflightPeriod",
+        "type": "object"
+      },
+      "AnalysisPreflightResponse": {
+        "description": "Metadata-only availability check (plan items 4.1, 4.4, 4.6). Never creates a task or result.",
+        "properties": {
+          "baseline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisPreflightPeriod"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "blocking": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisPreflightIssue"
+            },
+            "title": "Blocking",
+            "type": "array"
+          },
+          "capacity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisPreflightCapacity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "shared_relative_orbits": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Shared Relative Orbits",
+            "type": "array"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisPreflightPeriod"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisPreflightIssue"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "AnalysisPreflightResponse",
+        "type": "object"
+      },
       "AnalysisSubmitRequest": {
         "properties": {
           "aoi_id": {
@@ -723,6 +936,13 @@
       },
       "AnalysisSubmitResponse": {
         "properties": {
+          "preflight_warnings": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisPreflightIssue"
+            },
+            "title": "Preflight Warnings",
+            "type": "array"
+          },
           "task": {
             "$ref": "#/components/schemas/TaskStatusResponse"
           }
@@ -7428,6 +7648,98 @@
           }
         },
         "summary": "Get Execution Contract",
+        "tags": [
+          "Analyses"
+        ]
+      }
+    },
+    "/api/v1/analyses/preflight": {
+      "post": {
+        "description": "Metadata-only availability check for a FIRRIS satellite analysis. Never creates a task or result.",
+        "operationId": "preflight_analysis_api_v1_analyses_preflight_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalysisSubmitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisPreflightResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authorization failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Preflight Analysis",
         "tags": [
           "Analyses"
         ]

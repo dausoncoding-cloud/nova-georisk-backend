@@ -355,3 +355,19 @@ def test_bff_requires_csrf_for_project_lifecycle_mutations(browser_session_clien
 
     assert patch_response.status_code == 403
     assert delete_response.status_code == 403
+
+
+def test_bff_refuses_anonymous_preflight_before_reaching_the_api(monkeypatch):
+    """Plan 4.1: the availability check is only reachable through an authenticated BFF session."""
+    import app.bff.main as bff_module
+
+    calls = []
+
+    class NeverCalled:
+        def __init__(self, **_kwargs):
+            calls.append("constructed")
+
+    monkeypatch.setattr(bff_module.httpx, "AsyncClient", NeverCalled)
+    with TestClient(bff_app) as client:
+        response = client.post("/api/v1/analyses/preflight", json={})
+    assert response.status_code == 401 and calls == []

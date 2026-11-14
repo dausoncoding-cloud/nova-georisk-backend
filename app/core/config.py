@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     firris_max_request_bytes: int = 16777216
     firris_max_prepared_cells: int = 1000000
     firris_max_feature_layers: int = 32
+    # Submission preflight (plan 4.1): metadata-only provider checks, per-minute limits and a hard timeout.
+    firris_preflight_per_user_per_minute: int = 10
+    firris_preflight_per_organization_per_minute: int = 30
+    firris_preflight_timeout_seconds: float = 20.0
 
     # --- Google Earth Engine ---
     gee_service_account_email: str = ""

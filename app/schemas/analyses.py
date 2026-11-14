@@ -183,8 +183,47 @@ class AnalysisSubmitRequest(BaseModel):
         return self
 
 
+class AnalysisPreflightIssue(BaseModel):
+    """A blocking reason or a warning, in plain language."""
+    code: str
+    message: str
+    period: Literal["target", "baseline"] | None = None
+
+
+class AnalysisPreflightPeriod(BaseModel):
+    start: date
+    end: date
+    sentinel1_pass_dates: list[date] = Field(default_factory=list)
+    relative_orbits: list[int] = Field(default_factory=list)
+    nearest_pass_before: date | None = None
+    nearest_pass_after: date | None = None
+    sentinel2_compliant_scenes: int | None = None
+
+
+class AnalysisPreflightCapacity(BaseModel):
+    scale_m: float
+    bbox_pixels: int
+    estimated_request_bytes: int
+    limit_bytes: int
+    ratio: float
+    suggested_scale_m: float | None = None
+
+
+class AnalysisPreflightResponse(BaseModel):
+    """Metadata-only availability check (plan items 4.1, 4.4, 4.6). Never creates a task or result."""
+    ok: bool
+    target: AnalysisPreflightPeriod | None = None
+    baseline: AnalysisPreflightPeriod | None = None
+    shared_relative_orbits: list[int] = Field(default_factory=list)
+    capacity: AnalysisPreflightCapacity | None = None
+    blocking: list[AnalysisPreflightIssue] = Field(default_factory=list)
+    warnings: list[AnalysisPreflightIssue] = Field(default_factory=list)
+
+
 class AnalysisSubmitResponse(BaseModel):
     task: TaskStatusResponse
+    # Plan 4.1: non-blocking preflight findings at submission (e.g. no compliant Sentinel-2 scene).
+    preflight_warnings: list[AnalysisPreflightIssue] = Field(default_factory=list)
 
 
 class DeliveryRepresentation(BaseModel):

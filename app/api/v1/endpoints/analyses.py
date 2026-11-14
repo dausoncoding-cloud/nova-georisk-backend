@@ -23,7 +23,11 @@ from app.models.aoi import AOI
 from app.models.project import Project
 from app.models.task import Task, TaskStatus, TaskType
 from app.platform.engines import get_engine_adapter
-from app.schemas.analyses import AnalysisSubmitRequest, AnalysisSubmitResponse, EngineExecutionContract
+from app.core.config import get_settings
+from app.core.rate_limit import FixedWindowRateLimiter, get_preflight_limiter
+from app.schemas.analyses import (AnalysisPreflightResponse, AnalysisSubmitRequest, AnalysisSubmitResponse,
+                                  EngineExecutionContract, SatelliteSourceConfig)
+from app.services.firris import preflight as firris_preflight
 from app.schemas.source_bindings import SourceBoundAnalysisRequest, SourceBindingValidationResponse
 from app.services.source_data.bindings import EXECUTABLE_MODULES, binding_contract, resolve_bindings
 from app.services.source_data.readiness import SourceNotReady
@@ -150,12 +154,8 @@ def get_execution_contract(
     return EngineExecutionContract.model_validate(adapter.contract())
 
 
-@router.post("", response_model=AnalysisSubmitResponse, status_code=status.HTTP_202_ACCEPTED)
-def submit_analysis(
-    payload: AnalysisSubmitRequest,
-    db: Session = Depends(get_db),
-    context: RequestContext = Depends(get_request_context),
-) -> AnalysisSubmitResponse:
+def _authorized_submission(db: Session, context: RequestContext, payload: AnalysisSubmitRequest) -> tuple[Project, AOI]:
+    """Membership, role, organization scope, entitlement and request-shape checks shared by preflight and submit."""
     require_active_membership(db, context)
     require_role(context, OrganizationRole.OWNER, OrganizationRole.ADMIN, OrganizationRole.ANALYST)
     project = db.get(Project, payload.project_id)
@@ -183,6 +183,59 @@ def submit_analysis(
                 status_code=422,
                 detail=f"The FIRRIS satellite workflow cannot produce these products without sourced inputs: {', '.join(unsupported)}.",
             )
+    return project, aoi
+
+
+def _gee_source(project: Project, payload: AnalysisSubmitRequest) -> SatelliteSourceConfig | None:
+    workflow = payload.parameters.workflow
+    if project.engine_key == "firris" and workflow is not None and workflow.source.provider == "gee":
+        return workflow.source
+    return None
+
+
+def _run_preflight(aoi: AOI, source: SatelliteSourceConfig) -> AnalysisPreflightResponse:
+    try:
+        return firris_preflight.run_preflight(aoi_geometry=mapping(to_shape(aoi.geometry)), source=source,
+                                              timeout=get_settings().firris_preflight_timeout_seconds)
+    except firris_preflight.PreflightUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={"Retry-After": "60"}) from exc
+
+
+@router.post("/preflight", response_model=AnalysisPreflightResponse)
+def preflight_analysis(
+    payload: AnalysisSubmitRequest,
+    db: Session = Depends(get_db),
+    context: RequestContext = Depends(get_request_context),
+    limiter: FixedWindowRateLimiter = Depends(get_preflight_limiter),
+) -> AnalysisPreflightResponse:
+    """Metadata-only availability check for a FIRRIS satellite analysis. Never creates a task or result."""
+    project, aoi = _authorized_submission(db, context, payload)
+    settings = get_settings()
+    if not (limiter.allow(f"firris:preflight:user:{context.user_id}", settings.firris_preflight_per_user_per_minute)
+            and limiter.allow(f"firris:preflight:org:{context.organization_id}", settings.firris_preflight_per_organization_per_minute)):
+        raise HTTPException(status_code=429, detail="Too many availability checks. Please wait a minute and try again.",
+                            headers={"Retry-After": "60"})
+    source = _gee_source(project, payload)
+    if source is None:
+        raise HTTPException(status_code=422, detail="Availability checks apply to FIRRIS satellite (Earth Engine) analyses.")
+    return _run_preflight(aoi, source)
+
+
+@router.post("", response_model=AnalysisSubmitResponse, status_code=status.HTTP_202_ACCEPTED)
+def submit_analysis(
+    payload: AnalysisSubmitRequest,
+    db: Session = Depends(get_db),
+    context: RequestContext = Depends(get_request_context),
+) -> AnalysisSubmitResponse:
+    project, aoi = _authorized_submission(db, context, payload)
+    # Server-side enforcement of the preflight blocking rules (never rely on the UI). Metadata only.
+    warnings = []
+    source = _gee_source(project, payload)
+    if source is not None:
+        checked = _run_preflight(aoi, source)
+        if checked.blocking:
+            raise HTTPException(status_code=422, detail=" ".join(issue.message for issue in checked.blocking))
+        warnings = checked.warnings
 
     task = Task(
         project_id=project.id,
@@ -223,4 +276,4 @@ def submit_analysis(
         append_event(task, "failed", actor_id=context.user_id)
         db.commit()
         raise HTTPException(status_code=503, detail=task.error_summary) from exc
-    return AnalysisSubmitResponse(task=serialize_task(task))
+    return AnalysisSubmitResponse(task=serialize_task(task), preflight_warnings=warnings)
