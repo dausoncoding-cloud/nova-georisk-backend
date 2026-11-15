@@ -31,7 +31,7 @@
 |---|---|
 | S1 F1 coverage mask | `occurrence.unmask(0)` bounded by `JRC/GSW1_4/Metadata` `valid_obs > 0`. Evidence: verification §11.1 (2026-11-11). Over dry land, `YearlyHistory.waterClass.max() ≥ 1` is valid on only 0.0028% of cells, identical to the current `occurrence` mask, so it would not fix F1. `valid_obs > 0` is valid on 100% of cells in all five measured AOIs. The earlier `YearlyHistory` default is withdrawn |
 | S2 F12 scene eligibility | Query-level `DEGRADED_MSI_DATA_PERCENTAGE ≤ MAX_DEGRADED_MSI_PCT` filter; per-scene assertion retained. **Decided 2026-11-11 (D6):** `MAX_DEGRADED_MSI_PCT = 0.1` (was 0). One constant (`app/services/gee/scene_qa.py`) is used by the query filter, the per-scene assertion and the target and baseline optical QA of 1.7, and is recorded per run as `quality.degraded_msi_max_pct` |
-| S6 Label rule | Item 1.8: target-day water condition plus cited change threshold. Proposal only, measured once (1.8) before any adoption |
+| S6 Label rule | Item 1.8: **closed 2026-11-16, tested, not adopted** (§1.8b). The HSBA label (`firris-science-3`) failed the pre-registered rule; science-2 stays |
 | S3 F2 feature leakage | Superseded by D3 / item 1.7: optical indices leave the model so Sentinel-2 can serve as an independent reference; SAR-rule metrics are kept and reframed as internal agreement |
 | S4 Water thresholds | Optical: MNDWI > 0 (Xu 2006). SAR: Otsu threshold on target VV within AOI, bounded to [−24, −12] dB, reported per run. Permanent: JRC occurrence ≥ 90%; seasonal: 0 < occurrence < 90% (matches the existing label threshold) |
 | S5 Trend minimum n | Line graph for n ≥ 2; linear trend line and r/R²/p only for n ≥ 6 (the time-series document treats the trend line as optional and visual) |
@@ -183,7 +183,7 @@ Large-area/tiled processing is **excluded** from this sprint. Doc 0 lists scalab
 | Decisions (2026-11-11) | **Band contract, changed once for 1.1b and 1.7 together (12 bands):** features `sar_vv_target, sar_change, elevation, slope, rainfall`; sources `source_sar_baseline, source_sar_target`; `label`; `jrc_occurrence` (= `occurrence_c`, 1.1); `source_mndwi_target`, `source_mndwi_baseline` (also serve 3.1); `optical_reference`. `ndvi, mndwi, ndbi` leave the feature set. Each band keeps its `valid__` twin. **Pixel admission:** the coverage gate (≥ 70%) is computed on features, `label` and `jrc_occurrence` only. Optical bands are reference-only and never exclude a pixel from classification. **Reference eligibility:** only admitted pixels whose optical bands are valid at both dates (census metrics over these, minus training pixels; audit sample as in Correction (3)). The run reports the reference-eligible fraction (eligible / admitted). If n per class is below the minimum, the assessment reports "insufficient reference samples" with no metrics. **No clean S2 for target or baseline:** the run continues. Independent accuracy = "not assessable" with the reason (e.g. no compliant optical scene in the baseline window), and internal agreement (1.5) is still shown. Once S2 is no longer a model input, the 1.2 "No compliant optical scene" condition becomes this reason and no longer fails the run. The 1.2 tests are updated in the same commit |
 | Acceptance | On the Bundle 5 run: confusion matrix and metrics reported against the optical reference with n per class; if values are still ≥ 0.99, the run is investigated and the cause documented before acceptance (for example a trivially separable AOI) rather than presented as-is |
 
-### 1.8 Label rule review (proposal; no code until the measurement below is reviewed)
+### 1.8 Label rule review: CLOSED 2026-11-16, tested, not adopted (see §1.8b)
 
 | Field | Detail |
 |---|---|
@@ -316,6 +316,47 @@ The harness is `scripts/smoke_firris_gee_pipeline.py`, with the same AOIs, windo
 - **The change image has no separate decrease class.** C1 fails on the change image in 14 tiles. The target date is brighter than the baseline overall (median change +2.2 dB), and the lower change component mostly has a positive mean.
 - **C2 fails narrowly in one tile** (Bhattacharyya 0.9899).
 - **Conclusion:** the 64-pixel minimum tile (about 1.9 km) cannot isolate Rufiji's narrow, scattered water while also keeping the decrease class separable. This is a property of the pre-registered design on this event, not an implementation fault. Any further variant must be pre-declared and evaluated on a different AOI and event (Bundle 5), as fixed in §1.8.
+
+**Kilombero diagnostic: the change threshold at the grid bound** (added 2026-11-16 at the owner's request; numbers from the existing run outputs only; no decision is re-opened and nothing was re-run)
+
+| | April 2024 | May 2024 |
+|---|---|---|
+| Tiles examined / accepted | 85 / **1** | 85 / **3** |
+| Pixels pooled (bimodal mask) | 4,160 (one tile of 64 × 65 px) | 12,352 (about 3 × 4,100 px) |
+| Pooled VV fit: water / land | −17.0 dB (sd **4.97**) / −7.1 dB (sd 0.94); D 2.77 | −15.7 dB (sd **4.75**) / −9.4 dB (sd 1.94); D **1.75** |
+| Pooled change fit: decrease / no-decrease | −4.45 dB (sd 1.93) / **+3.49 dB** (sd 2.14); D 3.89 | −1.53 dB (sd 5.08) / **+4.47 dB** (sd 2.01); D **1.55** |
+| Seed y_seed; RG limit (tolerance) | −10.21 dB; −4.01 dB (6.2 dB) | −13.50 dB; −10.00 dB (3.5 dB) |
+| Change threshold; minimum RMSE | **0.0 dB** (upper bound); 11.44 | **0.0 dB** (upper bound); 99.51 |
+| Seeds / grown, of 268,842 admitted | 89,602 (33%) / 260,131 (97%) | 38,493 / 62,155 |
+| Grown-only pixels kept by the change threshold | 2,980 of 170,529 | 6,104 of 23,662 |
+| Removed as baseline water | **92,503** of 92,582 | **41,788** of 44,597 |
+| Final label | **79 px** | **2,802 px** |
+
+1. **RMSE surface near the bound: not available from the outputs.**
+   - The run stored only the minimum: April RMSE 11.44 at (tolerance 6.2 dB, threshold 0.0 dB); May 99.51 at (3.5 dB, 0.0 dB).
+   - What follows from the pre-registered rule (the first minimum in tolerance-then-threshold order): at the chosen tolerance, no threshold below 0.0 dB gave a strictly lower RMSE. The outputs cannot show how steep the surface is near 0.0 dB, or whether a threshold above 0.0 dB (outside the grid) would have been lower.
+   - A related observation from the 32-px sensitivity run (April) is **not** evidence of a lower-bound optimum. There the optimum is at the opposite bound (−10.0 dB), but with tolerance 0.0 dB: no pixel is added by region growing, so every threshold gives the same RMSE and the tie rule returns the lowest value.
+2. **Why so few tiles were accepted.**
+   - Only 1 and 3 of 85 tiles passed C1–C4 in both images. Per-tile criteria were not stored for successful runs, so the failing criterion per tile cannot be listed from the outputs.
+   - The pooled fits show the consequence of accepting so few tiles:
+     - **The water component is very broad** (sd about 5 dB in both windows), so its tail reaches into the land mode. The seed point (where the land curve reaches 10% of the water curve) therefore sits at −10.2 dB in April, which makes 33% of the AOI seeds.
+     - **In May the pooled refit fails C1 in both images** (D 1.75 and 1.55), although each of its three tiles passed. Pooling tiles with different water and land levels blurred the two classes. The pre-registered design (like the paper) has no acceptance check on the pooled fit.
+   - The small final areas are caused mainly by the **baseline-water step** (p. 6984), not by the change threshold. The same broad thresholds applied to the September baseline classify almost the same pixels as "water", and they are removed: April 92,503 of 92,582; May 41,788 of 44,597.
+3. **Flooded vegetation: consistent with, but not proven by, these outputs.**
+   - The no-decrease class of the change image is centred at **+3.5 dB (April) and +4.5 dB (May)**: inside the accepted tiles, most pixels became brighter between the September 2023 dry-season baseline and the 2024 wet season.
+   - A threshold of 0.0 dB therefore already sits about 1.6 standard deviations below that class in April (3.49 / 2.14). The grid's upper bound of 0 dB (flooding = a decrease, deviation D-c) excludes any threshold inside the positive range where the seasonal norm lies.
+   - The brightening is what wet-season soil moisture, vegetation growth and double-bounce from flooded vegetation all produce. The method does not detect flooded vegetation (Chini et al. 2017, pp. 6982, 6985).
+   - These outputs hold no per-pixel or land-cover data, so they cannot separate flooded vegetation from seasonal brightening. Attributing the bound to flooded vegetation would need a diagnostic re-acquisition with a land-cover overlay, which was not done.
+
+**Possible future variant: note only, not implemented, not pre-registered.**
+- HSBA on a **2-band, 10 m download** (native Sentinel-1 VV target and baseline only), evaluated on a **peak-flood event with a close dry-season baseline**.
+- **Rationale:** at 10 m a 64-pixel tile is 640 m instead of 1.9 km, so narrow floodwater forms a larger share of a tile (C3). A close dry baseline limits the seasonal brightening seen above (+3.5 to +4.5 dB) in the change image (C1).
+- **Before any use, it must be pre-declared** (AOI, event, windows, decision rule), with these conditions:
+  - evaluated on a different AOI and event from the four §1.8 AOIs (Bundle 5);
+  - its own download-size calibration (the 48 MiB request limit, the preflight's 93 B/px);
+  - the same no-tuning rule.
+
+**§1.8 status: closed 2026-11-16, tested, not adopted.** Science-2 remains the production label. Branch `feat/frris-science-3-hsba` is kept for the record and not merged.
 
 ---
 
@@ -583,5 +624,5 @@ Acceptance: no client-visible text uses "Flood Extent" without qualification, an
 6. `fix(firris): frame pseudo-label metrics as internal agreement` (1.5) + backend/frontend/report wording tests.
 7. `feat(results): legacy interpretation notice` (1.6).
 7a. `feat(validation): assess accuracy against independent Sentinel-2 optical reference` (1.7) + tests. This commit also carries the deferred export part of 1.1 (`jrc_occurrence` band), so the band contract changes once (decisions in 1.7).
-7b. 1.8 label rule review: T_change citation confirmed 2026-11-11 (Clement 2019, ch. 4, pp. 82–83; Clement et al. 2018). **Blocked until the pending sources (i)–(iii) of the 1.8 bimodality row are quoted** (minimum tile size, combination of accepted tiles into one T_water, unequal-variance Ashman's D; the client is asked for the Chini et al. 2017 PDF). Then implement after sign-off S6, run the pre-registered measurement once and apply the fixed decision rule.
+7b. ~~1.8 label rule review~~ **Closed 2026-11-16: tested, not adopted** (§1.8a–1.8b). Science-2 stays; branch `feat/frris-science-3-hsba` (`978e35d`, `8caaa4c`) is kept for the record and not merged.
 8. Full test gate (Section 0.6) → staging checks (Section 0.7) → staging runs (Mindu AOI + dry-land AOI) → before/after table → production activation with previous tag retained.
