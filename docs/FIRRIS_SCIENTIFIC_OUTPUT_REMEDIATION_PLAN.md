@@ -200,7 +200,77 @@ Large-area/tiled processing is **excluded** from this sprint. Doc 0 lists scalab
 | Decision rule (fixed now) | Adopt the new rule only if **both** hold: Manyoni flood-candidate area is lower than that of the current rule re-measured under D6, **and** Rufiji flooded-class F1 against the optical reference is not lower than that of the current rule re-measured under D6 (see Measurement; the 0% values 13.10 km² and 0.477 are history only). **Manyoni fallback (decided 2026-11-11, before the measurement):** if Manyoni ends in "no distinct water class" (no accepted tile), its flood-candidate area counts as **0 km²** and **meets** the Manyoni condition, because declining to label floods on dry land is the expected behaviour of the rule. Otherwise keep the current rule and record the result. No threshold is iterated on these four AOIs. Any further variant is evaluated on a different, pre-declared AOI and event (Bundle 5) to avoid fitting the rule to the evaluation set |
 | Implementation scope (after adoption) | `app/services/gee/screening_pipeline.py` keeps the current rule for legacy provenance. A new local function (e.g. `app/services/firris/label_rule.py`) computes μ[D], σ[D], T_change, Otsu T_water and the label over the admitted AOI pixels after download. `workflow.reference_basis` rule text and provenance `label_rule_version` are updated. The band contract is unchanged (all inputs are already exported). No migration. No OpenAPI change |
 | Tests (at implementation) | Truth table of the four conditions (change and water both required); μ and σ are computed over admitted AOI pixels only (pixels outside the polygon, or masked in an admission band, do not change them; optical-band masks do not change them); T_change equals μ − 1.5σ on a synthetic D; **bimodality (tile-based):** a synthetic AOI of uniform land (unimodal everywhere) accepts no tile, records "no distinct water class" and yields **no flood labels** (all 0, reason `NO_DISTINCT_WATER_CLASS`); a synthetic AOI whose water covers only ~5% of the AOI but is concentrated in one quadrant is **not** rejected: a tile containing it is accepted after splitting, and the resulting T_water lies **strictly between the two fitted modes** (and within the clamp); each tile criterion fails at its boundary (D just below 2, a class just below 10% of the tile, a water mode outside −30 to −10 dB, a non-water mode outside −12 to 5 dB); splitting stops at the minimum tile size once (i) is sourced; tiles are four equal, non-overlapping quadrants; a synthetic AOI that is mostly flooded shows the documented downward shift of T_change (caution case 1); provenance records μ, σ, both thresholds and their sources |
-| Status | **Proposal.** Sign-off item S6. No code. Implementation blocked on pending sources (i)–(iii) |
+| Status | **Superseded on 2026-11-16** by the pre-registered design in §1.8a below (owner decisions after reading Chini et al. 2017). The rows above are kept as history |
+
+#### 1.8a Pre-registered design: HSBA label (`firris-science-3`), decided 2026-11-16 before any measurement
+
+Source: Chini, Hostache, Giustarini & Matgen (2017), "A Hierarchical Split-Based Approach for Parametric Thresholding of SAR Images: Flood Inundation as a Test Case", *IEEE TGRS* 55(12): 6975–6988, doi:10.1109/TGRS.2017.2737664. The page numbers below are the journal pages. The owner decided every value in this section before any HSBA run. None may change after results are seen.
+
+**Method (following the paper)**
+
+| Step | Rule | Paper |
+|---|---|---|
+| Images | Flood image X_F = VV target (dB). Change image X_C = VV target − VV baseline (dB), computed locally from the exported source bands. Reference image X_R = VV baseline (dB) | p. 6983 |
+| Tiling | Quadtree: each tile splits into four (near-)equal, non-overlapping quadrants. **Identical tiles on X_F and X_C.** The tree is scanned top-down; once a tile is accepted, its descendants are not considered | pp. 6978–6979 (Eq. 1, Algorithm 1), p. 6983 |
+| Fit per tile | Two Gaussians (Eq. 2), fitted by Levenberg–Marquardt to the tile histogram. Otsu is used **only** for the initial guess (Eqs. 3–5) | pp. 6978–6979 |
+| C1 | Ashman's D = √2·\|μ₁−μ₂\| / √(sd₁²+sd₂²) > 2 | Eqs. 6–7, p. 6979 |
+| C2 | Bhattacharyya coefficient between the normalised histogram and the normalised two-Gaussian fit > 0.99 | Eqs. 8–9, p. 6979 |
+| C3 | SR = min(A₁sd₁, A₂sd₂) / max(A₁sd₁, A₂sd₂) > 0.1, from the fitted Gaussian areas | Eqs. 10–11, p. 6979 |
+| Acceptance | A tile is accepted only if C1–C3 pass on **both** X_F and X_C, and C4 passes (below) | p. 6983 |
+| Pooling | The pixels of all accepted tiles (bimodal mask BM) are pooled, and two Gaussians are refitted by LM on X_F (G_w, G_nw) and on X_C (G_c, G_nc), Otsu initial guess | p. 6980, p. 6983 |
+| Seeds | X_F ≤ y_seed, where y_seed is the "divergence" point of G_w from the histogram (operationalised below) | p. 6980, p. 6983 |
+| Region growing (RG) | Pixels with X_F ≤ y_seed + tol that are connected to a seed | p. 6980 |
+| Change detection (CD) | Pixels added by RG (not seeds) are kept only if X_C ≤ T_CD | p. 6984 |
+| Optimisation | tol and T_CD are chosen jointly to minimise the RMSE between G_w and the X_F histogram of the pixels classified as flood inside BM. The values are then applied to the whole AOI | p. 6984 |
+| Permanent water | Seeds and RG with the same y_seed and tol are applied to X_R. Pixels that are water in X_R are removed from the flood map | p. 6984 |
+
+**Pre-registered values (not given in the paper)**
+
+| Item | Value |
+|---|---|
+| Minimum tile size | 64 × 64 pixels at the analysis scale. A tile is evaluated only if both its dimensions are ≥ 64; it is split only if all four children would still be ≥ 64 in both dimensions. Sensitivity at 32 and 128 is reported and never used to choose |
+| Tile evaluation | Only if ≥ 50% of the tile's pixels are admitted AOI pixels; the histograms use the admitted pixels only |
+| Histogram bins | Freedman–Diaconis rule per histogram, clamped to 30–200 bins |
+| y_seed | The first histogram value above μ_w at which the fitted non-water curve reaches 10% of the fitted water curve: G_nw(y) ≥ 0.1·G_w(y) |
+| RG connectivity | 8-connected |
+| Grid search | tol 0.0–10.0 dB and T_CD −10.0–0.0 dB, both in 0.1 dB steps; joint minimum of the RMSE. The ranges are not narrowed after seeing results. The HSBA runtime is reported for Rufiji, Manyoni and Kilombero; if it would exceed 120 s on one vCPU, stop and report before optimising |
+
+**Deviations from the paper (our own rules, documented)**
+
+| Deviation | Our rule | Paper |
+|---|---|---|
+| D-a. C4 physical check | A tile is accepted only if the fitted water-component mean of **X_F** is ≤ −15 dB (X_F only, not X_C). It replaces the patent mode ranges, which are dropped as acceptance criteria | Not in the paper; acceptance is C1–C3 only (p. 6979) |
+| D-b. Speckle filter | Earth Engine focal median, radius 50 m (unchanged) | Gamma 5×5 (p. 6981) |
+| D-c. Change sign | X_C = target − baseline, so flooding is negative; the "change" class is the lower-mean component and T_CD ≤ 0 | X_C = X_R − X_F, so flooding is positive (p. 6983) |
+| D-d. Domain | Admitted AOI pixels only: inside the AOI polygon and valid in every admission band | Whole image (pp. 6979–6980) |
+| D-e. JRC exclusion | Pixels with JRC occurrence ≥ 90% are set to 0 at the end, in addition to the paper's X_R permanent-water step | Permanent water from X_R only (p. 6984) |
+| D-f. Slope | Pixels with slope ≥ 15° are excluded **before** seeding and RG (not seeds, not grown through). Reason: radar shadow on steep terrain mimics water and could seed RG; the Severn test site is flat | No slope condition |
+| D-g. Fallback | If no tile is accepted, there is no threshold of any kind: the label is 0 everywhere, and the run ends at the class-support gate with reason `NO_DISTINCT_WATER_CLASS` (allow-listed user message). Accepted tiles that yield fewer flood pixels than the class-support minimum fail the existing gate, unchanged | Not defined in the paper |
+| D-h. Slope availability | If the request's features omit `slope`, the run fails closed ("The HSBA label requires the slope feature"). The web form always sends it. The band contract does not change | — |
+
+**Scope and limitations**
+- The paper's method targets bare soil and sparsely vegetated land. Flooded vegetation and urban areas, where backscatter rises, are not handled (pp. 6982, 6985). The report's limitations state this.
+- The HSBA label replaces the SAR screening label as the **training label** of the Random Forest. The RF, the sampling and the independent Sentinel-2 accuracy (1.7) are unchanged.
+- `science_version` becomes `firris-science-3`. Existing results are unchanged, and science-2 results are not shown as legacy.
+- Backend only (owner addendum 2026-11-16): no OpenAPI or API response change. The HSBA diagnostics are written only to provenance (`provenance.json`) and the report:
+  - the tiles examined and accepted, with D, BC, SR and the water mean per image;
+  - the pooled fits;
+  - y_seed, tol and T_CD;
+  - the label pixel counts;
+  - runtime.
+
+**Measurement (pre-registered, each run once, under D6)**
+
+The harness is `scripts/smoke_firris_gee_pipeline.py`, with the same AOIs, windows, gates, sampling, seeds and model as staging §2–3.
+
+- **Decision rule (owner, 2026-11-16; replaces the D6 re-measurement comparison above):** adopt science-3 only if **Manyoni flood-candidate area < 13.10 km²** AND **Rufiji flooded-class F1 ≥ 0.477**. A Manyoni `NO_DISTINCT_WATER_CLASS` counts as 0 km². Mindu and Ugalla-small are reported as secondary results.
+- **Kilombero (informative only, not part of the decision rule).**
+  - AOI: 36.62–36.76°E, 8.14–8.28°S.
+  - April: target 2024-04-01→05-01. May: target 2024-05-01→06-01. Both use baseline 2023-09-01→10-01.
+  - **Upland cluster box:** 36.665–36.695°E, 8.23–8.29°S.
+  - Reported per window: total flood-candidate area and area inside the box, next to the science-2 production values (April 63.38 km², May 30.48 km²) and the science-2 values from the same harness.
+  - A window that fails the single-orbit rule is reported as failed, not changed.
+- **Also reported:** minimum-tile sensitivity at 32 and 128, and the HSBA runtime.
 
 ---
 
