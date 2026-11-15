@@ -16,4 +16,4 @@ def test_score_distribution_is_recorded_and_stated_in_limitations(run):
     assert sum(distribution[k] for k in ("exact_0_pct", "exact_1_pct", "between_pct")) == pytest.approx(100)
     limitations = _section(text, "Limitations and what is not claimed", "Provenance summary")
     assert f"{distribution['exact_0_pct']:.1f}%" in limitations and f"{distribution['exact_1_pct']:.1f}%" in limitations
-    assert "near-binary" in limitations and "SAR screening rule" in limitations and "tied" in limitations
+    assert "near-binary" in limitations and "derived deterministically from SAR" in limitations and "tied" in limitations

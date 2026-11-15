@@ -157,6 +157,8 @@ def test_m01_acquired_bytes_and_before_target_sar_are_persisted_and_protected(cl
                 'acquisition_artifacts':{'acquired_feature_stack':{'sha256':hashlib.sha256(original).hexdigest(),'size_bytes':len(original),'filename':path.name},'band_identity_manifest':{'sha256':hashlib.sha256(manifest_bytes).hexdigest(),'size_bytes':len(manifest_bytes),'filename':manifest_path.name}},
                 'source_fidelity_scope':'received synthetic bytes only; provider source-byte checksum unavailable'})
     monkeypatch.setattr('app.services.gee.firris_pipeline.fetch_feature_stack',acquired)
+    # Persistence test: the HSBA label itself is covered by tests/unit/test_firris_hsba.py and the unit engine runs.
+    monkeypatch.setattr('app.services.firris.workflow._hsba_training_label',lambda stack,features,valid:(stack.label_layer,{}))
     monkeypatch.setattr(run_engine_analysis,'delay',lambda _:SimpleNamespace(id='synthetic-final-gee'))
     payload={'project_id':str(project.id),'aoi_id':str(aoi.id),'products':['flood_extent','flood_probability'],
         'gis_metadata':{'crs':'EPSG:4326','bounding_box':{'west':36,'south':-2,'east':37,'north':-1},'spatial_resolution':{'x':.0625,'y':.0625,'unit':'degree'}},

@@ -272,6 +272,51 @@ The harness is `scripts/smoke_firris_gee_pipeline.py`, with the same AOIs, windo
   - A window that fails the single-orbit rule is reported as failed, not changed.
 - **Also reported:** minimum-tile sensitivity at 32 and 128, and the HSBA runtime.
 
+#### 1.8b Measurement result (2026-11-16): science-3 NOT adopted
+
+**Code and method of measurement:**
+- Run on `feat/frris-science-3-hsba` at `978e35d`. The implementation was committed after the pre-registration (`089f713`) and before any run.
+- One Earth Engine acquisition per case, under D6, with the harness's production configuration: cloud ≤ 20%, coverage ≥ 70%, 30 m, 5000 samples, 30 per class, train fraction 0.7, seed 12345, RF with 200 trees.
+- On the same download, the science-2 label was also run through the same RF, for comparison. It reproduces production exactly: Rufiji 5.339 km² with F1 0.4771; Manyoni 13.100 km²; Kilombero April 63.380 km² and May 30.478 km².
+- No pre-registered value was changed.
+
+| Case | Science-3 (HSBA) | HSBA tiles (examined / accepted) | Science-2, same download |
+|---|---|---|---|
+| **Rufiji** 2024-05-24→26 | **NO_DISTINCT_WATER_CLASS**: no label, no map, no F1 | 21 / 0 | 5.339 km², F1 0.477 |
+| **Manyoni** 2021-06-20→21 | **NO_DISTINCT_WATER_CLASS**: counts as 0 km² | 21 / 0 | 13.100 km² |
+| Mindu (secondary) | NO_DISTINCT_WATER_CLASS (AOI grid 63 × 78 px; no tile ≥ 64 px with ≥ 50% admitted) | 0 / 0 | 0.058 km² |
+| Ugalla-small (secondary) | NO_DISTINCT_WATER_CLASS (grid 47 × 34 px) | 0 / 0 | 0.354 km² |
+
+**Decision rule:**
+- Manyoni < 13.10 km²: **met** (the fallback counts as 0 km²).
+- Rufiji F1 ≥ 0.477: **not met**, because science-3 produces no flood label for Rufiji.
+- **Result: keep science-2.** The branch is not merged.
+
+**Kilombero (informative only):**
+
+| Window | Science-3 area | Box 36.665–36.695°E, 8.23–8.29°S | Science-2 production / same download | Science-2 box | HSBA |
+|---|---|---|---|---|---|
+| April 2024 | 0.193 km² | 0.0009 km² | 63.38 / 63.380 km² | 0.553 km² | 1 of 85 tiles; seed −10.21 dB, RG to −4.01 dB, change threshold 0.0 dB (grid upper bound) |
+| May 2024 | 0.314 km² | 0.000 km² | 30.48 / 30.478 km² | 0.482 km² | 3 of 85 tiles; seed −13.50 dB, RG to −10.00 dB, change threshold 0.0 dB (grid upper bound) |
+
+**Sensitivity** (label pixels only; not used to choose):
+
+| Case | 32 px | 128 px |
+|---|---|---|
+| Rufiji | 1 of 85 tiles accepted; 2,552 label pixels (science-2 label: 6,034) | NO_DISTINCT_WATER_CLASS |
+| Manyoni | NO_DISTINCT_WATER_CLASS | NO_DISTINCT_WATER_CLASS |
+| Mindu, Ugalla-small | No tile evaluated (no tile with ≥ 50% admitted pixels) | No tile evaluated |
+| Kilombero April | 6 of 337 accepted; 11,736 pixels | NO_DISTINCT_WATER_CLASS |
+| Kilombero May | 11 of 329 accepted; 779 pixels | NO_DISTINCT_WATER_CLASS |
+
+**Runtime** of the HSBA step, pinned to one CPU with single-threaded math: Rufiji 0.36 s, Manyoni 0.30 s, Kilombero 2.14 s and 2.24 s. All are far below the 120 s limit.
+
+**Diagnostic** (a separate, labelled re-acquisition of Rufiji; it changes no value). Of the 20 evaluated tiles with a fit:
+- **C3 fails where water is clearly separate.** VV is clearly bimodal in four tiles (Ashman's D 3.3–9.6, water mean −17.8 to −19.6 dB). In each, the water class is under 10% of the land class (surface ratio 0.038–0.098).
+- **The change image has no separate decrease class.** C1 fails on the change image in 14 tiles. The target date is brighter than the baseline overall (median change +2.2 dB), and the lower change component mostly has a positive mean.
+- **C2 fails narrowly in one tile** (Bhattacharyya 0.9899).
+- **Conclusion:** the 64-pixel minimum tile (about 1.9 km) cannot isolate Rufiji's narrow, scattered water while also keeping the decrease class separable. This is a property of the pre-registered design on this event, not an implementation fault. Any further variant must be pre-declared and evaluated on a different AOI and event (Bundle 5), as fixed in §1.8.
+
 ---
 
 ## 3. Bundle 2 — Client scientific presentation

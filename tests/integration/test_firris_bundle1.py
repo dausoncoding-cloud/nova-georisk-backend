@@ -119,6 +119,8 @@ def test_successful_gee_qa_and_opt_in_display_are_persisted_and_protected(client
         from_origin(36, -1, 1 / 30, 1 / 30), "EPSG:4326", quality,
         {"provider": "mocked GEE synthetic fixture", "label_source": "synthetic test labels"})
     monkeypatch.setattr("app.services.gee.firris_pipeline.fetch_feature_stack", lambda *args: acquired)
+    # Persistence test: the HSBA label itself is covered by tests/unit/test_firris_hsba.py and the unit engine runs.
+    monkeypatch.setattr("app.services.firris.workflow._hsba_training_label", lambda stack, features, valid: (stack.label_layer, {}))
     monkeypatch.setattr(get_settings(), "output_storage_dir", str(tmp_path))
     task = Task(project_id=project.id, aoi_id=aoi.id, engine_key="firris", task_type="ANALYSIS",
         status=TaskStatus.QUEUED, input_params={"operation": "flood_mapping", "products": ["flood_extent"],
@@ -129,11 +131,13 @@ def test_successful_gee_qa_and_opt_in_display_are_persisted_and_protected(client
     db_session.refresh(task)
     assert task.status == TaskStatus.COMPLETED, task.error_message
     result = db_session.query(Result).filter(Result.task_id == task.id).one()
-    assert result.summary["quality"] == quality
+    stored_quality = dict(result.summary["quality"])
+    assert stored_quality.pop("hsba_label") == {}            # firris-science-3 records HSBA diagnostics (stubbed here)
+    assert stored_quality == quality
     assert result.provenance["enhancement"]["applied"] is True
     assert result.provenance["enhancement"]["source_sha256"] == result.provenance["materialized_input_checksums"]["feature_layers"]["rainfall"]
     qa_url = f"/api/v1/results/{result.id}/products/quality_assessment"
-    assert client.get(qa_url, headers=headers).json() == quality
+    assert {k: v for k, v in client.get(qa_url, headers=headers).json().items() if k != "hsba_label"} == quality
     for key in ("quality_assessment", "enhanced_display"):
         url = f"/api/v1/results/{result.id}/products/{key}"
         assert client.get(url, headers=headers).status_code == 200
