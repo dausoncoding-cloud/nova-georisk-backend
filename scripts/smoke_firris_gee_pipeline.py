@@ -1,6 +1,6 @@
-"""Credentialed, non-persistent smoke for the FIRRIS GEE/ML boundary.
+"""Credentialed, non-persistent smoke for the FRRIS GEE/ML boundary.
 
-Runs the production FIRRIS satellite workflow (same gates, sampling and model as a
+Runs the production FRRIS satellite workflow (same gates, sampling and model as a
 submission from the web form) against a bounding box or a GeoJSON polygon, and prints
 quality, area, accuracy and download-size figures. Nothing is persisted; the temporary
 workspace is deleted. Credentials come from GEE_SERVICE_ACCOUNT_EMAIL,
@@ -28,7 +28,7 @@ DATASETS = [
 
 
 def build_config(target_start: str, target_end: str, baseline_start: str, baseline_end: str) -> dict:
-    """Production FIRRIS configuration (matches the web form and the server gates)."""
+    """Production FRRIS configuration (matches the web form and the server gates)."""
     return {
         "source": {
             "provider": "gee",

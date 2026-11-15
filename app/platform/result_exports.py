@@ -94,7 +94,7 @@ def build_result_exports(
     summary_path = output_directory / "analysis-summary.json"
     metadata_path = output_directory / "result-metadata.json"
     provenance_path = output_directory / "provenance.json"
-    package_path = output_directory / "firris-result-package.zip"
+    package_path = output_directory / "frris-result-package.zip"
 
     # Import here to keep the artifact-entry helper available to the renderer.
     from app.services.maps.cartography import build_cartographic_exports
@@ -209,7 +209,7 @@ def build_result_exports(
         ),
         "report_package": artifact_entry(
             package_path,
-            label="FIRRIS result package",
+            label="FRRIS result package",
             media_type="application/zip",
             artifact_type="package",
             result_version=result_version,

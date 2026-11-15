@@ -3,7 +3,7 @@ AI/ML Engine — SYSTEM SPEC §5: "Classification & Prediction models
 (Random Forest, XGBoost) using Stratified Random Sampling... 70%
 Train, 30% Test." Validated against the suite's own dual-assessment
 framework (app.services.validation), not a separate ad-hoc check —
-the same metrics used to validate the FIRRIS MLR model apply here.
+the same metrics used to validate the FRRIS MLR model apply here.
 """
 from __future__ import annotations
 

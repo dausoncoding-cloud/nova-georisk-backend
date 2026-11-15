@@ -6,6 +6,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
 
+from app.platform.registry import display_name
 from app.core.entitlements import (
     entitlement_is_active,
     require_active_membership,
@@ -36,7 +37,7 @@ def _entitlement_response(
         id=entitlement.id,
         organization_id=entitlement.organization_id,
         engine_key=entitlement.engine_key,
-        engine_name=entitlement.engine.name,
+        engine_name=display_name(entitlement.engine.key, entitlement.engine.name),
         status=entitlement.status,
         effective_access=entitlement.engine.enabled and entitlement_is_active(entitlement),
         starts_at=entitlement.starts_at,
@@ -71,7 +72,7 @@ def list_available_engines(
     return [
         EngineAccessResponse(
             key=item.engine.key,
-            name=item.engine.name,
+            name=display_name(item.engine.key, item.engine.name),
             description=item.engine.description,
             status=item.engine.status,
             entitlement_status=item.status,

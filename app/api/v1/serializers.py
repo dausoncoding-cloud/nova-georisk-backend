@@ -80,7 +80,7 @@ FIRRIS_SCIENCE_VERSION = "firris-science-2"
 
 
 def legacy_interpretation_notice(result: Result) -> str | None:
-    """Notice for FIRRIS GEE results produced before firris-science-2 (Bundle 1). Stored data is untouched."""
+    """Notice for FRRIS GEE results produced before firris-science-2 (Bundle 1). Stored data is untouched."""
     provenance = result.provenance if isinstance(result.provenance, dict) else {}
     if result.engine_key != "firris" or "per_scene_lineage" not in provenance:
         return None

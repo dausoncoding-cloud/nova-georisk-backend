@@ -1,4 +1,4 @@
-"""Safe private upload lifecycle; existing FIRRIS gates remain authoritative."""
+"""Safe private upload lifecycle; existing FRRIS gates remain authoritative."""
 import csv,hashlib,io,json,re,uuid,os
 from pathlib import Path
 from fastapi import HTTPException

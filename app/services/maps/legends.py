@@ -10,11 +10,11 @@ map products. Two kinds of bands appear in the source document:
    label/colour descriptions for these (e.g. "Very Low = Dark Green"),
    with no numeric cutoffs, since the underlying index has no fixed
    universal scale. Where the index is already 0-1 bounded (as every
-   FIRRIS composite index is), this module applies the same
+   FRRIS composite index is), this module applies the same
    documented equal-interval convention used in
    `app.services.firas.classification`. Doc 2's Flood Risk and
    Zonation legends list 6 tiers (adding "Extreme") rather than the
-   5 tiers FIRRIS's own FRI classification uses — that's a genuine
+   5 tiers FRRIS's own FRI classification uses — that's a genuine
    difference between the two source documents, reproduced as-is
    rather than silently merged.
 """

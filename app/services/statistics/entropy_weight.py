@@ -4,7 +4,7 @@ arbitrarily... Entropy Weight Method: Variation in the data determines
 the weights... Objective and widely used."
 
 This is the mandated weighting approach for FVI, FII, H, and E in the
-FIRRIS spec (equal-weighting is explicitly rejected as Option 1 "DO NOT
+FRRIS spec (equal-weighting is explicitly rejected as Option 1 "DO NOT
 USE THIS APPROACH"). Algorithm, standard formulation:
 
   1. Normalize each indicator to [0,1], direction-aware (benefit vs.

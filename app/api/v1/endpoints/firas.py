@@ -1,5 +1,5 @@
 """
-Legacy FIRRIS index calculator endpoints. Each takes already-extracted sample data
+Legacy FRRIS index calculator endpoints. Each takes already-extracted sample data
 (named indicator arrays) and returns the computed composite index:
 per-sample scores, the entropy-derived weights used, per-sample
 classification labels, and a summary (mean/min/max/dominant class) —
@@ -38,7 +38,7 @@ from app.services.statistics.entropy_weight import IndicatorDirection
 
 router = APIRouter(
     prefix="/firas",
-    tags=["FIRRIS Legacy Calculators"],
+    tags=["FRRIS Legacy Calculators"],
     dependencies=[Depends(verify_internal_secret), Depends(require_current_engine("firris"))],
 )
 

@@ -93,7 +93,7 @@ def execute_derived_map(bindings: ResolvedBindings, aoi_geometry: dict, output_d
                 or set(source_provenance.get("weights", {})) != required
                 or set(source_provenance.get("indicator_directions", {})) != required):
             raise SourceNotReady("Approved susceptibility predictor inventory or weights are incomplete")
-        method = "relative reclassification of approved eight-indicator entropy-weighted FIRRIS Hazard Index"
+        method = "relative reclassification of approved eight-indicator entropy-weighted FRRIS Hazard Index"
         formula = "app.services.firas.hazard.compute_hazard_index (upstream only; no recomputation)"
         base_units = "index_0_1"
         result_values = values

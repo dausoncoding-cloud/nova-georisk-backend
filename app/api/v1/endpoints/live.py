@@ -14,7 +14,7 @@ from app.schemas.firris_evidence import LiveEventRequest, LiveEventResponse, Liv
 from app.services.source_data.live import ingest_event, load_policy, verify_event_source, event_response
 from app.services.source_data.readiness import SourceNotReady
 
-router = APIRouter(prefix='/projects/{project_id}/live',tags=['FIRRIS live evidence'],dependencies=[Depends(verify_internal_secret)])
+router = APIRouter(prefix='/projects/{project_id}/live',tags=['FRRIS live evidence'],dependencies=[Depends(verify_internal_secret)])
 
 
 def _events(db,project_id,policy_id,cursor,limit):

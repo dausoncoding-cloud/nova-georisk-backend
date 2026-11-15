@@ -30,7 +30,7 @@ class ValidationDefinition(StrictModel):
         if (self.hotspot_absolute_error_threshold is None) != (self.hotspot_policy_reference is None):
             raise ValueError('Hotspots require a paired sourced threshold and policy reference')
         if self.class_labels is not None and (set(self.class_labels) != {'0', '1'} or any(not label.strip() for label in self.class_labels.values()) or len(set(self.class_labels.values())) != 2):
-            raise ValueError('Current FIRRIS classification supports two explicitly named binary classes only')
+            raise ValueError('Current FRRIS classification supports two explicitly named binary classes only')
         if self.fold_definitions is not None and (not self.fold_definitions or any(not key.isdecimal() or str(int(key)) != key or not label.strip() for key, label in self.fold_definitions.items())):
             raise ValueError('Fold codes require canonical nonnegative integers and sourced definitions')
         if (self.uncertainty_kind == 'absolute_interval_half_width') != (self.confidence_level is not None):
@@ -264,7 +264,7 @@ class ValidationDashboard(StrictModel):
     @model_serializer(mode='wrap')
     def _omit_unset_bundle1_fields(self, handler):
         """Leave the two optional Bundle 1 fields out when unset, so dashboards stored without
-        them (other engines, legacy FIRRIS results) are returned exactly as stored."""
+        them (other engines, legacy FRRIS results) are returned exactly as stored."""
         data = handler(self)
         for key in ('reference_basis', 'independent_validation', 'accuracy_assessment'):
             if isinstance(data, dict) and data.get(key) is None:

@@ -1,4 +1,4 @@
-"""Explicit FIRRIS module-to-source bindings; no implicit dataset discovery."""
+"""Explicit FRRIS module-to-source bindings; no implicit dataset discovery."""
 from __future__ import annotations
 
 import uuid

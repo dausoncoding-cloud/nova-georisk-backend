@@ -1,1 +1,1 @@
-"""Validated external source-data contracts for FIRRIS."""
+"""Validated external source-data contracts for FRRIS."""

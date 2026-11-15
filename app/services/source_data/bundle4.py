@@ -1,6 +1,6 @@
 """Reviewed source workflows for F01/F02/F03/F05/F06/F09/F10.
 
-Uses existing FIRRIS mathematics and source-bound, reviewed policies. Missing
+Uses existing FRRIS mathematics and source-bound, reviewed policies. Missing
 catalogues, soil score tables, observed records and validation are never filled
 with production defaults. Synthetic fixture scores are not specification facts.
 """

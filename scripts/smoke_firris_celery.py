@@ -54,7 +54,7 @@ def main() -> None:
         args.secret,
         "POST",
         "/api/v1/projects",
-        {"name": "FIRRIS Celery smoke", "engine_key": "firris"},
+        {"name": "FRRIS Celery smoke", "engine_key": "firris"},
     )
     assert status == 201 and project["engine_key"] == "firris"
 
@@ -118,7 +118,7 @@ def main() -> None:
             break
         time.sleep(0.5)
     if task is None or task["status"] != "completed":
-        raise RuntimeError(f"FIRRIS Celery task did not complete: {task}")
+        raise RuntimeError(f"FRRIS Celery task did not complete: {task}")
 
     query = urllib.parse.urlencode({"task_id": task_id})
     _, result_page = request_json(args.base_url, args.secret, "GET", f"/api/v1/results?{query}")

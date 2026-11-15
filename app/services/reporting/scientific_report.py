@@ -1,4 +1,4 @@
-"""Client scientific report for FIRRIS flood results (plan item 2.4), as PDF and DOCX.
+"""Client scientific report for FRRIS flood results (plan item 2.4), as PDF and DOCX.
 
 Content comes only from what the result already holds: the computed overview (headline,
 area accounting, quality gates, data sources, limitations), the accuracy assessment
@@ -141,7 +141,7 @@ class _Writer:
 
 
 def write_pdf(writer: "_Writer", path: Path) -> None:
-    SimpleDocTemplate(str(path), pagesize=A4, title="FIRRIS scientific report", leftMargin=2 * cm, rightMargin=2 * cm,
+    SimpleDocTemplate(str(path), pagesize=A4, title="FRRIS scientific report", leftMargin=2 * cm, rightMargin=2 * cm,
                       initialFontName=register_fonts()).build(writer.story)
 
 
@@ -263,8 +263,8 @@ def _client_rank(key: str, entry: dict) -> int:
 
 # The report lists what a client opens first; everything else is listed in the package README.
 REPORT_APPENDIX_GROUPS = ("client_deliverable", "gis_data")
-README_POINTER = ("Figures, accuracy tables, audit and provenance files are listed in README.txt inside the FIRRIS result package "
-                  "(firris-result-package.zip).")
+README_POINTER = ("Figures, accuracy tables, audit and provenance files are listed in README.txt inside the FRRIS result package "
+                  "(frris-result-package.zip).")
 
 
 def grouped_downloads(downloads: list[tuple[str, dict]], *, unique: bool = True) -> list[tuple[str, str, list[tuple[str, dict, str]]]]:
@@ -301,7 +301,7 @@ def _appendix(writer: _Writer, downloads: list[tuple[str, dict]]):
 def package_readme(files: list[tuple[str, str, dict]]) -> str:
     """README.txt for the result package: every file (archive name) by download group, with its label."""
     by_key = {key: arcname for arcname, key, _ in files}
-    lines = ["FIRRIS result package", "", "Files in this package, grouped as on the download page.", ""]
+    lines = ["FRRIS result package", "", "Files in this package, grouped as on the download page.", ""]
     for _, title, rows in grouped_downloads([(key, entry) for _, key, entry in files], unique=False):
         lines += [title, "-" * len(title)]
         lines += [f"{by_key[key]}  —  {label}" for key, _, label in rows]
@@ -375,7 +375,7 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
         return {}
     assessment = (summary.get("validation_dashboard") or {}).get("accuracy_assessment") or {}
     writer = _Writer()
-    writer.heading("FIRRIS flood-candidate analysis — scientific report", 0)
+    writer.heading("FRRIS flood-candidate analysis — scientific report", 0)
     project = names.get("project") or f"Project ID {ids['project']}"
     aoi = names.get("aoi") or f"AOI ID {ids['aoi']}"
     if sample_report:

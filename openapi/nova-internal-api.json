@@ -7332,8 +7332,8 @@
     }
   },
   "info": {
-    "description": "Scientific Computation & AI Engine for NOVA-GeoRisk \u2014 FIRRIS",
-    "title": "NOVA-GeoRisk Intelligence Suite - FIRRIS Engine",
+    "description": "Scientific Computation & AI Engine for NOVA-GeoRisk \u2014 FRRIS",
+    "title": "NOVA-GeoRisk Intelligence Suite - FRRIS Engine",
     "version": "1.0.0"
   },
   "openapi": "3.1.0",
@@ -7533,7 +7533,7 @@
     },
     "/api/v1/analyses/preflight": {
       "post": {
-        "description": "Metadata-only availability check for a FIRRIS satellite analysis. Never creates a task or result.",
+        "description": "Metadata-only availability check for a FRRIS satellite analysis. Never creates a task or result.",
         "operationId": "preflight_analysis_api_v1_analyses_preflight_post",
         "requestBody": {
           "content": {
@@ -8999,7 +8999,7 @@
         ],
         "summary": "Compute Capacity Subindex",
         "tags": [
-          "FIRRIS Legacy Calculators"
+          "FRRIS Legacy Calculators"
         ]
       }
     },
@@ -9095,7 +9095,7 @@
         ],
         "summary": "Compute Exposure",
         "tags": [
-          "FIRRIS Legacy Calculators"
+          "FRRIS Legacy Calculators"
         ]
       }
     },
@@ -9191,7 +9191,7 @@
         ],
         "summary": "Compute Hazard",
         "tags": [
-          "FIRRIS Legacy Calculators"
+          "FRRIS Legacy Calculators"
         ]
       }
     },
@@ -9287,7 +9287,7 @@
         ],
         "summary": "Compute Insecurity",
         "tags": [
-          "FIRRIS Legacy Calculators"
+          "FRRIS Legacy Calculators"
         ]
       }
     },
@@ -9383,7 +9383,7 @@
         ],
         "summary": "Compute Resilience",
         "tags": [
-          "FIRRIS Legacy Calculators"
+          "FRRIS Legacy Calculators"
         ]
       }
     },
@@ -9479,7 +9479,7 @@
         ],
         "summary": "Compute Risk",
         "tags": [
-          "FIRRIS Legacy Calculators"
+          "FRRIS Legacy Calculators"
         ]
       }
     },
@@ -9575,7 +9575,7 @@
         ],
         "summary": "Compute Vulnerability",
         "tags": [
-          "FIRRIS Legacy Calculators"
+          "FRRIS Legacy Calculators"
         ]
       }
     },
@@ -10290,7 +10290,7 @@
     },
     "/api/v1/maps/hazard": {
       "post": {
-        "description": "Hazard Index = Depth x Velocity, quantile-classified \u2014 Doc 2 Map 4.\nDistinct from /firas/hazard: this is the raw depth*velocity product\nmap, not the entropy-weighted FIRRIS Hazard Index (H).",
+        "description": "Hazard Index = Depth x Velocity, quantile-classified \u2014 Doc 2 Map 4.\nDistinct from /firas/hazard: this is the raw depth*velocity product\nmap, not the entropy-weighted FRRIS Hazard Index (H).",
         "operationId": "flood_hazard_map_api_v1_maps_hazard_post",
         "requestBody": {
           "content": {
@@ -14019,7 +14019,7 @@
         ],
         "summary": "Events",
         "tags": [
-          "FIRRIS live evidence"
+          "FRRIS live evidence"
         ]
       },
       "post": {
@@ -14125,7 +14125,7 @@
         ],
         "summary": "Ingest",
         "tags": [
-          "FIRRIS live evidence"
+          "FRRIS live evidence"
         ]
       }
     },
@@ -14237,7 +14237,7 @@
         ],
         "summary": "Feedback History",
         "tags": [
-          "FIRRIS live evidence"
+          "FRRIS live evidence"
         ]
       },
       "post": {
@@ -14353,7 +14353,7 @@
         ],
         "summary": "Feedback",
         "tags": [
-          "FIRRIS live evidence"
+          "FRRIS live evidence"
         ]
       }
     },
@@ -14480,7 +14480,7 @@
         ],
         "summary": "Stream",
         "tags": [
-          "FIRRIS live evidence"
+          "FRRIS live evidence"
         ]
       }
     },

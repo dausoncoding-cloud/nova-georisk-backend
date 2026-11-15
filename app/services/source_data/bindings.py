@@ -111,7 +111,7 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
     optional = OPTIONAL_SOURCE_ROLES.get(request.module, {})
     if (not set(required).issubset(request.sources) or not set(request.sources).issubset(set(required) | set(optional))
             or set(request.upstream_results) != set(expected_results)):
-        raise SourceNotReady("Source/result roles do not match the FIRRIS module binding contract")
+        raise SourceNotReady("Source/result roles do not match the FRRIS module binding contract")
     if len(set(request.sources.values())) != len(request.sources):
         raise SourceNotReady("The same source dataset cannot fill multiple distinct roles")
     if (request.module in (BUNDLE4_MODULES - {"historical_frequency", "predictor_mlr"}) | {"continuous_validation", "classification_validation", "flood_change", "satellite_preprocessing", "hazard", "exposure", "risk", "flood_depth", "flood_velocity", "flood_hazard_product", "flood_aep", "flood_return_period", "flood_duration", "flood_susceptibility", "flood_hazard_zonation"}
@@ -188,7 +188,7 @@ def resolve_bindings(db: Session, request: SourceBoundAnalysisRequest, *, root: 
         if sources["rainfall"].manifest.observation_interval_hours is None:
             raise SourceNotReady("Rainfall observation interval is required to derive mm/h intensity")
         if sources["land_cover"].manifest.land_cover_scheme is None:
-            raise SourceNotReady("Land-cover source requires an exact FIRRIS scoring scheme")
+            raise SourceNotReady("Land-cover source requires an exact FRRIS scoring scheme")
     if request.module == "exposure":
         grid = request.target_grid
         crs = CRS.from_user_input(grid.crs)

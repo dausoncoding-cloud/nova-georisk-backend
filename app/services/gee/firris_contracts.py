@@ -1,4 +1,4 @@
-"""Executable FIRRIS acquisition policies; no dataset substitutions or pixel filling."""
+"""Executable FRRIS acquisition policies; no dataset substitutions or pixel filling."""
 from datetime import date
 import math
 
@@ -37,9 +37,9 @@ def periods(config):
             start = date.fromisoformat(str(config[key]["start"]))
             end = date.fromisoformat(str(config[key]["end"]))
         except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError("FIRRIS requires ISO target and baseline periods") from exc
+            raise ValueError("FRRIS requires ISO target and baseline periods") from exc
         if start >= end:
-            raise ValueError("FIRRIS date ranges must be ordered, end-exclusive")
+            raise ValueError("FRRIS date ranges must be ordered, end-exclusive")
         result[key] = {"start": start.isoformat(), "end": end.isoformat()}
     if result["baseline_period"]["end"] > result["target_period"]["start"]:
         raise ValueError("Baseline must precede target without overlap")
@@ -60,10 +60,10 @@ def periods(config):
 def validate_aoi(geometry):
     polygon = shape(geometry)
     if polygon.geom_type not in {"Polygon", "MultiPolygon"} or polygon.is_empty or not polygon.is_valid:
-        raise ValueError("FIRRIS AOI must be a valid Polygon or MultiPolygon")
+        raise ValueError("FRRIS AOI must be a valid Polygon or MultiPolygon")
     west, south, east, north = polygon.bounds
     if not (-180 <= west < east <= 180 and -90 <= south < north <= 90):
-        raise ValueError("FIRRIS AOI must use WGS84 longitude/latitude")
+        raise ValueError("FRRIS AOI must use WGS84 longitude/latitude")
 
 
 def validate_grid(crs, transform, scale=None):
@@ -71,7 +71,7 @@ def validate_grid(crs, transform, scale=None):
     if not (parsed.is_geographic or parsed.is_projected):
         raise ValueError("Output CRS must be geographic or projected")
     if not all(math.isfinite(v) for v in transform[:6]) or transform.b or transform.d or transform.a <= 0 or transform.e >= 0:
-        raise ValueError("FIRRIS requires a finite north-up nonrotated grid")
+        raise ValueError("FRRIS requires a finite north-up nonrotated grid")
     if scale is not None and parsed.is_projected:
         factors = [axis.unit_conversion_factor for axis in parsed.axis_info[:2]]
         if len(factors) != 2 or not np.allclose([transform.a * factors[0], -transform.e * factors[1]], scale, rtol=1e-6):

@@ -170,8 +170,8 @@ def compute_hazard_screening_index(
     0.15 inverse distance-to-water + 0.10 rainfall + 0.05 inverse NDVI.
     Every input is min-max normalized to [0,1] over the AOI first;
     weights sum to 1.0. This is a fixed-weight screening formula (not
-    the FIRRIS module's entropy-weighted H) — appropriate for a quick
-    multi-factor screen, not a substitute for the full FIRRIS pipeline.
+    the FRRIS module's entropy-weighted H) — appropriate for a quick
+    multi-factor screen, not a substitute for the full FRRIS pipeline.
     """
 
     def _normalize(image: ee.Image, aoi_geom: ee.Geometry, band_name: str) -> ee.Image:

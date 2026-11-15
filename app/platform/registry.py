@@ -34,3 +34,11 @@ ENGINE_DEFINITIONS = (
 )
 
 ENGINE_KEYS = frozenset(item.key for item in ENGINE_DEFINITIONS)
+
+# Client-facing product names. The stored engine name (engines.name, projects.analysis_module) stays
+# "FIRRIS" as a data identifier; only what users see changes (client decision 2026-11-15: FRRIS).
+DISPLAY_NAMES = {"firris": "FRRIS"}
+
+
+def display_name(key: str, stored_name: str) -> str:
+    return DISPLAY_NAMES.get(key, stored_name)

@@ -1,5 +1,5 @@
 """
-Ingestion trigger endpoints. Unlike the FIRRIS/validation/maps
+Ingestion trigger endpoints. Unlike the FRRIS/validation/maps
 endpoints (synchronous pure-math), generating a screening atlas
 genuinely takes a while (Earth Engine thumbnail export for ~15
 layers), so this creates a Task row and dispatches a Celery job,
@@ -52,7 +52,7 @@ def trigger_screening_atlas(
         raise HTTPException(status_code=404, detail="Project not found.")
     require_project_access(project, context)
     if project.engine_key != "firris":
-        raise HTTPException(status_code=409, detail="Screening atlas requires a FIRRIS project.")
+        raise HTTPException(status_code=409, detail="Screening atlas requires a FRRIS project.")
     require_engine_entitlement(db, context, "firris")
 
     aoi = db.get(AOI, payload.aoi_id)

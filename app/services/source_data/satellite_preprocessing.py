@@ -82,7 +82,7 @@ def terrain_metrics(source, grid, aoi_geometry, requested):
         "aspect_definition": "downslope clockwise from north; flat cells undefined",
         "flow_method": "existing D8 steepest descent; sinks retain code 0; no new conditioning",
         "twi_policy": "existing reviewed formula with 0.1 degree slope floor; explicit request only",
-        "excluded_products": ["SPI: no existing reviewed FIRRIS implementation"], "units": UNITS}
+        "excluded_products": ["SPI: no existing reviewed FRRIS implementation"], "units": UNITS}
 
 
 def execute_satellite_preprocessing(bindings, aoi_geometry, output_directory, result_version, *, task_id):

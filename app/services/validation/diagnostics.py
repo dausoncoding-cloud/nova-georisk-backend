@@ -91,7 +91,7 @@ def binary_diagnostics(observed, predicted, scores=None):
     reason = 'Both observed classes and supplied conditional scores are required'
     return clean({'metrics': metrics, 'curves': curves, 'availability': {
         'roc_precision_recall_threshold_sweep': {'available': bool(curves), 'reason': None if curves else reason},
-        'multiclass': {'available': False, 'reason': 'Current FIRRIS classifiers are binary; no multiclass labels inferred'},
+        'multiclass': {'available': False, 'reason': 'Current FRRIS classifiers are binary; no multiclass labels inferred'},
         'independent_calibration': {'available': False, 'reason': 'Requires independently reviewed observations and calibration evidence'}}})
 
 
@@ -163,7 +163,7 @@ def write_diagnostic_artifacts(directory, observed, predicted, *, kind, units, s
         entries['validation_'+key+'_data'] = artifact_entry(path, label=key+' data', media_type='text/csv', artifact_type='report', role='export', format_name='csv', result_version=version)
     styles = getSampleStyleSheet()
     embed_in_styles(styles)  # embedded DejaVu Sans; SVG plots above keep their own fonts
-    story = [Paragraph('FIRRIS supplied-observation diagnostics', styles['Heading1']), Paragraph(escape(scope), styles['BodyText'])]
+    story = [Paragraph('FRRIS supplied-observation diagnostics', styles['Heading1']), Paragraph(escape(scope), styles['BodyText'])]
     for text in LIMITATIONS: story.append(Paragraph(escape(text), styles['BodyText']))
     for name, value in result['metrics'].items():
         if not isinstance(value, dict): story.append(Paragraph(escape(f'{name}: {value if value is not None else "undefined"}'), styles['BodyText']))

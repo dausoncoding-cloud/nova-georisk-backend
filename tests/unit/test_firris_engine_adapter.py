@@ -85,7 +85,7 @@ def test_firris_adapter_executes_all_products_without_changing_formulas(tmp_path
         "report_package",
     } <= set(result.output_files)
     assert all((tmp_path / f"{product}.json").is_file() for product in products)
-    assert (tmp_path / "firris-result-package.zip").is_file()
+    assert (tmp_path / "frris-result-package.zip").is_file()
     for product in products:
         entry = result.output_files[product]
         assert entry["artifact_type"] == "metadata"

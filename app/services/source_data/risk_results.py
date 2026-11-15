@@ -1,4 +1,4 @@
-"""Fail-closed protected H/E/FII Result verification for source-bound FIRRIS FRI."""
+"""Fail-closed protected H/E/FII Result verification for source-bound FRRIS FRI."""
 from __future__ import annotations
 
 import hashlib
@@ -66,11 +66,11 @@ def _result(db: Session, result_id: uuid.UUID, request: SourceBoundAnalysisReque
     result = db.get(Result, result_id)
     if (result is None or result.project_id != request.project_id or result.aoi_id != request.aoi_id
             or result.engine_key != "firris" or result.result_type != result_type):
-        raise SourceNotReady("Required FIRRIS Result is unavailable in this project and AOI")
+        raise SourceNotReady("Required FRRIS Result is unavailable in this project and AOI")
     task = db.get(Task, result.task_id)
     if (task is None or task.status != TaskStatus.COMPLETED or task.project_id != request.project_id
             or task.aoi_id != request.aoi_id or task.engine_key != "firris"):
-        raise SourceNotReady("Upstream FIRRIS task is not completed")
+        raise SourceNotReady("Upstream FRRIS task is not completed")
     return result
 
 
@@ -79,22 +79,22 @@ def _sources(db: Session, result: Result, request: SourceBoundAnalysisRequest,
              root: Path | None = None) -> dict[str, ReadySource]:
     provenance = result.provenance
     if not isinstance(provenance, dict):
-        raise SourceNotReady("Upstream FIRRIS provenance is invalid")
+        raise SourceNotReady("Upstream FRRIS provenance is invalid")
     pinned = provenance.get("source_bindings")
     optional = optional or {}
     if (not isinstance(pinned, dict) or not set(required).issubset(pinned)
             or not set(pinned).issubset(set(required) | set(optional))):
-        raise SourceNotReady("Upstream FIRRIS source lineage is incomplete")
+        raise SourceNotReady("Upstream FRRIS source lineage is incomplete")
     sources = {}
     for role, lineage in pinned.items():
         if not isinstance(lineage, dict):
-            raise SourceNotReady("Upstream FIRRIS source lineage is malformed")
+            raise SourceNotReady("Upstream FRRIS source lineage is malformed")
         try:
             source = load_registered_source(db, uuid.UUID(lineage["dataset_id"]), request.project_id, root=root)
         except (KeyError, TypeError, ValueError) as exc:
-            raise SourceNotReady("Upstream FIRRIS source is unavailable or unapproved") from exc
+            raise SourceNotReady("Upstream FRRIS source is unavailable or unapproved") from exc
         if source.manifest.category != {**required, **optional}[role] or source.lineage() != lineage:
-            raise SourceNotReady("Upstream FIRRIS source approval, metadata or checksum changed")
+            raise SourceNotReady("Upstream FRRIS source approval, metadata or checksum changed")
         sources[role] = source
     return sources
 
@@ -102,24 +102,24 @@ def _sources(db: Session, result: Result, request: SourceBoundAnalysisRequest,
 def _artifact(result: Result, key: str, product_key: str, format_name: str,
               *, root: Path | None = None) -> tuple[dict, bytes, str]:
     if not isinstance(result.output_files, dict):
-        raise SourceNotReady("Upstream FIRRIS artifact manifest is invalid")
+        raise SourceNotReady("Upstream FRRIS artifact manifest is invalid")
     entry = result.output_files.get(key)
     if (not isinstance(entry, dict) or entry.get("role") != "product"
             or entry.get("product_key") != product_key or entry.get("format") != format_name
             or entry.get("result_version") != result.version):
-        raise SourceNotReady("Upstream protected FIRRIS product is unavailable")
+        raise SourceNotReady("Upstream protected FRRIS product is unavailable")
     storage_root = (root or artifact_root()).resolve()
     try:
         path = (storage_root / entry["path"]).resolve(strict=True)
         path.relative_to(storage_root)
     except (KeyError, TypeError, OSError, ValueError) as exc:
-        raise SourceNotReady("Upstream FIRRIS artifact is unavailable in protected storage") from exc
+        raise SourceNotReady("Upstream FRRIS artifact is unavailable in protected storage") from exc
     if not path.is_file() or path.stat().st_size > 250 * 1024 * 1024:
-        raise SourceNotReady("Upstream FIRRIS artifact is missing or exceeds the size limit")
+        raise SourceNotReady("Upstream FRRIS artifact is missing or exceeds the size limit")
     data = path.read_bytes()
     checksum = hashlib.sha256(data).hexdigest()
     if checksum != entry.get("checksum_sha256") or len(data) != entry.get("file_size_bytes"):
-        raise SourceNotReady("Upstream FIRRIS artifact checksum or size changed")
+        raise SourceNotReady("Upstream FRRIS artifact checksum or size changed")
     return entry, data, checksum
 
 
@@ -127,9 +127,9 @@ def _same_period(metadata: dict, request: SourceBoundAnalysisRequest) -> None:
     try:
         period = TemporalCoverage.model_validate(metadata["target_period"])
     except (KeyError, TypeError, ValueError) as exc:
-        raise SourceNotReady("Upstream FIRRIS analysis period is invalid") from exc
+        raise SourceNotReady("Upstream FRRIS analysis period is invalid") from exc
     if period != request.period:
-        raise SourceNotReady("Upstream FIRRIS analysis periods are not identical")
+        raise SourceNotReady("Upstream FRRIS analysis periods are not identical")
 
 
 def _raster(data: bytes, grid, *, nodata: float) -> np.ma.MaskedArray:
@@ -140,14 +140,14 @@ def _raster(data: bytes, grid, *, nodata: float) -> np.ma.MaskedArray:
                     or raster.crs is None or raster.crs.to_string() != grid.crs
                     or raster.width != grid.width or raster.height != grid.height
                     or not raster.transform.almost_equals(expected) or raster.nodata != nodata):
-                raise SourceNotReady("Upstream FIRRIS raster grid, CRS, resolution or nodata differs")
+                raise SourceNotReady("Upstream FRRIS raster grid, CRS, resolution or nodata differs")
             values = raster.read(1, masked=True)
             valid = values.compressed()
             if not len(valid) or not np.isfinite(valid).all() or ((valid < 0) | (valid > 1)).any():
-                raise SourceNotReady("Upstream FIRRIS index raster contains invalid values")
+                raise SourceNotReady("Upstream FRRIS index raster contains invalid values")
             return values
     except (rasterio.errors.RasterioError, OSError, ValueError) as exc:
-        raise SourceNotReady("Upstream FIRRIS COG cannot be read") from exc
+        raise SourceNotReady("Upstream FRRIS COG cannot be read") from exc
 
 
 def load_risk_results(db: Session, request: SourceBoundAnalysisRequest, *, aoi_geometry: dict,

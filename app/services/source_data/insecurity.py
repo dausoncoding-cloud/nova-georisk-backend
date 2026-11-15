@@ -1,4 +1,4 @@
-"""Approved community capacities plus a protected FVI Result -> FIRRIS FII."""
+"""Approved community capacities plus a protected FVI Result -> FRRIS FII."""
 from __future__ import annotations
 
 import json
@@ -197,7 +197,7 @@ def execute_insecurity_module(bindings: ResolvedBindings, aoi_geometry: dict,
         index_summaries=[IndexSummary(name="Flood Insecurity Index (FII)", mean=summary["mean"],
                                       min=summary["minimum"], max=summary["maximum"],
                                       classification="spatial-unit EWM")],
-        notes=("Five capacity domains use entropy-derived indicator weights. The unchanged FIRRIS FII "
+        notes=("Five capacity domains use entropy-derived indicator weights. The unchanged FRRIS FII "
                "formula combines their inverse scores with the verified upstream FVI using entropy weights. "
                "Missing observations are rejected; no independent authoritative validation is claimed. "
                "See packaged source, FVI Result, QA and uncertainty provenance.")), str(pdf_path))

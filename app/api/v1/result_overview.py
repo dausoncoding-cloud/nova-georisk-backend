@@ -1,4 +1,4 @@
-"""Read-time result overview for FIRRIS flood results (plan item 2.3).
+"""Read-time result overview for FRRIS flood results (plan item 2.3).
 
 Computed only from what the result already stores (summary and provenance); it adds no
 new science. Anything a result did not record is reported as "not recorded", never guessed.

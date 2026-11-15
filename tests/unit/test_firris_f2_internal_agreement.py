@@ -83,7 +83,7 @@ def test_satellite_run_dashboard_carries_reference_basis_and_not_performed(tmp_p
 
 def test_report_pdf_uses_internal_agreement_heading(tmp_path):
     _run_engine(tmp_path)
-    text = " ".join("".join(page.extract_text() or "" for page in PdfReader(tmp_path / "firris-analysis-report.pdf").pages).split())
+    text = " ".join("".join(page.extract_text() or "" for page in PdfReader(tmp_path / "frris-analysis-report.pdf").pages).split())
     assert "Internal agreement with" in text and "not independent flood-map accuracy" in text
     assert "Classification Validation" not in text
 
@@ -123,7 +123,7 @@ def test_gee_workflow_records_sar_rule_overlap_and_screening_label_column(tmp_pa
 
 def test_firris_report_summary_heading_is_classification_output_summary(tmp_path):
     _run_engine(tmp_path)
-    text = " ".join("".join(page.extract_text() or "" for page in PdfReader(tmp_path / "firris-analysis-report.pdf").pages).split())
+    text = " ".join("".join(page.extract_text() or "" for page in PdfReader(tmp_path / "frris-analysis-report.pdf").pages).split())
     assert "Classification output summary" in text
     assert "Flood Risk Index Summary" not in text
 

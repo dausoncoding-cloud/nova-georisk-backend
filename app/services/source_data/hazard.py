@@ -1,4 +1,4 @@
-"""Approved FIRRIS Module 5 Hazard inputs to the unchanged entropy formula.
+"""Approved FRRIS Module 5 Hazard inputs to the unchanged entropy formula.
 
 This adapter derives indicators from reviewed source bytes. It does not use a
 Random Forest score, infer absent observations, or calculate return periods.
@@ -150,7 +150,7 @@ def _land_cover(bindings: ResolvedBindings, codes: np.ndarray) -> np.ndarray:
     except (TypeError, ValueError) as exc:
         raise SourceNotReady("Land-cover class codes must be integers") from exc
     if scores is None or not declared.issubset(scores):
-        raise SourceNotReady("Land-cover classes are not in the approved FIRRIS score table")
+        raise SourceNotReady("Land-cover classes are not in the approved FRRIS score table")
     names = _LAND_COVER_NAMES[scheme]
     if any(label.strip().casefold() != names[int(code)].casefold()
            for code, label in source.manifest.class_scheme.items()):

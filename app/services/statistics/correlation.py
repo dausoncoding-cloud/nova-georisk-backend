@@ -10,7 +10,7 @@ Implements:
 This is a general-purpose utility: it works on any named set of
 variables (climate, hydrology, remote sensing, terrain, LULC, storage,
 or the flood response variable itself), not just one fixed variable
-list, so it's reused across FIRRIS and, later, other suite modules.
+list, so it's reused across FRRIS and, later, other suite modules.
 """
 from __future__ import annotations
 

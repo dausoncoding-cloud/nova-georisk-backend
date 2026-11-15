@@ -289,7 +289,7 @@ def run_flood_screening_atlas(self, task_id: str) -> None:
 
         _mark_completed(db, task, manifest_dict)
     except Exception as exc:  # noqa: BLE001 - task boundary, must not raise
-        logger.exception("FIRRIS atlas task failed task_id=%s", task_id)
+        logger.exception("FRRIS atlas task failed task_id=%s", task_id)
         db.rollback()
         if task is None:
             task = db.get(Task, uuid.UUID(task_id))

@@ -1,1 +1,1 @@
-"""Persistent FIRRIS execution controls using existing Task JSON metadata."""
+"""Persistent FRRIS execution controls using existing Task JSON metadata."""

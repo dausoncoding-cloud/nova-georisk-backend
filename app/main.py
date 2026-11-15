@@ -31,7 +31,7 @@ configure_logging()
 
 app = FastAPI(
     title=settings.app_name,
-    description="Scientific Computation & AI Engine for NOVA-GeoRisk — FIRRIS",
+    description="Scientific Computation & AI Engine for NOVA-GeoRisk — FRRIS",
     version="1.0.0",
     docs_url="/docs" if settings.app_env != "production" or settings.expose_api_docs else None,
     redoc_url="/redoc" if settings.app_env != "production" or settings.expose_api_docs else None,

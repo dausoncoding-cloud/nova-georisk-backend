@@ -1,4 +1,4 @@
-"""Metadata-driven FIRRIS map exports: simple framed maps (client decision D5) and GIS-ready layers.
+"""Metadata-driven FRRIS map exports: simple framed maps (client decision D5) and GIS-ready layers.
 
 These are presentation artifacts, not new scientific layers. The underlying
 protected raster/vector product, nodata, lineage and uncertainty remain in the

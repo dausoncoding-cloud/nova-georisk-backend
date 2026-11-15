@@ -1,4 +1,4 @@
-"""Metadata-only FIRRIS submission preflight (plan items 4.1, 4.4 and 4.6).
+"""Metadata-only FRRIS submission preflight (plan items 4.1, 4.4 and 4.6).
 
 Checks, before any task exists and without downloading pixels:
 - sensor date bounds: Sentinel-1 GRD starts on 2014-10-03; windows may not end after today (UTC);
@@ -149,7 +149,7 @@ def _orbit_issues(periods: dict[str, AnalysisPreflightPeriod]) -> list[AnalysisP
         elif len(period.relative_orbits) > 1:
             issues.append(_issue("multiple_orbits",
                                  f"The {name} window contains Sentinel-1 passes from relative orbits "
-                                 f"{', '.join(map(str, period.relative_orbits))}. FIRRIS needs passes from exactly one orbit, "
+                                 f"{', '.join(map(str, period.relative_orbits))}. FRRIS needs passes from exactly one orbit, "
                                  "the same in both windows. Shorten the window to one pass date.", name))
     target, baseline = periods["target"], periods["baseline"]
     if not issues and target.relative_orbits != baseline.relative_orbits:
@@ -181,10 +181,10 @@ def run_preflight(*, aoi_geometry: dict, source: SatelliteSourceConfig, today: d
     try:
         raw = future.result(timeout=timeout or DEFAULT_TIMEOUT_SECONDS)
     except FutureTimeout as exc:
-        logger.warning("FIRRIS preflight timed out")
+        logger.warning("FRRIS preflight timed out")
         raise PreflightUnavailable(UNAVAILABLE_MESSAGE) from exc
     except Exception as exc:  # noqa: BLE001 - provider internals stay server-side
-        logger.exception("FIRRIS preflight provider query failed")
+        logger.exception("FRRIS preflight provider query failed")
         raise PreflightUnavailable(UNAVAILABLE_MESSAGE) from exc
     periods = {name: AnalysisPreflightPeriod(start=windows[name][0], end=windows[name][1], **raw[name]) for name in windows}
     blocking = _orbit_issues(periods)

@@ -55,7 +55,7 @@ def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_c
         bands = {band["id"]: band for band in native}
         if len(bands)!=len(native): raise ValueError("Scene band identities are duplicated")
         if not set(required_bands).issubset(bands):
-            raise ValueError("Scene lacks required sensor bands for FIRRIS")
+            raise ValueError("Scene lacks required sensor bands for FRRIS")
         projections = {}
         for name in required_bands:
             band = bands[name]

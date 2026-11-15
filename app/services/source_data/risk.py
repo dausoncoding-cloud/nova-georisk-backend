@@ -1,4 +1,4 @@
-"""Exact-grid H × E × unit-level FII -> protected FIRRIS Flood Risk Result.
+"""Exact-grid H × E × unit-level FII -> protected FRRIS Flood Risk Result.
 
 No interpolation: a valid H/E cell is assigned an FII value only when its
 AOI-clipped footprint belongs wholly to one verified spatial unit.
@@ -176,7 +176,7 @@ def execute_risk_module(bindings: ResolvedBindings, aoi_geometry: dict,
                                             "No independent authoritative Flood Risk validation was supplied"]}
     bounding_box = {"west": grid.west, "south": grid.south, "east": grid.east, "north": grid.north}
     entries = {
-        "flood_risk": artifact_entry(cog, label="FIRRIS Flood Risk Index",
+        "flood_risk": artifact_entry(cog, label="FRRIS Flood Risk Index",
             media_type="image/tiff", artifact_type="raster", result_version=result_version,
             role="product", product_key="flood_risk", delivery_type="raster", format_name="cog",
             gis_metadata=metadata,

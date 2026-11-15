@@ -1,6 +1,6 @@
 """
 Report generation — Doc 0's reporting/export step: summary PDF and
-multi-sheet Excel workbooks covering FIRRIS index results and model
+multi-sheet Excel workbooks covering FRRIS index results and model
 validation metrics.
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ from app.services.reporting.fonts import BOLD, REGULAR, embed_in_styles, pdf_tem
 
 @dataclass
 class IndexSummary:
-    """One FIRRIS index's summary stats, for the report header block."""
+    """One FRRIS index's summary stats, for the report header block."""
 
     name: str  # e.g. "Flood Hazard Index (H)"
     mean: float
@@ -48,7 +48,7 @@ class ReportContext:
 
 def generate_pdf_report(context: ReportContext, output_path: str) -> str:
     """
-    Build a summary PDF: title block, FIRRIS index summary table, and
+    Build a summary PDF: title block, FRRIS index summary table, and
     (if provided) validation metric tables. Returns the path written.
     """
     doc = SimpleDocTemplate(output_path, pagesize=A4, topMargin=2 * cm, bottomMargin=2 * cm, **pdf_template_kwargs())
@@ -56,7 +56,7 @@ def generate_pdf_report(context: ReportContext, output_path: str) -> str:
     embed_in_styles(styles)  # embedded DejaVu Sans
     story = []
 
-    story.append(Paragraph("NOVA-GeoRisk Intelligence Suite — FIRRIS Report", styles["Title"]))
+    story.append(Paragraph("NOVA-GeoRisk Intelligence Suite — FRRIS Report", styles["Title"]))
     story.append(Spacer(1, 0.3 * cm))
     story.append(Paragraph(f"Project: {context.project_name}", styles["Normal"]))
     story.append(Paragraph(f"AOI: {context.aoi_name}", styles["Normal"]))

@@ -1,4 +1,4 @@
-"""Supervised FIRRIS satellite-image analysis workflow.
+"""Supervised FRRIS satellite-image analysis workflow.
 
 The workflow is intentionally provider-neutral after raster acquisition: prepared
 rasters and GEE rasters use the same QA, stratified sampling, explicit classifier selection,
@@ -64,7 +64,7 @@ class FIRRISWorkflowOutput:
 def _epsg_code(crs: str) -> int:
     normalized = crs.strip().upper()
     if not normalized.startswith("EPSG:"):
-        raise ValueError("FIRRIS raster export currently requires an EPSG CRS identifier.")
+        raise ValueError("FRRIS raster export currently requires an EPSG CRS identifier.")
     return int(normalized.split(":", 1)[1])
 
 
@@ -108,7 +108,7 @@ def _prepared_stack(workflow: dict[str, Any], gis_metadata: dict[str, Any],
         validate_aoi(aoi_geometry)
         polygon = shape(aoi_geometry)
         if polygon.geom_type not in {"Polygon", "MultiPolygon"} or polygon.is_empty or not polygon.is_valid:
-            raise ValueError("Prepared FIRRIS AOI must be a valid Polygon or MultiPolygon.")
+            raise ValueError("Prepared FRRIS AOI must be a valid Polygon or MultiPolygon.")
         projected = transform_geom("EPSG:4326", gis_metadata["crs"], aoi_geometry)
         west, south, east, north = shape(projected).bounds
         tolerance = max(abs(raster_spec.transform.a), abs(raster_spec.transform.e)) * 1e-6
@@ -233,12 +233,12 @@ def run_satellite_workflow(
         from app.services.gee.firris_pipeline import fetch_feature_stack
 
         if not aoi_geometry:
-            raise ValueError("GEE FIRRIS execution requires the persisted AOI geometry.")
+            raise ValueError("GEE FRRIS execution requires the persisted AOI geometry.")
         preprocessing_config = dict(workflow.get("preprocessing") or {})
         required_controls = ("cloud_mask", "sar_speckle_filter", "normalize_projection", "clip_to_aoi")
         disabled = [name for name in required_controls if preprocessing_config.get(name, True) is not True]
         if disabled:
-            raise ValueError(f"Production GEE FIRRIS workflow requires preprocessing controls: {disabled}")
+            raise ValueError(f"Production GEE FRRIS workflow requires preprocessing controls: {disabled}")
         acquired = fetch_feature_stack(
             {**source, "preprocessing": preprocessing_config}, aoi_geometry, workspace / "gee"
         )
@@ -256,7 +256,7 @@ def run_satellite_workflow(
         )
         optical_status, optical_reference = None, None
     else:
-        raise ValueError("FIRRIS satellite workflow provider must be 'gee' or 'prepared'.")
+        raise ValueError("FRRIS satellite workflow provider must be 'gee' or 'prepared'.")
 
     sampling = dict(workflow.get("sampling") or {})
     total_samples = int(sampling.get("sample_size", 5000))

@@ -235,7 +235,7 @@ def flood_hazard_map(payload: FloodHazardMapRequest) -> ClassifiedValuesResponse
     """
     Hazard Index = Depth x Velocity, quantile-classified — Doc 2 Map 4.
     Distinct from /firas/hazard: this is the raw depth*velocity product
-    map, not the entropy-weighted FIRRIS Hazard Index (H).
+    map, not the entropy-weighted FRRIS Hazard Index (H).
     """
     depth = np.array(payload.depth)
     velocity = np.array(payload.velocity)

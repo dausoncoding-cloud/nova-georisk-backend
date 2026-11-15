@@ -91,7 +91,7 @@ def require_current_engine(
     engine_key: str,
     *roles: OrganizationRole,
 ) -> Callable:
-    """FastAPI dependency for legacy non-project FIRRIS calculators."""
+    """FastAPI dependency for legacy non-project FRRIS calculators."""
 
     def dependency(
         db: Session = Depends(get_db),

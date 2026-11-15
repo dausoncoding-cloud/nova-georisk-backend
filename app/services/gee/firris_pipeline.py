@@ -1,8 +1,8 @@
-"""GEE boundary for the FIRRIS universal satellite workflow.
+"""GEE boundary for the FRRIS universal satellite workflow.
 
 This module owns remote collection selection, date/AOI filtering, sensor-specific
 preprocessing, projection normalization, and the bounded download into the local
-ML pipeline.  It deliberately returns ordinary numpy rasters so the FIRRIS engine
+ML pipeline.  It deliberately returns ordinary numpy rasters so the FRRIS engine
 and its validation/export code do not depend on Earth Engine objects.
 """
 from __future__ import annotations
@@ -81,7 +81,7 @@ def jrc_occurrence_within_observed_footprint(occurrence, valid_obs):
     """Return JRC occurrence with never-water pixels as 0% where JRC observed the pixel.
 
     GlobalSurfaceWater masks pixels where water was never detected, which made all
-    never-water land FIRRIS nodata (F1). Inside the JRC observation footprint a masked
+    never-water land FRRIS nodata (F1). Inside the JRC observation footprint a masked
     occurrence means 0%. The footprint is Metadata ``valid_obs > 0``; pixels JRC never
     observed (``valid_obs`` = 0 or masked) remain nodata. YearlyHistory is not usable
     for this bound because it also masks never-water pixels.
@@ -138,7 +138,7 @@ def _download_image(image, aoi, output_path: Path, *, scale: float, crs: str, co
 
 
 def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: Path) -> GEEFeatureStack:
-    """Build and download a quality-masked FIRRIS feature stack from GEE.
+    """Build and download a quality-masked FRRIS feature stack from GEE.
 
     The current supervised label option is the existing SAR screening mask.  It
     is recorded as a pseudo-label in provenance and must not be represented as
@@ -156,7 +156,7 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
     crs = str(config.get("target_crs", "EPSG:4326"))
     dem_source = str(config.get("dem_source", "SRTM"))
     if dem_source not in {"SRTM", "ALOS"}:
-        raise ValueError("Unsupported FIRRIS DEM source")
+        raise ValueError("Unsupported FRRIS DEM source")
     dem_dataset = ingestion.SRTM_DEM_ASSET if dem_source == "SRTM" else ingestion.ALOS_DEM_COLLECTION
     required_datasets = {
         ingestion.SENTINEL1_COLLECTION,
@@ -180,24 +180,24 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
     if unknown_datasets := sorted(selected_datasets - allowed_datasets):
         raise ValueError(f"Unsupported GEE datasets: {unknown_datasets}")
     if missing_datasets := sorted(required_datasets - selected_datasets):
-        raise ValueError(f"GEE FIRRIS workflow is missing required datasets: {missing_datasets}")
+        raise ValueError(f"GEE FRRIS workflow is missing required datasets: {missing_datasets}")
     if selected_datasets != required_datasets:
         raise ValueError("Dataset selection includes an unused/conflicting DEM")
     requested = list(config.get("features") or DEFAULT_FEATURES)
     if len(requested) != len(set(requested)):
-        raise ValueError("Duplicate FIRRIS features are unsupported")
+        raise ValueError("Duplicate FRRIS features are unsupported")
     preprocessing_config = dict(config.get("preprocessing") or {})
     required_preprocessing = ("cloud_mask", "sar_speckle_filter", "normalize_projection", "clip_to_aoi")
     if disabled := [key for key in required_preprocessing if preprocessing_config.get(key, True) is not True]:
-        raise ValueError(f"FIRRIS GEE preprocessing cannot disable required safeguards: {', '.join(disabled)}")
+        raise ValueError(f"FRRIS GEE preprocessing cannot disable required safeguards: {', '.join(disabled)}")
     speckle_radius = int(preprocessing_config.get("sar_speckle_radius_m", 50))
     if not 1 <= speckle_radius <= 500:
         raise ValueError("SAR speckle radius must be between 1 and 500 metres.")
     if optical := sorted(set(requested) & set(INDEX_BANDS)):
-        raise ValueError(f"Optical indices cannot be FIRRIS model features: {optical}. Sentinel-2 is the independent accuracy reference")
+        raise ValueError(f"Optical indices cannot be FRRIS model features: {optical}. Sentinel-2 is the independent accuracy reference")
     unknown = sorted(set(requested) - set(DEFAULT_FEATURES))
     if unknown:
-        raise ValueError(f"Unsupported GEE FIRRIS features: {unknown}")
+        raise ValueError(f"Unsupported GEE FRRIS features: {unknown}")
 
     validate_aoi(aoi_geometry)
     minimum_coverage = float(config.get("minimum_valid_coverage_pct", 70))

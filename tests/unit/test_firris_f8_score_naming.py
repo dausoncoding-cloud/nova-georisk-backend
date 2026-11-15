@@ -35,10 +35,10 @@ def test_satellite_run_uses_model_confidence_label_on_every_client_surface(tmp_p
     for path in tmp_path.rglob("*"):
         if path.suffix in {".json", ".geojson", ".csv"}:
             assert "Flood Probability" not in path.read_text(errors="ignore"), path.name
-    report = tmp_path / "firris-analysis-report.pdf"
-    if report.is_file():
-        text = "".join(page.extract_text() or "" for page in PdfReader(report).pages)
-        assert "Flood Probability" not in text
+    report = tmp_path / "frris-analysis-report.pdf"
+    assert report.is_file()  # an old file name must fail here, not skip the check
+    text = "".join(page.extract_text() or "" for page in PdfReader(report).pages)
+    assert "Flood Probability" not in text
 
 
 def test_non_default_algorithm_is_not_called_a_random_forest_vote_fraction():

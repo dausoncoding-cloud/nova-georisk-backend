@@ -1,4 +1,4 @@
-"""Raster-cell area accounting for FIRRIS outputs.
+"""Raster-cell area accounting for FRRIS outputs.
 
 This reports delivered valid-cell area, not the cadastral area of the AOI.
 Geographic cells use the CRS ellipsoid; projected cells use planar map units.

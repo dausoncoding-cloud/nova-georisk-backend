@@ -1,4 +1,4 @@
-"""Approved FIRRIS survey sources -> existing FVI/FII/CRI formulas, by AOI unit."""
+"""Approved FRRIS survey sources -> existing FVI/FII/CRI formulas, by AOI unit."""
 from __future__ import annotations
 
 import csv
@@ -114,5 +114,5 @@ def execute_survey_module(bindings: ResolvedBindings, aoi_geometry: dict, output
         "analysis_readiness_rechecked_at_execution": True,
     }
     summary = {"status": "completed", "module": module, "units": "index_0_1", "scores_by_spatial_unit": scores, "weights": weights, "spatial_unit_count": len(scores)}
-    entry = artifact_entry(path, label=f"FIRRIS {module.title()} by spatial unit", media_type="application/geo+json", artifact_type="vector", result_version=result_version, role="product", product_key=module, delivery_type="vector", format_name="geojson", gis_metadata={"crs": "EPSG:4326", "datum": "WGS84", "units": "index_0_1"}, layer={"layer_type": "vector", "crs": "EPSG:4326", "units": "index_0_1", "nodata": None, "renderable": True, "available_delivery_types": ["vector"], "planned_delivery_types": []})
+    entry = artifact_entry(path, label=f"FRRIS {module.title()} by spatial unit", media_type="application/geo+json", artifact_type="vector", result_version=result_version, role="product", product_key=module, delivery_type="vector", format_name="geojson", gis_metadata={"crs": "EPSG:4326", "datum": "WGS84", "units": "index_0_1"}, layer={"layer_type": "vector", "crs": "EPSG:4326", "units": "index_0_1", "nodata": None, "renderable": True, "available_delivery_types": ["vector"], "planned_delivery_types": []})
     return EngineExecutionOutput(result_type=f"source_bound_{module}", summary=summary, provenance=provenance, output_files={f"{module}_vector": entry})

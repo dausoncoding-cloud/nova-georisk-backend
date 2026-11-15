@@ -1,1 +1,1 @@
-"""FIRRIS production workflow services."""
+"""FRRIS production workflow services."""

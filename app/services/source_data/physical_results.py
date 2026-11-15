@@ -55,11 +55,11 @@ def load_physical_results(db: Session, request: SourceBoundAnalysisRequest, *,
         result = db.get(Result, request.upstream_results[role])
         if (result is None or result.project_id != request.project_id or result.aoi_id != request.aoi_id
                 or result.engine_key != "firris" or result.result_type != f"source_bound_flood_{role}"):
-            raise SourceNotReady("Required protected physical FIRRIS Result is unavailable in this project and AOI")
+            raise SourceNotReady("Required protected physical FRRIS Result is unavailable in this project and AOI")
         task = db.get(Task, result.task_id)
         if (task is None or task.status != TaskStatus.COMPLETED or task.project_id != request.project_id
                 or task.aoi_id != request.aoi_id or task.engine_key != "firris"):
-            raise SourceNotReady("Upstream physical FIRRIS task is not completed")
+            raise SourceNotReady("Upstream physical FRRIS task is not completed")
         provenance = result.provenance
         if (not isinstance(provenance, dict) or provenance.get("module") != f"flood_{role}"
                 or provenance.get("analysis_readiness_rechecked_at_execution") is not True

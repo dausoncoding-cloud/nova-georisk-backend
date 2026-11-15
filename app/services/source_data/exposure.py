@@ -1,4 +1,4 @@
-"""Approved spatial assets inside a reviewed Hazard-index zone -> FIRRIS E.
+"""Approved spatial assets inside a reviewed Hazard-index zone -> FRRIS E.
 
 Counts are estimates in a selected *Hazard index class*, not observed flooded
 people or damage. The approved entropy formula is called without alteration.

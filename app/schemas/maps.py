@@ -1,6 +1,6 @@
 """
 Request/response schemas for the flood map product endpoints
-(app/api/v1/endpoints/maps.py). Like the FIRRIS calculators, these are
+(app/api/v1/endpoints/maps.py). Like the FRRIS calculators, these are
 synchronous — array-in, array-out — since they operate on
 already-extracted sample values, not raw rasters (raster/GeoTIFF
 generation is a separate concern, app/services/maps/export.py, not

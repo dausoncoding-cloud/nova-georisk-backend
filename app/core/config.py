@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     # --- App ---
-    app_name: str = "NOVA-GeoRisk Intelligence Suite - FIRRIS Engine"
+    app_name: str = "NOVA-GeoRisk Intelligence Suite - FRRIS Engine"
     app_env: str = "development"
     api_v1_prefix: str = "/api/v1"
     debug: bool = True
@@ -131,7 +131,7 @@ class Settings(BaseSettings):
             raise ValueError("Celery task and worker resource limits must be positive and ordered.")
         if min(self.firris_max_pending_tasks_per_organization, self.firris_max_request_bytes,
                self.firris_max_prepared_cells, self.firris_max_feature_layers) <= 0:
-            raise ValueError("FIRRIS admission/input capacity limits must be positive")
+            raise ValueError("FRRIS admission/input capacity limits must be positive")
         if self.artifact_storage_backend.strip().lower() != "filesystem":
             raise ValueError("ARTIFACT_STORAGE_BACKEND currently supports only filesystem.")
         if self.membership_provisioning_policy.lower() not in {"strict", "optional_invite"}:

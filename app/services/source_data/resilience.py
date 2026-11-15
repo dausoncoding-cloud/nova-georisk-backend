@@ -1,4 +1,4 @@
-"""Approved community-capacity observations -> protected FIRRIS CRI Result."""
+"""Approved community-capacity observations -> protected FRRIS CRI Result."""
 from __future__ import annotations
 
 import json
@@ -181,7 +181,7 @@ def execute_resilience_module(bindings: ResolvedBindings, aoi_geometry: dict,
         index_summaries=[IndexSummary(name="Community Resilience Index (CRI)", mean=summary["mean"],
                                       min=summary["minimum"], max=summary["maximum"],
                                       classification="spatial-unit EWM")],
-        notes=("Five capacity domains use entropy-derived indicator weights. The unchanged FIRRIS CRI "
+        notes=("Five capacity domains use entropy-derived indicator weights. The unchanged FRRIS CRI "
                "formula combines direct CPC, EWE, KF, DRE and RC scores with entropy weights; no inverse "
                "capacity or FVI is used. Missing observations are rejected. No independent authoritative "
                "validation is claimed; see packaged source, QA and uncertainty provenance.")), str(pdf_path))

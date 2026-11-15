@@ -1,5 +1,5 @@
 """
-Result model — stores computed FIRRIS indices, validation metrics, and
+Result model — stores computed FRRIS indices, validation metrics, and
 map/export outputs, linked back to the task that produced them.
 """
 import uuid

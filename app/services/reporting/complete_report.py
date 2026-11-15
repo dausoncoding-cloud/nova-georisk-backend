@@ -67,7 +67,7 @@ def complete_report(directory, common, metadata, summary, provenance, analytics,
     gis = flatten(metadata)
     validation = flatten(summary.get("validation") or {"independent_validation": "not supplied; approval is not independent scientific validation"})
     sections = [
-        ("FIRRIS evidence report", [f"{row['field']}: {_serialize(row['value'])}" for row in overview]),
+        ("FRRIS evidence report", [f"{row['field']}: {_serialize(row['value'])}" for row in overview]),
         ("Methodology, source identity, QA, licensing and uncertainty", [f"{row['field']}: {_serialize(row['value'])}" for row in sources] or ["Source metadata not supplied; none is inferred."]),
         ("Units, CRS, grid and temporal semantics", [f"{row['field']}: {_serialize(row['value'])}" for row in gis] or ["GIS metadata not supplied."]),
         ("Computed result summary", [f"{row['field']}: {_serialize(row['value'])}" for row in metrics]),

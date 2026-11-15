@@ -1,5 +1,5 @@
 """
-Request/response schemas for the legacy FIRRIS index calculator endpoints
+Request/response schemas for the legacy FRRIS index calculator endpoints
 (app/api/v1/endpoints/firas.py). All composite-index endpoints take
 already-extracted sample data (named indicator arrays, one value per
 sample/pixel) rather than raw imagery — the GEE ingestion/sampling

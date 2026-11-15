@@ -47,7 +47,7 @@ def get_sentinel2_collection(
 
     With ``max_degraded_msi_pct`` the provider query also excludes scenes whose
     ``DEGRADED_MSI_DATA_PERCENTAGE`` exceeds that value, so a single degraded scene in the
-    window is left out instead of vetoing the run (FIRRIS passes scene_qa.MAX_DEGRADED_MSI_PCT).
+    window is left out instead of vetoing the run (FRRIS passes scene_qa.MAX_DEGRADED_MSI_PCT).
     """
     collection = (
         ee.ImageCollection(SENTINEL2_COLLECTION)

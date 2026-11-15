@@ -100,7 +100,7 @@ def validate_workload(params):
     settings = get_settings()
     encoded = json.dumps(params, allow_nan=False, default=str).encode()
     if len(encoded) > settings.firris_max_request_bytes:
-        raise ValueError("FIRRIS request exceeds the bounded persisted-input capacity")
+        raise ValueError("FRRIS request exceeds the bounded persisted-input capacity")
     workflow = (params.get("parameters") or {}).get("workflow") or {}
     labels = workflow.get("label_layer")
     if labels and (len(labels) * len(labels[0]) > settings.firris_max_prepared_cells
@@ -115,7 +115,7 @@ def admit_task(db, project):
     pending = db.query(Task).join(Project).filter(Project.organization_id == project.organization_id,
         Task.engine_key == "firris", Task.status.in_([TaskStatus.QUEUED, TaskStatus.RUNNING])).count()
     if pending >= get_settings().firris_max_pending_tasks_per_organization:
-        raise HTTPException(status_code=429, detail="FIRRIS pending-task capacity is reached. Retry after an existing task finishes.", headers={"Retry-After": "30"})
+        raise HTTPException(status_code=429, detail="FRRIS pending-task capacity is reached. Retry after an existing task finishes.", headers={"Retry-After": "30"})
 
 
 def claim_task(db, task_id):

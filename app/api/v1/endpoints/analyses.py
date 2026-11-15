@@ -55,7 +55,7 @@ def _validate_source_request(payload: SourceBoundAnalysisRequest, db: Session, c
         raise HTTPException(status_code=404, detail="Project not found.")
     require_project_access(project, context)
     if project.engine_key != "firris":
-        raise HTTPException(status_code=409, detail="Source-bound modules require a FIRRIS project.")
+        raise HTTPException(status_code=409, detail="Source-bound modules require a FRRIS project.")
     require_engine_entitlement(db, context, "firris")
     aoi = db.get(AOI, payload.aoi_id)
     if aoi is None or aoi.project_id != project.id:
@@ -87,7 +87,7 @@ def submit_source_bound_analysis(
 ) -> AnalysisSubmitResponse:
     bindings = _validate_source_request(payload, db, context)
     if payload.module not in EXECUTABLE_MODULES:
-        raise HTTPException(status_code=422, detail="This FIRRIS module has no validated source-to-formula adapter yet.")
+        raise HTTPException(status_code=422, detail="This FRRIS module has no validated source-to-formula adapter yet.")
     source_snapshot = {
         role: {"dataset_id": str(source.dataset.id), "sha256": source.manifest.sha256.lower(),
                "source_version": source.dataset.created_at.isoformat() if source.dataset.created_at else None,
@@ -181,7 +181,7 @@ def _authorized_submission(db: Session, context: RequestContext, payload: Analys
         if unsupported:
             raise HTTPException(
                 status_code=422,
-                detail=f"The FIRRIS satellite workflow cannot produce these products without sourced inputs: {', '.join(unsupported)}.",
+                detail=f"The FRRIS satellite workflow cannot produce these products without sourced inputs: {', '.join(unsupported)}.",
             )
     return project, aoi
 
@@ -208,7 +208,7 @@ def preflight_analysis(
     context: RequestContext = Depends(get_request_context),
     limiter: FixedWindowRateLimiter = Depends(get_preflight_limiter),
 ) -> AnalysisPreflightResponse:
-    """Metadata-only availability check for a FIRRIS satellite analysis. Never creates a task or result."""
+    """Metadata-only availability check for a FRRIS satellite analysis. Never creates a task or result."""
     project, aoi = _authorized_submission(db, context, payload)
     settings = get_settings()
     if not (limiter.allow(f"firris:preflight:user:{context.user_id}", settings.firris_preflight_per_user_per_minute)
@@ -217,7 +217,7 @@ def preflight_analysis(
                             headers={"Retry-After": "60"})
     source = _gee_source(project, payload)
     if source is None:
-        raise HTTPException(status_code=422, detail="Availability checks apply to FIRRIS satellite (Earth Engine) analyses.")
+        raise HTTPException(status_code=422, detail="Availability checks apply to FRRIS satellite (Earth Engine) analyses.")
     return _run_preflight(aoi, source)
 
 

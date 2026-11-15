@@ -1,4 +1,4 @@
-"""Shared descriptions and credits of FIRRIS provider datasets (overview, map packages, reports)."""
+"""Shared descriptions and credits of FRRIS provider datasets (overview, map packages, reports)."""
 from __future__ import annotations
 
 SOURCES = {

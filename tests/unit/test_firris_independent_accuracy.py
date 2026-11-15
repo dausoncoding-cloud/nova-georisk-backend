@@ -151,7 +151,7 @@ def test_optical_bands_never_remove_a_pixel_from_admission():
 
 def test_api_rejects_optical_model_features_for_gee():
     period = {"start": "2024-03-05", "end": "2024-03-06"}
-    with pytest.raises(ValidationError, match="Optical indices cannot be FIRRIS model features"):
+    with pytest.raises(ValidationError, match="Optical indices cannot be FRRIS model features"):
         SatelliteSourceConfig.model_validate({"provider": "gee", "target_period": period,
             "baseline_period": {"start": "2024-03-04", "end": "2024-03-05"}, "features": ["sar_change", "ndvi"]})
     SatelliteSourceConfig.model_validate({"provider": "gee", "target_period": period,
