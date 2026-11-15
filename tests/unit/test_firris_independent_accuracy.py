@@ -22,9 +22,10 @@ from app.services.firris.reference_accuracy import (
 from app.services.gee import firris_pipeline as pipeline
 from app.services.gee.firris_contracts import assess_pixels
 from app.services.gee.firris_pipeline import GEEFeatureStack, optical_flood_reference
+from tests.unit._sar_sources import sar_sources
 from tests.unit.test_firris_f1_jrc_observed_mask import FakeImage, grid
 
-SIZE = 60
+SIZE = 128  # >= the pre-registered 64 x 64 HSBA minimum tile
 AOI = {"type": "Polygon", "coordinates": [[[36, -1.6], [36.6, -1.6], [36.6, -1], [36, -1], [36, -1.6]]]}
 
 
@@ -172,7 +173,7 @@ def _gee_stack(optical_status=None):
         quality={"status": "passed", "valid_pixel_coverage_pct": 100.0,
                  "optical_reference": optical_status or {"status": "available", "periods": {}, "reason": None}},
         provenance={"label_source": "SAR screening pseudo-label; not independent ground truth"},
-        source_rasters={"optical_reference": reference})
+        source_rasters={"optical_reference": reference, **sar_sources(label.astype(bool))})
 
 
 def _run_gee_engine(tmp_path, monkeypatch, optical_status=None):

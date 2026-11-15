@@ -15,6 +15,9 @@ ALLOWED = (
     re.compile(r"The target and baseline windows must each contain Sentinel-1 passes from exactly one relative orbit, "
                r"the same in both \(target: (?:[0-9]+(?:, [0-9]+)*|none); baseline: (?:[0-9]+(?:, [0-9]+)*|none)\)\."),
     re.compile(r"Valid pixel coverage \d+\.\d{2}% is below the configured \d+\.\d{2}% threshold\.?"),
+    re.compile(re.escape("No distinct water class was found in this area and period (NO_DISTINCT_WATER_CLASS): no part of the "
+                         "target image shows separate water and land populations, so no flood label can be derived.")),
+    re.compile(re.escape("The HSBA flood label requires the slope feature; include 'slope' in the analysis features.")),
 )
 
 

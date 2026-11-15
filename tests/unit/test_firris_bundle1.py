@@ -332,7 +332,7 @@ def test_full_gee_acquisition_contract_and_provenance(tmp_path, monkeypatch, fai
         image.unmask.assert_any_call(0, sameFootprint=False)  # validity transport
         image.unmask.assert_any_call(0)  # JRC never-water = 0%, bounded by valid_obs (F1)
         assert image.unmask.call_count == 2
-        assert result.provenance["science_version"] == "firris-science-2"
+        assert result.provenance["science_version"] == "firris-science-3"
         assert result.provenance["jrc_mask_policy"]["observation_asset"] == pipeline.JRC_OBSERVATION_ASSET
         assert result.provenance["static_source_lineage"]["water_observation"]["asset_id"] == pipeline.JRC_OBSERVATION_ASSET
         assert result.provenance["static_source_lineage"]["water_observation"]["native_band"]["id"] == "valid_obs"

@@ -66,7 +66,7 @@ JRC_MASK_POLICY = {
     "nodata": "pixels with valid_obs = 0 or masked valid_obs stay nodata",
     "evidence": "FIRRIS_CRITICAL_SCIENTIFIC_FINDINGS_VERIFICATION.md §11.1",
 }
-FIRRIS_SCIENCE_VERSION = "firris-science-2"
+FIRRIS_SCIENCE_VERSION = "firris-science-3"  # 3: HSBA training label (plan §1.8a)
 OPTICAL_REFERENCE_MNDWI_BANDS = OPTICAL_REFERENCE_BANDS  # defined with the shared eligibility in scene_qa
 
 

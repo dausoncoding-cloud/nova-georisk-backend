@@ -175,14 +175,43 @@ def _per_class(labels) -> dict[str, int]:
     return {str(value): int(count) for value, count in zip(values.tolist(), counts.tolist())}
 
 
-def reference_basis(provider: str, label_source: str, features, y_train, y_test, *, train_fraction: float, strategy: str) -> dict:
+HSBA_SLOPE_REQUIRED = "The HSBA flood label requires the slope feature; include 'slope' in the analysis features."
+NO_DISTINCT_WATER_MESSAGE = ("No distinct water class was found in this area and period (NO_DISTINCT_WATER_CLASS): no part of the "
+                             "target image shows separate water and land populations, so no flood label can be derived.")
+# firris-science-3 (plan §1.8a): the label is derived locally by HSBA from inputs already in the band contract.
+HSBA_RULE_INPUT_FEATURES = ("sar_vv_target", "sar_change", "slope")
+
+
+def _hsba_training_label(acquired, feature_layers, valid_mask):
+    """HSBA training label from the downloaded arrays; fails closed on NO_DISTINCT_WATER_CLASS."""
+    from app.services.firris.hsba import NO_DISTINCT_WATER_CLASS, derive_hsba_label
+    from app.services.gee.firris_pipeline import FIRRISQualityError
+
+    if "slope" not in feature_layers:
+        raise FIRRISQualityError(HSBA_SLOPE_REQUIRED)
+    rasters = acquired.source_rasters
+    result = derive_hsba_label(flood_db=rasters["source_sar_target"], baseline_db=rasters["source_sar_baseline"],
+                               slope_deg=feature_layers["slope"], jrc_occurrence=rasters["jrc_occurrence"], valid_mask=valid_mask)
+    if result.status == NO_DISTINCT_WATER_CLASS:
+        error = FIRRISQualityError(NO_DISTINCT_WATER_MESSAGE)
+        error.quality_record.update(failure_code=NO_DISTINCT_WATER_CLASS,
+                                    hsba_label={k: v for k, v in result.diagnostics.items() if k != "tiles"})
+        raise error
+    return result.label, result.diagnostics
+
+
+def reference_basis(provider: str, label_source: str, features, y_train, y_test, *, train_fraction: float, strategy: str,
+                    label_rule: dict | None = None) -> dict:
     """Explicit basis of the held-out agreement metrics (F2): what labels, which rule, which split."""
+    from app.services.firris.hsba import rule_text
     sar = provider == "gee"
+    rule = (rule_text(label_rule) if label_rule else _sar_screening_rule()) if sar else None
+    overlap = HSBA_RULE_INPUT_FEATURES if label_rule else SAR_RULE_INPUT_FEATURES
     return {
         "statement": SAR_AGREEMENT_STATEMENT if sar else SUPPLIED_AGREEMENT_STATEMENT,
         "label_source": label_source,
-        "rule": _sar_screening_rule() if sar else None,
-        "features_overlapping_rule": sorted(set(features) & set(SAR_RULE_INPUT_FEATURES)) if sar else [],
+        "rule": rule,
+        "features_overlapping_rule": sorted(set(features) & set(overlap)) if sar else [],
         "split_method": (("stratified random sampling and pixel split" if strategy == "stratified_random"
                           else f"{strategy.replace('_', ' ')} sampling; stratified random pixel split")
                          + f" (train fraction {train_fraction:g}); test pixels come from the same scene and are "
@@ -250,6 +279,10 @@ def run_satellite_workflow(
         source_provenance = acquired.provenance
         optical_status = quality.get("optical_reference")
         optical_reference = acquired.source_rasters.get("optical_reference")
+        label_layer, label_rule = _hsba_training_label(acquired, feature_layers, valid_mask)
+        quality = {**quality, "hsba_label": {k: v for k, v in label_rule.items() if k != "tiles"}}
+        source_provenance = {**source_provenance, "label_rule": label_rule,
+                             "label_source": "HSBA SAR label (Chini et al. 2017); not independent ground truth"}
     elif provider == "prepared":
         feature_layers, label_layer, valid_mask, raster_spec, quality, source_provenance = _prepared_stack(
             workflow, gis_metadata, aoi_geometry
@@ -452,12 +485,13 @@ def run_satellite_workflow(
             "independent_accuracy": independent_accuracy,
             "reference_basis": reference_basis(
                 provider, str(source_provenance.get("label_source", "supplied labels")), list(feature_layers),
-                y_train, y_test, train_fraction=train_fraction, strategy=strategy),
+                y_train, y_test, train_fraction=train_fraction, strategy=strategy,
+                label_rule=source_provenance.get("label_rule")),
             "independent_ground_truth": False,
             "limitation": (
                 "Supplied labels have not been independently audited."
                 if provider == "prepared"
-                else "SAR screening pseudo-labels share event information with model features; metrics are not authoritative flood accuracy."
+                else "SAR-derived training labels share event information with model features; metrics are not authoritative flood accuracy."
             ),
         },
     }

@@ -76,7 +76,8 @@ LEGACY_FIRRIS_NOTICE = (
     "(\u201cFlood Probability\u201d, \u201cFlood Risk Index Summary\u201d); the score is a model confidence score, "
     "not a probability of flooding."
 )
-FIRRIS_SCIENCE_VERSION = "firris-science-2"
+# Results from these science versions carry the JRC never-water correction (Bundle 1) and need no legacy notice.
+CURRENT_FIRRIS_SCIENCE_VERSIONS = frozenset({"firris-science-2", "firris-science-3"})
 
 
 def legacy_interpretation_notice(result: Result) -> str | None:
@@ -84,7 +85,7 @@ def legacy_interpretation_notice(result: Result) -> str | None:
     provenance = result.provenance if isinstance(result.provenance, dict) else {}
     if result.engine_key != "firris" or "per_scene_lineage" not in provenance:
         return None
-    return None if provenance.get("science_version") == FIRRIS_SCIENCE_VERSION else LEGACY_FIRRIS_NOTICE
+    return None if provenance.get("science_version") in CURRENT_FIRRIS_SCIENCE_VERSIONS else LEGACY_FIRRIS_NOTICE
 
 
 CLIENT_DELIVERABLE_KEYS = {"scientific_report_pdf", "scientific_report_word", "firris_excel_report", "report_package"}

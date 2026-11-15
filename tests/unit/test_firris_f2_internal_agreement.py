@@ -15,6 +15,7 @@ from rasterio.transform import from_origin
 from app.schemas.firris_evidence import ReferenceBasis, ValidationDashboard
 from app.schemas.results import ResultResponse
 from app.services.firris import workflow as workflow_module
+from tests.unit._sar_sources import sar_sources
 from app.services.gee.firris_pipeline import GEEFeatureStack
 from tests.unit.test_firris_f4_validation_rasters import _run_engine
 
@@ -89,23 +90,25 @@ def test_report_pdf_uses_internal_agreement_heading(tmp_path):
 
 
 def test_gee_workflow_records_sar_rule_overlap_and_screening_label_column(tmp_path, monkeypatch):
-    rows, cols = np.indices((24, 24))
-    sar_change = np.where(rows > 11, -3.0, 0.5).astype("float32")
+    # firris-science-3: the training label is the HSBA label derived from the source SAR rasters (plan §1.8a).
+    rows, cols = np.indices((128, 128))
+    sar_change = np.where(rows > 50, -3.0, 0.5).astype("float32")
     slope = (cols % 5).astype("float32")
-    label = ((sar_change <= -1.5) & (slope < 15)).astype(np.uint8)
+    water = (sar_change <= -1.5) & (slope < 15)
     stack = GEEFeatureStack(
-        feature_layers={"sar_change": sar_change, "slope": slope, "rainfall": (rows / 24).astype("float32")},
-        label_layer=label, valid_mask=np.ones((24, 24), dtype=bool), transform=from_origin(36, -1, 0.01, 0.01),
+        feature_layers={"sar_change": sar_change, "slope": slope, "rainfall": (rows / 128).astype("float32")},
+        label_layer=water.astype(np.uint8), valid_mask=np.ones((128, 128), dtype=bool), transform=from_origin(36, -1, 0.01, 0.01),
         crs="EPSG:4326", quality={"status": "passed", "valid_pixel_coverage_pct": 100.0},
-        provenance={"label_source": "SAR screening pseudo-label; not independent ground truth"})
+        provenance={"label_source": "SAR screening pseudo-label; not independent ground truth"},
+        source_rasters=sar_sources(water))
     from app.services.gee import firris_pipeline
     monkeypatch.setattr(firris_pipeline, "fetch_feature_stack", lambda *args, **kwargs: stack)
     output = workflow_module.run_satellite_workflow(
         {"source": {"provider": "gee", "features": ["sar_change", "slope", "rainfall"]},
          "sampling": {"sample_size": 200, "min_per_class": 20, "train_fraction": 0.7, "random_seed": 3},
          "model": {"algorithm": "random_forest", "version": "test", "n_estimators": 20}},
-        {"crs": "EPSG:4326", "bounding_box": {"west": 36, "south": -1.24, "east": 36.24, "north": -1}},
-        {"type": "Polygon", "coordinates": [[[36, -1.24], [36.24, -1.24], [36.24, -1], [36, -1], [36, -1.24]]]},
+        {"crs": "EPSG:4326", "bounding_box": {"west": 36, "south": -2.28, "east": 37.28, "north": -1}},
+        {"type": "Polygon", "coordinates": [[[36, -2.28], [37.28, -2.28], [37.28, -1], [36, -1], [36, -2.28]]]},
         tmp_path)
     validation = output.provenance["validation"]
     assert validation["level"] == "internal_agreement"
@@ -114,7 +117,8 @@ def test_gee_workflow_records_sar_rule_overlap_and_screening_label_column(tmp_pa
     basis = validation["reference_basis"]
     assert basis["statement"] == SAR_STATEMENT
     assert basis["features_overlapping_rule"] == ["sar_change", "slope"]
-    assert "-1.5" in basis["rule"] and "15" in basis["rule"] and "90" in basis["rule"]
+    assert basis["rule"].startswith("HSBA (Chini et al. 2017") and "slope >= 15 deg" in basis["rule"] and "90%" in basis["rule"]
+    assert output.provenance["label_rule"]["status"] == "labelled" and output.provenance["label_rule"]["tiles_accepted"] >= 1
     assert "same scene" in basis["split_method"]
     ReferenceBasis.model_validate(basis)
     assert "screening_label" in output.samples.columns

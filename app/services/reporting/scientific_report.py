@@ -351,7 +351,7 @@ def score_limitations(summary: dict, assessment: dict) -> list[str]:
         return []
     lines = [f"Random Forest confidence scores are near-binary: {distribution['exact_0_pct']:.1f}% of valid pixels score exactly 0 "
              f"and {distribution['exact_1_pct']:.1f}% exactly 1 ({distribution['between_pct']:.1f}% in between). The training labels "
-             "come from the deterministic SAR screening rule, which the classifier reproduces almost exactly. The model and its "
+             "are derived deterministically from SAR (see Method), and the classifier reproduces them almost exactly. The model and its "
              "scores are reported unchanged."]
     independent = next((s for s in assessment.get("scopes", []) if s["scope"] == "independent_optical"), None)
     points = [(p["fpr"], p["tpr"]) for p in (independent or {}).get("roc", []) if p["fpr"] is not None and p["tpr"] is not None]
@@ -420,7 +420,15 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     validation = provenance.get("validation") or {}
     basis = validation.get("reference_basis") or {}
     model = summary.get("model") or {}
-    writer.para(f"Screening labels: {basis.get('rule') or 'not recorded'}.")
+    label_rule = provenance.get("label_rule") or {}
+    writer.para(f"Training labels: {basis.get('rule') or 'not recorded'}.")
+    if label_rule.get("status") == "labelled":
+        counts = label_rule.get("pixel_counts") or {}
+        writer.para(f"HSBA diagnostics: {label_rule['tiles_examined']} tiles examined, {label_rule['tiles_accepted']} accepted "
+                    f"({_count(label_rule['bimodal_mask_pixels'])} pixels pooled for the fit); {_count(counts.get('seeds', 0))} seed pixels, "
+                    f"{_count(counts.get('label', 0))} labelled flood pixels after removing baseline water "
+                    f"({_count(counts.get('baseline_water_removed', 0))}) and JRC permanent water ({_count(counts.get('jrc_removed', 0))}). "
+                    "Deviations from the published method: " + "; ".join(label_rule.get("deviations") or []) + ".")
     writer.para(f"Classifier: {model.get('algorithm', 'not recorded')} on features {', '.join(model.get('feature_names') or []) or 'not recorded'}; "
                 f"split: {basis.get('split_method', 'not recorded')}.")
     policy = provenance.get("optical_reference_policy") or {}
@@ -470,7 +478,8 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     # The paired-observation disclaimer is generic to the diagnostics tool, not about this map.
     general = [text for text in overview["limitations"] if text != DIAGNOSTIC_LIMITATIONS[0]]
     gap = baseline_gap_text(gis_metadata.get("target_period"), gis_metadata.get("baseline_period"))
-    for text in general + ([gap] if gap else []) + score_limitations(summary, assessment) + ["Flood candidates are a model classification, not confirmed flood observations.",
+    hsba_limitation = [label_rule["limitation"]] if label_rule.get("limitation") else []
+    for text in general + ([gap] if gap else []) + hsba_limitation + score_limitations(summary, assessment) + ["Flood candidates are a model classification, not confirmed flood observations.",
                                            "No result is field-verified.",
                                            "Depth, velocity, hazard, return period, exposure, vulnerability and risk are not produced: they require institutional data "
                                            "(for example surveyed river cross-sections, gauge records and asset registers) that this analysis does not have, "

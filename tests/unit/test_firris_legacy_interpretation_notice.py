@@ -69,6 +69,14 @@ def test_field_is_optional_so_existing_payloads_still_validate():
 
 
 def test_serializer_and_pipeline_agree_on_science_version():
-    from app.api.v1.serializers import FIRRIS_SCIENCE_VERSION as serializer_version
+    from app.api.v1.serializers import CURRENT_FIRRIS_SCIENCE_VERSIONS
     from app.services.gee.firris_pipeline import FIRRIS_SCIENCE_VERSION as pipeline_version
-    assert serializer_version == pipeline_version == "firris-science-2"
+    # firris-science-3 (HSBA label, plan §1.8a) is current; science-2 results keep no legacy notice.
+    assert pipeline_version == "firris-science-3"
+    assert CURRENT_FIRRIS_SCIENCE_VERSIONS == {"firris-science-2", "firris-science-3"}
+
+
+def test_science_2_and_3_results_have_no_legacy_notice():
+    for version in ("firris-science-2", "firris-science-3"):
+        provenance = {**GEE_LEGACY_PROVENANCE, "science_version": version}
+        assert serialize_result(_result(provenance=provenance)).interpretation_notice is None
