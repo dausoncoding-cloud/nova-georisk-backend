@@ -55,7 +55,7 @@ def _validate_source_request(payload: SourceBoundAnalysisRequest, db: Session, c
         raise HTTPException(status_code=404, detail="Project not found.")
     require_project_access(project, context)
     if project.engine_key != "firris":
-        raise HTTPException(status_code=409, detail="Source-bound modules require a FRRIS project.")
+        raise HTTPException(status_code=409, detail="Source-bound modules are only available in FRRIS projects.")
     require_engine_entitlement(db, context, "firris")
     aoi = db.get(AOI, payload.aoi_id)
     if aoi is None or aoi.project_id != project.id:
@@ -208,7 +208,7 @@ def preflight_analysis(
     context: RequestContext = Depends(get_request_context),
     limiter: FixedWindowRateLimiter = Depends(get_preflight_limiter),
 ) -> AnalysisPreflightResponse:
-    """Metadata-only availability check for a FRRIS satellite analysis. Never creates a task or result."""
+    """Metadata-only availability check before the FRRIS satellite analysis is submitted. Never creates a task or result."""
     project, aoi = _authorized_submission(db, context, payload)
     settings = get_settings()
     if not (limiter.allow(f"firris:preflight:user:{context.user_id}", settings.firris_preflight_per_user_per_minute)

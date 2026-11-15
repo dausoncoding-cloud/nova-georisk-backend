@@ -35,7 +35,7 @@ def _authorize(db: Session, context: RequestContext, project_id: uuid.UUID, *, r
         raise HTTPException(status_code=404, detail="Project not found.")
     require_project_access(project, context)
     if project.engine_key != "firris":
-        raise HTTPException(status_code=409, detail="Source-data ingestion requires a FRRIS project.")
+        raise HTTPException(status_code=409, detail="Source-data ingestion is only available in FRRIS projects.")
     require_engine_entitlement(db, context, "firris")
 
 

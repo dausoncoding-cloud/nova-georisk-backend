@@ -52,7 +52,7 @@ def trigger_screening_atlas(
         raise HTTPException(status_code=404, detail="Project not found.")
     require_project_access(project, context)
     if project.engine_key != "firris":
-        raise HTTPException(status_code=409, detail="Screening atlas requires a FRRIS project.")
+        raise HTTPException(status_code=409, detail="Screening atlas is only available in FRRIS projects.")
     require_engine_entitlement(db, context, "firris")
 
     aoi = db.get(AOI, payload.aoi_id)

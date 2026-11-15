@@ -17,6 +17,8 @@ from tests.unit._report_run import report_run
 
 ROOT = Path(__file__).resolve().parents[2]
 WORD = re.compile(r"\bFIRRIS\b")
+# Client style (2026-11-15): no article before the name; write "the/this FRRIS analysis".
+ARTICLE = re.compile(r"\b(?:a|an)\s+FRRIS\b", re.IGNORECASE)
 # (file, string) pairs kept on purpose; each is stored data, not text written for users.
 KEPT = {
     ("app/models/project.py", "FIRRIS"),        # projects.analysis_module default: stored value (5 production rows)
@@ -38,7 +40,7 @@ def test_no_user_visible_string_or_docstring_in_the_app_says_firris():
             continue
         rel = str(path.relative_to(ROOT))
         for line, value in _strings(path):
-            if WORD.search(value) and (rel, value) not in KEPT:
+            if (WORD.search(value) and (rel, value) not in KEPT) or ARTICLE.search(value):
                 offenders.append(f"{rel}:{line}: {value[:80]!r}")
     assert not offenders, "\n".join(offenders)
 
@@ -54,6 +56,7 @@ def test_openapi_exports_say_frris(name):
     text = (ROOT / "openapi" / name).read_text()
     assert not WORD.search(text), WORD.search(text) and text[max(0, WORD.search(text).start() - 80):WORD.search(text).end() + 20]
     assert "FRRIS" in text
+    assert not ARTICLE.search(text), ARTICLE.search(text) and ARTICLE.search(text).group(0)
 
 
 @pytest.fixture(scope="module")
@@ -64,7 +67,7 @@ def run(tmp_path_factory):
 def test_client_outputs_say_frris(run):
     result, directory, _, text, _, docx_text = run
     for body in (text, docx_text):
-        assert not WORD.search(body) and "FRRIS" in body
+        assert not WORD.search(body) and "FRRIS" in body and not ARTICLE.search(body)
     for key, entry in result.output_files.items():
         assert not WORD.search(str(entry.get("label", ""))), (key, entry.get("label"))
         assert not Path(entry["path"]).name.startswith("firris-"), entry["path"]  # download file names
@@ -73,7 +76,7 @@ def test_client_outputs_say_frris(run):
     with zipfile.ZipFile(directory / result.output_files["report_package"]["path"]) as archive:
         readme = archive.read("README.txt").decode()
         names = archive.namelist()
-    assert not WORD.search(readme) and "FRRIS" in readme
+    assert not WORD.search(readme) and "FRRIS" in readme and not ARTICLE.search(readme)
     assert not any(Path(name).name.startswith("firris-") for name in names)
     assert result.output_files["report_package"]["path"].endswith("frris-result-package.zip")
 
@@ -85,3 +88,9 @@ def test_engine_display_name_is_frris_but_identifiers_are_unchanged():
     adapter = FIRRISEngineAdapter()
     assert adapter.key == "firris" and adapter.name == "FRRIS"
     assert display_name("firris", "FIRRIS") == "FRRIS" and display_name("wras", "WRAS") == "WRAS"
+
+
+@pytest.mark.parametrize("text, bad", [("Submit a FRRIS analysis", True), ("an FRRIS project", True),
+                                       ("A  FRRIS run", True), ("the FRRIS analysis", False), ("data FRRIS", False)])
+def test_article_rule_catches_a_and_an(text, bad):
+    assert bool(ARTICLE.search(text)) is bad
