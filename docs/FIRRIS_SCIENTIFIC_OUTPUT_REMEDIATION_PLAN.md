@@ -420,12 +420,14 @@ Acceptance: no client-visible text uses "Flood Extent" without qualification, an
 2. A green "ready" status box, the counterpart of the red blocked box and the blue warnings box.
 3. Use MiB consistently for sizes (the download estimate and the 48 MiB limit), instead of mixing MB and MiB.
 4. A preflight warning when the baseline window is far from the target (more than 90 days, or a different season), the same rule as the report's baseline-gap limitation.
-5. *(Added 2026-11-14 after the r3.1 browser test.)* The note next to Continue must name the window(s) that lack a compliant Sentinel-2 scene: target, baseline or both. In the test the target had 1 scene and the baseline (2024-03-01→04-01) had 0, but the note said "this window", which reads as the target.
+5. *(Done in r4, 2026-11-15.)* *(Added 2026-11-14 after the r3.1 browser test.)* The note next to Continue must name the window(s) that lack a compliant Sentinel-2 scene: target, baseline or both. In the test the target had 1 scene and the baseline (2024-03-01→04-01) had 0, but the note said "this window", which reads as the target.
 6. Extend item 4 with seasonality.
    - Warn when the baseline falls in a wet period, for example when CHIRPS rainfall over the baseline window is well above the AOI's long-term mean for the same months.
    - March–May is the long rainy season in coastal Tanzania.
    - The message should recommend a dry-season baseline close to the event.
-7. Cutover script (operations): take the large artifacts backup before quiescing, then only an incremental `rsync` while services are stopped. The r3.1 cutover took 62.0 s, of which about 18 s was the 119 MB artifacts archive inside the quiesce window.
+7. *(Done in r4, 2026-11-15, with GNU tar `--listed-incremental` instead of `rsync`: the volume's host path is root-only and the image has no `rsync`.)* Cutover script (operations): take the large artifacts backup before quiescing, then only an incremental `rsync` while services are stopped. The r3.1 cutover took 62.0 s, of which about 18 s was the 119 MB artifacts archive inside the quiesce window.
+8. *(Added 2026-11-15 after the r4 browser test.)* The report's provenance shows the internal ids `firris-science-2` and `firris-random-forest-baseline`. Show a display label that keeps the id, for example "Science version 2 (id: firris-science-2)". The ids themselves stay unchanged (they identify existing results).
+9. *(Added 2026-11-15.)* Preflight timing: the uncached Kilombero preflight took 14.1 s in production (timeout 20 s). Consider adding `$request_time` to the nginx log format so preflight durations are measured from real requests.
 
 ---
 
