@@ -21,7 +21,8 @@ from rasterio.crs import CRS
 from app.services.gee import auth, indices, ingestion, preprocessing, screening_pipeline
 from app.services.gee.firris_contracts import INDEX_BANDS, CORRECTIONS, periods, validate_aoi, validate_grid, assess_pixels
 from app.services.gee.band_export import assemble_export, request_contract, EXPORT_FORMAT, VALIDITY_PREFIX
-from app.services.gee.scene_qa import MAX_DEGRADED_MSI_PCT, inspect_collection, inspect_static_image
+from app.services.gee.scene_qa import (MAX_DEGRADED_MSI_PCT, OPTICAL_REFERENCE_BANDS, inspect_collection, inspect_static_image,
+                                      optical_reference_qa, require_complete_cover)
 from pyproj import CRS as ProjectionCRS
 from pyproj.exceptions import CRSError
 
@@ -66,7 +67,7 @@ JRC_MASK_POLICY = {
     "evidence": "FIRRIS_CRITICAL_SCIENTIFIC_FINDINGS_VERIFICATION.md §11.1",
 }
 FIRRIS_SCIENCE_VERSION = "firris-science-2"
-OPTICAL_REFERENCE_MNDWI_BANDS = ("B11", "B3", "SCL")
+OPTICAL_REFERENCE_MNDWI_BANDS = OPTICAL_REFERENCE_BANDS  # defined with the shared eligibility in scene_qa
 
 
 def optical_flood_reference(mndwi_target, mndwi_baseline, occurrence):
@@ -233,11 +234,8 @@ def _fetch_feature_stack(config: dict[str, Any], aoi_geometry: dict, workspace: 
     mndwi = {}
     for key, period in (("target", target), ("baseline", baseline)):
         try:
-            collection = ingestion.get_sentinel2_collection(
-                aoi, period["start"], period["end"], max_cloud_pct=max_cloud, max_degraded_msi_pct=MAX_DEGRADED_MSI_PCT)
-            record = inspect_collection(collection, sensor="Sentinel-2", period=period, aoi=aoi_geometry,
-                required_bands=list(OPTICAL_REFERENCE_MNDWI_BANDS), max_cloud=max_cloud,
-                collection_id=ingestion.SENTINEL2_COLLECTION)
+            # Same eligibility and AOI-coverage rule as the submission preflight.
+            record = require_complete_cover(optical_reference_qa(aoi, aoi_geometry, period, max_cloud))
         except ValueError as exc:
             optical_reference_status[key] = {"status": "unavailable", "reason": f"Sentinel-2 {key}: {exc}"}
             continue

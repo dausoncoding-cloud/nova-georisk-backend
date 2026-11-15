@@ -15,7 +15,34 @@ MAX_SCENES = 500
 MAX_DEGRADED_MSI_PCT = 0.1
 
 
-def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_cloud=100, collection_id=None):
+# Bands read from each Sentinel-2 scene for the independent MNDWI reference (B3 green, B11 SWIR, SCL mask).
+OPTICAL_REFERENCE_BANDS = ("B11", "B3", "SCL")
+MISSING_TILES_MESSAGE = "Missing scene tiles: collection footprints do not cover AOI"
+
+
+def footprint_polygon(footprint_geometry):
+    """Provider footprints are often LinearRings; as polygons they have an area."""
+    if footprint_geometry.get("type") == "LinearRing":
+        footprint_geometry = {"type": "Polygon", "coordinates": [footprint_geometry["coordinates"]]}
+    return shape(footprint_geometry)
+
+
+def aoi_coverage(aoi, footprints):
+    """(complete, percent) of the AOI covered by the union of scene footprints.
+
+    "complete" is the rule the run has always applied (uncovered area at most 1e-8 of the AOI). The
+    percentage is for people; it is rounded down so a partial cover is never shown as 100%.
+    """
+    area = shape(aoi)
+    missing = area.difference(unary_union(footprints)) if footprints else area
+    complete = missing.is_empty or missing.area <= area.area * 1e-8
+    if complete:
+        return True, 100.0
+    return False, math.floor(max(0.0, 1 - missing.area / area.area) * 1000) / 10
+
+
+def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_cloud=100, collection_id=None,
+                       require_full_coverage=True):
     count = int(collection.size().getInfo())
     if count == 0 and sensor == "Sentinel-2":
         raise ValueError(
@@ -78,10 +105,7 @@ def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_c
         if sensor == "Sentinel-2" and len({record["crs"] for record in projections.values()}) != 1:
             raise ValueError("Optical scene bands do not share a native CRS")
         try:
-            footprint_geometry = properties["system:footprint"]
-            if footprint_geometry.get("type") == "LinearRing":
-                footprint_geometry = {"type": "Polygon", "coordinates": [footprint_geometry["coordinates"]]}
-            footprint = shape(footprint_geometry)
+            footprint = footprint_polygon(properties["system:footprint"])
             if footprint.is_empty or not footprint.is_valid or not footprint.intersects(shape(aoi)):
                 raise ValueError()
         except (KeyError, TypeError, ValueError) as exc:
@@ -108,11 +132,43 @@ def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_c
         records.append({"scene_id": identifier, "collection_id": collection_id, "acquired_at": acquired, "acquired_at_utc": acquisition.isoformat(), **metadata_identity(image), "native_bands": projections,
                         "status": "passed", "footprint": properties["system:footprint"],
                         "qa_scope": "provider metadata and required bands/grid; pixel mask applied before composite", **checks})
-    missing = shape(aoi).difference(unary_union(footprints))
-    if not missing.is_empty and missing.area > shape(aoi).area * 1e-8:
-        raise ValueError("Missing scene tiles: collection footprints do not cover AOI")
-    return {"scene_count": count, "scenes": records, "footprint_coverage": "complete",
+    complete, covered_pct = aoi_coverage(aoi, footprints)
+    if require_full_coverage and not complete:
+        raise ValueError(MISSING_TILES_MESSAGE)
+    return {"scene_count": count, "scenes": records, "footprint_coverage": "complete" if complete else "partial",
+            "aoi_coverage_pct": covered_pct, "tiles": sorted({r["tile"] for r in records if r.get("tile")}),
+            "acquisition_dates": sorted({r["acquired_at"] for r in records}),
             "missing_tile_policy": "reject uncovered AOI; pixel gaps separately assessed"}
+
+
+def optical_reference_qa(aoi, aoi_geometry, period, max_cloud):
+    """The Sentinel-2 eligibility of the independent reference, shared by the run and the preflight.
+
+    Provider query: cloud <= max_cloud and degraded MSI <= MAX_DEGRADED_MSI_PCT; then per-scene QA of
+    identity, bands, native grid and footprint. Returns the QA record even when the footprints cover
+    only part of the AOI ("footprint_coverage": "partial"); the run then treats the reference as not
+    assessable (require_complete_cover), the preflight warns. Raises ValueError when no scene is usable.
+    """
+    from app.services.gee import ingestion
+    collection = ingestion.get_sentinel2_collection(aoi, period["start"], period["end"], max_cloud_pct=max_cloud,
+                                                    max_degraded_msi_pct=MAX_DEGRADED_MSI_PCT)
+    return inspect_collection(collection, sensor="Sentinel-2", period=period, aoi=aoi_geometry,
+                              required_bands=list(OPTICAL_REFERENCE_BANDS), max_cloud=max_cloud,
+                              collection_id=ingestion.SENTINEL2_COLLECTION, require_full_coverage=False)
+
+
+def require_complete_cover(record):
+    if record["footprint_coverage"] != "complete":
+        raise ValueError(MISSING_TILES_MESSAGE)
+    return record
+
+
+def granule_summary(record):
+    """'4 granules on 1 date (2 tiles)': a granule is one tile on one date."""
+    def plural(n, word):
+        return f"{n} {word}{'' if n == 1 else 's'}"
+    return (f"{plural(record['scene_count'], 'granule')} on {plural(len(record['acquisition_dates']), 'date')} "
+            f"({plural(len(record['tiles']), 'tile')})")
 
 
 def metadata_identity(metadata):

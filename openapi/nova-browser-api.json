@@ -802,6 +802,17 @@
             "title": "Sentinel1 Pass Dates",
             "type": "array"
           },
+          "sentinel2_aoi_coverage_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentinel2 Aoi Coverage Pct"
+          },
           "sentinel2_compliant_scenes": {
             "anyOf": [
               {
@@ -812,6 +823,32 @@
               }
             ],
             "title": "Sentinel2 Compliant Scenes"
+          },
+          "sentinel2_dates": {
+            "items": {
+              "format": "date",
+              "type": "string"
+            },
+            "title": "Sentinel2 Dates",
+            "type": "array"
+          },
+          "sentinel2_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentinel2 Summary"
+          },
+          "sentinel2_tiles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sentinel2 Tiles",
+            "type": "array"
           },
           "start": {
             "format": "date",

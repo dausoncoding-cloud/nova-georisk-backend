@@ -198,6 +198,11 @@ class AnalysisPreflightPeriod(BaseModel):
     nearest_pass_before: date | None = None
     nearest_pass_after: date | None = None
     sentinel2_compliant_scenes: int | None = None
+    # Same eligibility and AOI-coverage rule as the run's independent Sentinel-2 reference.
+    sentinel2_tiles: list[str] = Field(default_factory=list)
+    sentinel2_dates: list[date] = Field(default_factory=list)
+    sentinel2_aoi_coverage_pct: float | None = None
+    sentinel2_summary: str | None = None
 
 
 class AnalysisPreflightCapacity(BaseModel):

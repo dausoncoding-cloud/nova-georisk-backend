@@ -53,5 +53,9 @@ def test_scl_class_one_saturated_or_defective_pixels_stay_masked():
 
 def test_pipeline_and_ingestion_share_the_threshold():
     import inspect
-    assert "max_degraded_msi_pct=MAX_DEGRADED_MSI_PCT" in inspect.getsource(pipeline)
+    from app.services.firris import preflight
+    from app.services.gee import scene_qa
+    # The threshold is applied in one place, the Sentinel-2 eligibility shared by the run and the preflight.
+    assert "max_degraded_msi_pct=MAX_DEGRADED_MSI_PCT" in inspect.getsource(scene_qa.optical_reference_qa)
+    assert "optical_reference_qa(" in inspect.getsource(pipeline) and "optical_reference_qa(" in inspect.getsource(preflight)
     assert "DEGRADED_MSI_DATA_PERCENTAGE" in inspect.getsource(ingestion.get_sentinel2_collection)

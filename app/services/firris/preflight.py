@@ -8,8 +8,10 @@ Checks, before any task exists and without downloading pixels:
   bound of its snapped output grid, so the estimate is never below the real request;
 - Sentinel-1 availability: each window needs passes from exactly one relative orbit, the same in
   both windows (the rule enforced by the pipeline); empty windows report the nearest passes;
-- Sentinel-2: compliant scenes per window (warning only; without them the independent accuracy
-  is not assessable).
+- Sentinel-2: per window, the scenes eligible for the independent reference, their tiles and the
+  share of the AOI they cover, using the run's own eligibility and coverage function
+  (scene_qa.optical_reference_qa). Warning only: without full cover the independent accuracy is not
+  assessable, as in the run.
 
 The same checks run in the preflight endpoint and again, server-side, when an analysis is submitted.
 Provider errors and timeouts become one plain message; GEE internals are never returned.
@@ -97,7 +99,7 @@ def capacity_estimate(bounds: tuple[float, float, float, float], scale: float) -
 def scene_availability(aoi_geometry: dict, windows: dict[str, tuple[date, date]], max_cloud: float) -> dict[str, dict]:
     """Earth Engine metadata queries only (no pixels). Patched in tests."""
     from app.services.gee import auth, ingestion
-    from app.services.gee.scene_qa import MAX_DEGRADED_MSI_PCT
+    from app.services.gee.scene_qa import MAX_DEGRADED_MSI_PCT, granule_summary, optical_reference_qa
     ee = ingestion.ee
     auth.initialize_gee()
     aoi = ingestion.build_aoi_geometry(aoi_geometry)
@@ -116,6 +118,17 @@ def scene_availability(aoi_geometry: dict, windows: dict[str, tuple[date, date]]
                          "relative_orbits": sorted({int(o) for o in info["orbits"]}),
                          "sentinel2_compliant_scenes": int(info["s2"]),
                          "nearest_pass_before": None, "nearest_pass_after": None}
+        if info["s2"]:
+            try:
+                record = optical_reference_qa(aoi, aoi_geometry, {"start": start.isoformat(), "end": end.isoformat()}, max_cloud)
+            except ValueError:  # scenes exist but fail the run's per-scene QA: the reference is unusable
+                logger.info("FRRIS preflight: Sentinel-2 %s window fails per-scene QA", name)
+                periods[name]["sentinel2_aoi_coverage_pct"] = 0.0
+            else:
+                periods[name].update(sentinel2_compliant_scenes=record["scene_count"], sentinel2_tiles=record["tiles"],
+                                     sentinel2_dates=[date.fromisoformat(d) for d in record["acquisition_dates"]],
+                                     sentinel2_aoi_coverage_pct=record["aoi_coverage_pct"],
+                                     sentinel2_summary=granule_summary(record))
     today = _today()
     for name, (start, end) in windows.items():
         if periods[name]["sentinel1_pass_dates"]:
@@ -190,6 +203,17 @@ def run_preflight(*, aoi_geometry: dict, source: SatelliteSourceConfig, today: d
     blocking = _orbit_issues(periods)
     warnings = []
     for name, period in periods.items():
+        coverage = period.sentinel2_aoi_coverage_pct
+        if period.sentinel2_compliant_scenes and coverage is not None and coverage < 100:
+            found = period.sentinel2_summary
+            if found and period.sentinel2_tiles:
+                found = found[:-1] + ": " + ", ".join(period.sentinel2_tiles) + ")"
+            detail = (f"cover only {coverage:g}% of the area: {found}" if found
+                      else "do not pass the quality checks used by the analysis")
+            warnings.append(_issue("sentinel2_partial_coverage",
+                                   f"The compliant Sentinel-2 scenes in the {name} window {detail}. The analysis can run, "
+                                   "but its independent accuracy will not be assessable: the reference must cover the whole "
+                                   "area. Widen the window to include a clear date over every tile, or continue.", name))
         if period.sentinel2_compliant_scenes == 0:
             reason = (f" Sentinel-2 surface reflectance is only available from {SENTINEL2_SR_START.isoformat()}."
                       if period.start < SENTINEL2_SR_START else "")
