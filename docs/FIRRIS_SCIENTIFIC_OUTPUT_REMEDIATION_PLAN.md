@@ -589,6 +589,9 @@ Acceptance: no client-visible text uses "Flood Extent" without qualification, an
 10. *(Added 2026-11-16 from the frontend follow-ups, UI refresh P2.)* Expose the current stage name in the task API (`TaskStatusResponse`). The Analyses list shows "Running · 48%"; the design's "Running · Sentinel-1 download" and the step ticks on the running page need a stage field.
 11. *(Added 2026-11-16, UI refresh P2.)* Filter the Analyses list by the selected system once a second engine exists (frontend, with `engine_key`). Today every task in the organization is listed; all are FRRIS.
 12. *(Added 2026-11-16, UI refresh P2.)* Target period of running and queued analyses in the list: the task list response does not carry the submitted parameters (only `/tasks/{id}/archive` does), so these rows show "—" until the result exists. Expose the windows on the task response if needed.
+13. *(Added 2026-11-16 after the r5 browser test.)* New analysis: the Run summary can show "Products: None selected". Block submission with "Choose at least one product", and make the default product survive AOI and date changes; with tests.
+14. *(Added 2026-11-16, r5.)* Show the date on the "Use nearest pass" button as "25 May 2024" (inclusive day format of the UI), not ISO.
+15. *(Added 2026-11-16, r5.)* Area playground: when the coarser option is 120 m, recommend Split. The option already states "with less map detail".
 
 ---
 
