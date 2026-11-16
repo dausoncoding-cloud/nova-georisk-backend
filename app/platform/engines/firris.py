@@ -142,6 +142,23 @@ def _actual_raster_metadata(workflow: FIRRISWorkflowOutput, client_metadata: dic
     }
 
 
+def _hazard_sheets(record: dict[str, Any] | None) -> dict[str, pd.DataFrame]:
+    """Workbook sheets of the modelled flood hazard (Depth & Exposure module), only when it was requested."""
+    if record is None:
+        return {}
+    from app.services.firris.hazard_exports import hazard_table_rows
+    occurrence = [{"return_period_years": row["return_period_years"], "aep": row["aep"],
+                   **{f"p_at_least_once_{n}_years": value for n, value in row["probability_at_least_once"].items()}}
+                  for row in (record.get("occurrence") or {}).get("rows") or []]
+    rows = hazard_table_rows(record) or [{"status": record.get("status"), "reason": record.get("reason")}]
+    about = [{"item": "Status", "value": record.get("status")}, {"item": "Reason", "value": record.get("reason")},
+             {"item": "Method", "value": (record.get("method") or {}).get("note")},
+             {"item": "Citation", "value": record.get("citation")}, {"item": "Attribution", "value": record.get("attribution")},
+             {"item": "Licence", "value": record.get("licence")}]
+    return {"Modelled hazard by RP": pd.DataFrame(rows), "Hazard occurrence": pd.DataFrame(occurrence),
+            "Modelled hazard source": pd.DataFrame(about)}
+
+
 def _layer_metadata(
     context: EngineExecutionContext,
     *,
@@ -523,6 +540,7 @@ class FIRRISEngineAdapter(EngineAdapter):
                                                     or [{"status": "not_assessable", "reason": variable_record.get("reason")}]),
                 "ROC thresholds by variable": pd.DataFrame(record_table_rows(variable_record)
                                                            or [{"status": "not_assessable", "reason": variable_record.get("reason")}]),
+                **_hazard_sheets(workflow.modelled_hazard),
                 "Samples": workflow.samples,
             }, str(xlsx_path),
         )
@@ -648,6 +666,13 @@ class FIRRISEngineAdapter(EngineAdapter):
         if workflow is not None:
             summary.update({"quality": workflow.quality, "validation": workflow.validation_metrics, "model": workflow.model_metadata, "validation_dashboard": workflow.validation_metrics["dashboard"],
                             "independent_accuracy": workflow.independent_accuracy})
+            if workflow.modelled_hazard is not None:  # Depth & Exposure module: modelled hazard (context, opt-in)
+                from app.services.firris.hazard_exports import hazard_exports
+                summary["modelled_flood_hazard"] = workflow.modelled_hazard
+                for key, entry in hazard_exports(context.output_directory, workflow.modelled_hazard, workflow.modelled_hazard_layers,
+                                                 result_version=context.result_version,
+                                                 producer=context.gis_metadata.get("producer")).items():
+                    (outputs if entry.get("role") == "product" else reports)[key] = entry
         provenance = {
             "producer": context.gis_metadata["producer"], "engine_key": self.key, "engine_version": self.version,
             "operation": context.operation, "artifact_schema_version": "1.0",

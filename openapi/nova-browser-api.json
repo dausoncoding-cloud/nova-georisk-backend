@@ -3445,6 +3445,20 @@
         "title": "FIRRISAnalysisParameters",
         "type": "object"
       },
+      "FIRRISContextConfig": {
+        "additionalProperties": false,
+        "description": "Opt-in context layers next to the flood map (Depth & Exposure module). They never change the flood map.",
+        "properties": {
+          "modelled_flood_hazard": {
+            "default": false,
+            "description": "Add the GloFAS v2.1 modelled river-flood hazard (depth for return periods 10-500 years) as context. Earth Engine source only.",
+            "title": "Modelled Flood Hazard",
+            "type": "boolean"
+          }
+        },
+        "title": "FIRRISContextConfig",
+        "type": "object"
+      },
       "FIRRISModelConfig": {
         "additionalProperties": false,
         "properties": {
@@ -3637,6 +3651,9 @@
       },
       "FIRRISSatelliteWorkflowConfig": {
         "properties": {
+          "context": {
+            "$ref": "#/components/schemas/FIRRISContextConfig"
+          },
           "feature_layers": {
             "anyOf": [
               {

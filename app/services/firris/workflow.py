@@ -59,6 +59,9 @@ class FIRRISWorkflowOutput:
     independent_accuracy: dict[str, Any] = field(default_factory=dict)
     reference_points: pd.DataFrame | None = None
     accuracy_assessment: dict[str, Any] = field(default_factory=dict)
+    # Depth & Exposure module (context, opt-in): the record for the summary and the layers for the GIS outputs.
+    modelled_hazard: dict[str, Any] | None = None
+    modelled_hazard_layers: dict[str, Any] | None = None
 
 
 def _epsg_code(crs: str) -> int:
@@ -470,7 +473,20 @@ def run_satellite_workflow(
             ),
         },
     }
+    modelled_hazard, modelled_hazard_layers = None, None
+    if provider == "gee" and (workflow.get("context") or {}).get("modelled_flood_hazard"):
+        from app.services.firris.hazard_sources import GLOFAS_ASSET
+        from app.services.firris.modelled_hazard import run_modelled_hazard
+        modelled_hazard, modelled_hazard_layers = run_modelled_hazard(
+            aoi_geometry, extent=(predicted_class == 1) & valid_mask, extent_transform=raster_spec.transform,
+            extent_crs=f"EPSG:{raster_spec.crs_epsg}")
+        provenance["modelled_flood_hazard"] = {key: modelled_hazard.get(key) for key in ("status", "reason", "method_version", "source",
+                                                                                      "citation", "licence", "licence_confirmed")}
+        if modelled_hazard.get("status") != "not_available":
+            provenance["datasets"] = [*(provenance.get("datasets") or []), GLOFAS_ASSET]
     return FIRRISWorkflowOutput(
+        modelled_hazard=modelled_hazard,
+        modelled_hazard_layers=modelled_hazard_layers,
         accuracy_assessment=accuracy_assessment,
         product_arrays={"flood_probability": probability, "flood_extent": predicted_class},
         validation_arrays=validation_rasters(label_layer, predicted_class, valid_mask),

@@ -1,0 +1,135 @@
+"""Files of the modelled flood hazard (Depth & Exposure module, plan items 1.5 and 1.6).
+
+* One COG of modelled depth per return period on the GloFAS grid (m; 0 = dry inside the AOI; no data outside the AOI,
+  on permanent water and on flagged cells). RP10, RP100 and RP500 are map-renderable, so each gets a framed map,
+  a GIS-ready layer and its README through the existing cartography; the others are delivered as COGs only.
+* One COG of permanent water (1) inside the AOI: reported separately, it is not flooding.
+* The record (JSON) and two tables (CSV): statistics per return period, and AEP with the probability of at least one
+  occurrence in n years.
+Attribution, licence and the method note travel in every layer's metadata (from ``hazard_sources``).
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from app.platform.result_exports import artifact_entry
+from app.services.firris.hazard_sources import (DEPTH_BINS, GLOFAS_ATTRIBUTION, GLOFAS_LICENCE, GLOFAS_METHOD_NOTE,
+                                                GLOFAS_VERSION, MIN_DEPTH_M, RETURN_PERIODS)
+from app.services.maps.export import RasterSpec, write_cog
+from app.services.reporting.report_builder import export_csv
+
+NODATA = -9999.0
+MAP_PERIODS = (10, 100, 500)
+DEPTH_COLOURS = ("#EDEDED", "#C6DBEF", "#9ECAE1", "#6BAED6", "#3182BD", "#08519C")
+
+
+def depth_key(period: int) -> str:
+    return f"modelled_flood_depth_rp{period}"
+
+
+def depth_legend() -> dict[str, Any]:
+    """Our depth bins. Class maxima sit half a millimetre below each bin edge so that a depth exactly on an edge
+    (the data have millimetre precision) falls in the bin that starts there, as in the statistics: [low, high)."""
+    entries = [{"label": f"Dry (< {MIN_DEPTH_M:g} m)", "color": DEPTH_COLOURS[0], "max": MIN_DEPTH_M / 2}]
+    for (low, high), colour in zip(DEPTH_BINS, DEPTH_COLOURS[1:]):
+        label = f"> {low:g} m" if high is None else f"{low:g}–{high:g} m"
+        entries.append({"label": label, "color": colour, "max": None if high is None else high - 0.0005})
+    return {"title": "Modelled flood depth (m)", "entries": entries,
+            "nodata_label": "Outside the area, permanent water (separate layer) or flagged cells"}
+
+
+def _bounds(transform, shape) -> dict[str, float]:
+    height, width = shape
+    west, north = transform * (0, 0)
+    east, south = transform * (width, height)
+    return {"west": west, "south": south, "east": east, "north": north}
+
+
+def _layer_metadata(key: str, label: str, transform, shape, *, renderable: bool, legend: dict | None, producer: str | None,
+                    period: int | None) -> tuple[dict, dict]:
+    bounds = _bounds(transform, shape)
+    resolution = {"x": abs(transform.a), "y": abs(transform.e), "unit": "degree"}
+    gis = {"crs": "EPSG:4326", "bounding_box": bounds, "spatial_resolution": resolution, "product_key": key,
+           "display_label": label, "units": "m" if period else "class", "nodata": NODATA, "legend": legend,
+           "producer": producer, "static_product": True, "source_dataset": f"GloFAS flood hazard maps {GLOFAS_VERSION}",
+           "return_period_years": period, "aep": (1 / period) if period else None, "semantics": GLOFAS_METHOD_NOTE,
+           "attribution": GLOFAS_ATTRIBUTION, "licence": GLOFAS_LICENCE, "context_not_accuracy": True}
+    layer = {"layer_type": "raster", "crs": "EPSG:4326", "bounding_box": bounds, "spatial_resolution": resolution,
+             "units": gis["units"], "nodata": NODATA, "legend": legend, "renderable": renderable,
+             "rendering_reason": None if renderable else "Delivered as a GIS layer; the report maps show RP10, RP100 and RP500.",
+             "available_delivery_types": ["cog"], "planned_delivery_types": [], "product_key": key}
+    return gis, layer
+
+
+def hazard_exports(output_directory: Path, record: dict[str, Any], layers: dict[str, Any] | None, *, result_version: int,
+                   producer: str | None = None) -> dict[str, dict]:
+    """Write the hazard files and return their artifact entries (COGs as products, tables and JSON as exports)."""
+    entries: dict[str, dict] = {}
+    json_path = output_directory / "modelled-flood-hazard.json"
+    json_path.write_text(json.dumps(record, indent=2, default=float), encoding="utf-8")
+    entries["modelled_flood_hazard_json"] = artifact_entry(
+        json_path, label="Modelled flood hazard (GloFAS): record", media_type="application/json", artifact_type="report",
+        result_version=result_version, role="export", delivery_type="metadata_json", format_name="json")
+    occurrence = [{"return_period_years": row["return_period_years"], "aep": row["aep"],
+                   **{f"p_at_least_once_{n}_years": value for n, value in row["probability_at_least_once"].items()}}
+                  for row in (record.get("occurrence") or {}).get("rows") or []]
+    tables = {"modelled_flood_hazard_occurrence": ("modelled-flood-hazard-occurrence.csv", occurrence,
+                                                   "Modelled flood hazard: AEP and probability of at least one occurrence (CSV)")}
+    if record.get("return_periods"):
+        tables["modelled_flood_hazard_by_return_period"] = (
+            "modelled-flood-hazard-by-return-period.csv", hazard_table_rows(record),
+            "Modelled flood hazard: statistics by return period (CSV)")
+    for key, (name, rows, label) in tables.items():
+        path = output_directory / name
+        export_csv(pd.DataFrame(rows), str(path))
+        entries[key] = artifact_entry(path, label=label, media_type="text/csv", artifact_type="report",
+                                      result_version=result_version, role="export", delivery_type="csv", format_name="csv")
+    if not layers:
+        return entries
+    from rasterio.transform import Affine
+    transform = layers["transform"] if isinstance(layers["transform"], Affine) else Affine(*layers["transform"])
+    spec = RasterSpec(transform=transform, crs_epsg=4326)
+    inside, permanent, spurious = layers["inside"], layers["permanent_water"], layers["spurious"]
+    shape = inside.shape
+    for period in RETURN_PERIODS:
+        depth = layers["depth"][period]
+        values = np.where(np.isfinite(depth) & (depth >= MIN_DEPTH_M), depth, 0.0)
+        values = np.where(inside & ~permanent & ~spurious, values, NODATA).astype(np.float32)
+        if not (values != NODATA).any():  # e.g. an AOI that is all permanent water: nothing to map
+            continue
+        key = depth_key(period)
+        path = output_directory / f"{key}.cog.tif"
+        write_cog(str(path), values, spec, nodata=NODATA)
+        label = f"Modelled flood depth, 1-in-{period}-year river flood (GloFAS {GLOFAS_VERSION})"
+        gis, layer = _layer_metadata(key, label, transform, shape, renderable=period in MAP_PERIODS, legend=depth_legend(),
+                                     producer=producer, period=period)
+        entries[key] = artifact_entry(path, label=f"{label} COG", media_type="image/tiff", artifact_type="raster",
+                                      result_version=result_version, role="product", product_key=key, delivery_type="cog",
+                                      format_name="cog", gis_metadata=gis, layer=layer)
+    path = output_directory / "modelled_permanent_water.cog.tif"
+    write_cog(str(path), np.where(inside, permanent.astype(np.float32), NODATA).astype(np.float32), spec, nodata=NODATA)
+    gis, layer = _layer_metadata("modelled_permanent_water", "Permanent water used by the GloFAS maps (not flooding)", transform,
+                                 shape, renderable=False, legend=None, producer=producer, period=None)
+    entries["modelled_permanent_water"] = artifact_entry(
+        path, label="Permanent water in the GloFAS maps (1 = permanent water; not flooding) COG", media_type="image/tiff",
+        artifact_type="raster", result_version=result_version, role="export", product_key="modelled_permanent_water",
+        delivery_type="cog", format_name="cog", gis_metadata=gis, layer=layer)
+    return entries
+
+
+def hazard_table_rows(record: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for row in record.get("return_periods") or []:
+        depth, observed = row["depth_m"], row.get("observed_extent") or {}
+        rows.append({"return_period_years": row["return_period_years"], "aep": row["aep"],
+                     "wet_area_km2": row["wet_area_km2"], "wet_pct_of_aoi": row["wet_pct_of_aoi"],
+                     "depth_p50_m": depth["p50"], "depth_mean_m": depth["mean"], "depth_p90_m": depth["p90"],
+                     "depth_max_m": depth["max"], "observed_extent_inside_pct": observed.get("inside_pct"),
+                     **{f"area_km2_{c['label']}": c["area_km2"] for c in row["classes"]},
+                     "wet_pct_of_aoi_including_permanent_water": row["including_permanent_water"]["wet_pct_of_aoi"]})
+    return rows

@@ -35,6 +35,8 @@ MAP_KEYS = frozenset({
     "flood_return_period", "flood_duration", "flood_exposure",
     "flood_vulnerability", "flood_risk", "flood_susceptibility",
     "flood_hazard_zonation",
+    # Depth & Exposure module: modelled (GloFAS) depth maps for three return periods; context, not observations.
+    "modelled_flood_depth_rp10", "modelled_flood_depth_rp100", "modelled_flood_depth_rp500",
 })
 _NAVY = "#102A43"
 
@@ -375,9 +377,13 @@ def _readme(key: str, title: str, meta: dict, provenance: dict, continuous: bool
              f"Representation: {'continuous values' if continuous else 'classes'}"]
     for name, label in (("target_period", "Target period"), ("baseline_period", "Baseline period")):
         text = period_dict_text(provenance.get(name))
-        if text:
+        if text and not meta.get("static_product"):  # a static modelled layer (GloFAS) has no analysis period
             lines.append(f"{label}: {text} (last day included)")
+    if meta.get("semantics") and meta.get("static_product"):
+        lines += ["", f"About this layer: {meta['semantics']}"]
     lines += ["", "Credits:"] + [f"- {credit(dataset)}" for dataset in dict.fromkeys(datasets_with_companions(provenance))]
+    if meta.get("licence"):
+        lines += ["", f"Licence: {meta['licence']}"]
     return "\n".join(lines) + "\n"
 
 

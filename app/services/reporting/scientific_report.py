@@ -328,7 +328,12 @@ def _accuracy_scope(writer: _Writer, scope: dict, figures: dict[str, dict[str, P
 
 APPENDIX_GROUPS = [("client_deliverable", "Client deliverables"), ("gis_data", "GIS data"),
                    ("figures", "Figures and accuracy tables"), ("audit", "Audit and provenance")]
-FIGURE_KINDS = {"roc_by_variable_panels": "ROC by variable, one panel per variable", "roc_by_variable": "ROC by variable", "roc": "ROC curve", "pr": "precision–recall curve", "confusion": "confusion matrix", "class_metrics": "per-class accuracy"}
+NOT_PRODUCED_WITH_HAZARD = ("Observed flood depth, velocity, exposure, vulnerability and risk are not produced. The modelled "
+                            "river-flood hazard in section 12 (GloFAS) is undefended model context, not an observation of this event.")
+FIGURE_KINDS = {"modelled_hazard_depth_by_return_period": "Modelled flood hazard — depth by return period",
+                "modelled_hazard_aep": "Modelled flood hazard — AEP and probability of at least one occurrence",
+                "roc_by_variable_panels": "ROC by variable, one panel per variable", "roc_by_variable": "ROC by variable",
+                "roc": "ROC curve", "pr": "precision–recall curve", "confusion": "confusion matrix", "class_metrics": "per-class accuracy"}
 TABLE_KINDS = {"roc_by_variable": "ROC threshold table by variable", "roc_auc_by_variable": "ROC AUC by variable",
                "confusion": "confusion matrix", "summary": "per-class accuracy summary", "roc": "ROC curve points", "pr": "precision–recall curve points"}
 APPENDIX_LABELS = {
@@ -562,8 +567,9 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
 
     start = len(writer.story)
     writer.heading("7. Main maps")
+    from app.services.reporting.hazard_report import hazard_section, is_hazard_map
     for key, entry in sorted(map_entries.items()):
-        if entry.get("delivery_type") == "map_png":
+        if entry.get("delivery_type") == "map_png" and not is_hazard_map(key):  # modelled maps: section 12
             title = (entry.get("gis_metadata") or {}).get("cartography", {}).get("title", key)
             # Two maps share one A4 page: each image is at most 10 cm tall.
             writer.image(output_directory / entry["path"], 16, f"{title}. Target {target_text}; baseline {baseline_text}.",
@@ -605,6 +611,7 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     gap = baseline_gap_text(gis_metadata.get("target_period"), gis_metadata.get("baseline_period"))
     for text in general + ([gap] if gap else []) + score_limitations(summary, assessment) + ["Flood candidates are a model classification, not confirmed flood observations.",
                                            "No result is field-verified.",
+                                           NOT_PRODUCED_WITH_HAZARD if (summary.get("modelled_flood_hazard") or {}).get("status") == "assessed" else
                                            "Depth, velocity, hazard, return period, exposure, vulnerability and risk are not produced: they require institutional data "
                                            "(for example surveyed river cross-sections, gauge records and asset registers) that this analysis does not have, "
                                            "and no proxy versions are made."]:
@@ -618,6 +625,8 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
         ["Sentinel-2 degraded-MSI scene threshold", f"{(summary.get('quality') or {}).get('degraded_msi_max_pct', 0)}%"],
         ["Datasets", ", ".join(provenance.get("datasets") or []) or "not recorded"],
         ["Full provenance", "provenance.json in the result package"]])
+
+    figure_files.update(hazard_section(writer, output_directory, summary.get("modelled_flood_hazard"), map_entries, aoi=aoi))
 
     for scope, figures in internal_scopes:
         writer.heading("Appendix A: " + scope["title"], 1)

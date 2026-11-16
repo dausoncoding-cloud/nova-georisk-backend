@@ -148,6 +148,14 @@ class FIRRISPostprocessingConfig(BaseModel):
         return self
 
 
+class FIRRISContextConfig(BaseModel):
+    """Opt-in context layers next to the flood map (Depth & Exposure module). They never change the flood map."""
+    model_config = ConfigDict(extra="forbid")
+    modelled_flood_hazard: bool = Field(default=False, description=(
+        "Add the GloFAS v2.1 modelled river-flood hazard (depth for return periods 10-500 years) as context. "
+        "Earth Engine source only."))
+
+
 class FIRRISSatelliteWorkflowConfig(BaseModel):
     source: SatelliteSourceConfig
     preprocessing: FIRRISPreprocessingConfig = Field(default_factory=FIRRISPreprocessingConfig)
@@ -159,6 +167,13 @@ class FIRRISSatelliteWorkflowConfig(BaseModel):
     label_layer: list[list[int]] | None = None
     valid_mask: list[list[bool]] | None = None
     label_source: str | None = Field(default=None, max_length=512)
+    context: FIRRISContextConfig = Field(default_factory=FIRRISContextConfig)
+
+    @model_validator(mode="after")
+    def context_needs_earth_engine(self):
+        if self.context.modelled_flood_hazard and self.source.provider != "gee":
+            raise ValueError("The modelled flood hazard (GloFAS) needs the Earth Engine source")
+        return self
 
 
 class FIRRISAnalysisParameters(BaseModel):

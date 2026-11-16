@@ -190,3 +190,31 @@ def unavailable_record(reason: str) -> dict[str, Any]:
             "occurrence": {"years": list(OCCURRENCE_YEARS), "rows": occurrence_table()},
             "citation": GLOFAS_CITATION, "attribution": GLOFAS_ATTRIBUTION, "licence": GLOFAS_LICENCE,
             "licence_confirmed": GLOFAS_LICENCE_CONFIRMED}
+
+
+def run_modelled_hazard(aoi_geometry: dict, *, extent: np.ndarray | None = None, extent_transform: Affine | None = None,
+                        extent_crs: str = "EPSG:4326", acquire=None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Acquire GloFAS and build the record and the layers for the GIS outputs.
+
+    The hazard is context: when it cannot be read, the record says so with the reason and the flood map is unaffected.
+    """
+    import logging
+
+    from app.services.gee.glofas_hazard import HazardUnavailable, acquire_glofas
+
+    acquire = acquire or acquire_glofas
+    try:
+        stack = acquire(aoi_geometry)
+    except HazardUnavailable as exc:
+        return unavailable_record(str(exc)), None
+    except Exception:  # noqa: BLE001 - any provider failure leaves the flood map intact
+        logging.getLogger(__name__).exception("GloFAS modelled hazard could not be read")
+        return unavailable_record("The GloFAS flood hazard maps could not be read from Earth Engine for this run. "
+                                  "The flood map is unaffected; run the analysis again to add the modelled hazard."), None
+    observed = ({"extent": extent, "transform": extent_transform, "crs": extent_crs}
+                if extent is not None and extent_transform is not None else None)
+    record = hazard_record(stack, aoi_geometry, observed=observed)
+    inside = cell_fractions(aoi_geometry, stack.transform, stack.covered.shape) > 0
+    layers = {"transform": stack.transform, "crs": stack.crs, "inside": inside & stack.covered, "depth": stack.depth,
+              "permanent_water": stack.permanent_water, "spurious": stack.spurious}
+    return record, layers
