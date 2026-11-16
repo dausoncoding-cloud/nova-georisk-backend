@@ -26,6 +26,7 @@ from xml.sax.saxutils import escape
 from app.services.reporting.figures import scope_figures
 from app.services.reporting.fonts import embed_in_styles, register_fonts
 from app.services.validation.accuracy_tables import reference_columns
+from app.services.validation.auc_presentation import scope_auc
 from app.services.validation.diagnostics import LIMITATIONS as DIAGNOSTIC_LIMITATIONS
 
 STATUS = {"not_assessable": "not assessable", "insufficient_reference_samples": "insufficient reference samples",
@@ -51,6 +52,10 @@ def fraction_text(fraction: str | None) -> str:
         return "—"
     numerator, denominator = fraction.split("/")
     return f"{int(numerator):,}/{int(denominator):,}"
+
+
+def _capitalised(text: str) -> str:
+    return text[:1].upper() + text[1:]
 
 
 def _sentence(text: str) -> str:
@@ -178,15 +183,26 @@ def _accuracy_scope(writer: _Writer, scope: dict, figures: dict[str, dict[str, P
                  [[row["class_name"], _num(row["area_ha"]), _num(row["omission_error_pct"], 1), _num(row["commission_error_pct"], 1),
                    _num(row["users_accuracy_pct"], 1), _num(row["producers_accuracy_pct"], 1), _num(row["f1_score"], 3)] for row in scope["per_class"]],
                  caption="Per-class accuracy summary.")
+    auc = scope_auc(scope)
     writer.para(f"Overall accuracy {_num(scope['overall_accuracy_pct'], 1)}% · Kappa {_num(scope['cohens_kappa'], 3)} · "
                 f"F1 (flood candidate) {_num(scope['f1_flooded'], 3)} · IoU {_num(scope['iou_flooded'], 3)} · "
-                f"AUC {_num(scope['roc_auc'], 3)} · AP {_num(scope['average_precision'], 3)}.")
+                f"AP {_num(scope['average_precision'], 3)}.")
+    writer.table(["Quantity", "Value"], [
+        ["Reference", auc.label],
+        ["ROC AUC", f"{auc.value:.3f}" if auc.assessable else "not assessable"],
+        ["95% interval", (f"{auc.interval[0]:.3f}–{auc.interval[1]:.3f}" if auc.interval else _capitalised(auc.interval_note or "—"))
+         if auc.assessable else "—"],
+        ["Reference classes", f"{auc.positives:,} positive, {auc.negatives:,} negative"],
+        *([] if auc.assessable else [["Why not assessable", _sentence(auc.reason)]]),
+    ], caption="ROC AUC (area under the ROC curve), labelled by the reference it is measured against.")
+    if auc.caveat:
+        writer.para(auc.caveat)
     intervals = scope.get("confidence_intervals_95")
     if intervals:
         def span(values, digits):
             return "—" if not values else f"{values[0]:.{digits}f}–{values[1]:.{digits}f}"
         writer.para(f"95% interval ({intervals['method']}): OA {span(intervals['overall_accuracy_pct'], 1)}%, "
-                    f"Kappa {span(intervals['cohens_kappa'], 3)}, AUC {span(intervals['roc_auc'], 3)}.")
+                    f"Kappa {span(intervals['cohens_kappa'], 3)}.")
     else:
         writer.para(_sentence(scope["interval_note"]))
     weighted = (audit or {}).get("weighted_estimates") if independent else None
@@ -198,7 +214,9 @@ def _accuracy_scope(writer: _Writer, scope: dict, figures: dict[str, dict[str, P
                     f"and producer's accuracy {_num(weighted.get('producers_accuracy_flooded_pct'), 1)}%. "
                     "The audit sample is for visual checking; the census metrics are the reported accuracy.")
     short = SCOPE_SHORT.get(scope["scope"], scope["title"])
-    for kind, caption in (("roc", "ROC curve with the 1:1 chance line."), ("pr", "precision–recall curve with the prevalence baseline.")):
+    roc_caption = (f"ROC curve ({auc.label}) with the 1:1 chance line." if auc.assessable
+                   else f"ROC: {auc.label} not assessable; no curve is drawn.")
+    for kind, caption in (("roc", roc_caption), ("pr", "precision–recall curve with the prevalence baseline.")):
         writer.image(figures[kind]["png"], 8, f"{short}: {caption}")
 
 

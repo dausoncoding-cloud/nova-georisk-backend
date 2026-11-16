@@ -5,6 +5,7 @@ built by app.services.validation.accuracy_tables; no value is recomputed or adju
 """
 from __future__ import annotations
 
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ matplotlib.use("Agg")  # headless; the container also sets MPLBACKEND=Agg
 import matplotlib.pyplot as plt  # noqa: E402
 
 from app.services.validation.accuracy_tables import reference_columns  # noqa: E402
+from app.services.validation.auc_presentation import scope_auc  # noqa: E402
 
 matplotlib.rcParams["svg.fonttype"] = "none"  # keep figure text as searchable, accessible SVG text
 
@@ -38,14 +40,25 @@ def _save(fig, stem: Path) -> dict[str, Path]:
 
 
 def roc_figure(scope: dict[str, Any], stem: Path) -> dict[str, Path]:
-    points = [(p["fpr"], p["tpr"]) for p in scope["roc"] if p["fpr"] is not None and p["tpr"] is not None]
+    """ROC labelled by its reference (r5.2). When the AUC is not assessable, no curve is drawn, only the reason."""
+    view = scope_auc(scope)
     fig, ax = plt.subplots(figsize=(4.2, 4.2))
+    ax.set(xlim=LIMITS, ylim=LIMITS, xlabel="False positive rate", ylabel="True positive rate", aspect="equal")
+    ax.set_title(f"ROC — {view.label}\nn = {scope['n']:,} (positives {view.positives:,}, negatives {view.negatives:,})", fontsize=8)
+    if not view.assessable:
+        ax.text(0.5, 0.5, "AUC not assessable\n" + textwrap.fill(view.reason[:1].upper() + view.reason[1:], 38), ha="center", va="center", fontsize=8,
+                transform=ax.transAxes, bbox={"boxstyle": "round", "facecolor": "white", "edgecolor": REFERENCE})
+        return _save(fig, stem)
+    points = [(p["fpr"], p["tpr"]) for p in scope["roc"] if p["fpr"] is not None and p["tpr"] is not None]
     ax.plot([0, 1], [0, 1], linestyle="--", color=REFERENCE, linewidth=1, label="chance (1:1)")
     ax.plot([x for x, _ in points], [y for _, y in points], color=LINE, linewidth=2, label="classifier", zorder=3, clip_on=False)
-    counts = scope["n_per_reference_class"]
-    ax.set(xlim=LIMITS, ylim=LIMITS, xlabel="False positive rate", ylabel="True positive rate", aspect="equal")
-    ax.set_title(f"ROC — AUC {_fmt(scope['roc_auc'])}; n = {scope['n']:,} "
-                 f"(positives {counts.get('1', 0):,}, negatives {counts.get('0', 0):,})", fontsize=8)
+    interval = (f"95% CI {view.interval[0]:.3f}–{view.interval[1]:.3f}" if view.interval
+                else textwrap.fill((view.interval_note or "")[:1].upper() + (view.interval_note or "")[1:], 30))
+    # Below the chance line, where a useful classifier's curve never runs.
+    if view.caveat:  # near-perfect internal agreement: say what it means where the number is
+        interval += "\nSame-data labels: not map accuracy"
+    ax.text(0.96, 0.24, f"AUC {view.value:.3f}\n{interval}", ha="right", va="bottom", fontsize=9, transform=ax.transAxes,
+            bbox={"boxstyle": "round", "facecolor": "white", "edgecolor": LINE})
     ax.legend(loc="lower right", fontsize=7, frameon=False)
     return _save(fig, stem)
 

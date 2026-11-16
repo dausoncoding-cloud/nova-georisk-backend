@@ -13,8 +13,8 @@ def _capture(monkeypatch):
 
 def test_perfect_roc_and_pr_curves_are_drawn_above_the_frame(monkeypatch, tmp_path):
     captured = _capture(monkeypatch)
-    figures.roc_figure({"roc": [{"fpr": 0, "tpr": 0}, {"fpr": 0, "tpr": 1}, {"fpr": 1, "tpr": 1}], "roc_auc": 1.0, "n": 10,
-                        "n_per_reference_class": {"1": 5, "0": 5}}, tmp_path / "roc")
+    figures.roc_figure({"roc": [{"fpr": 0, "tpr": 0}, {"fpr": 0, "tpr": 1}, {"fpr": 1, "tpr": 1}], "roc_auc": 1.0, "n": 120,
+                        "n_per_reference_class": {"1": 60, "0": 60}}, tmp_path / "roc")  # r5.2: ≥ 50 per class, else no curve
     figures.pr_figure({"pr": [{"recall": 0, "precision": 1}, {"recall": 1, "precision": 1}], "prevalence": 0.5,
                        "average_precision": 1.0, "n": 10}, tmp_path / "pr")
     for fig in captured:

@@ -17,6 +17,7 @@ from pyproj import CRS, Transformer
 from rasterio.warp import transform_bounds
 from shapely.geometry import Point
 
+from app.services.validation.auc_presentation import scope_auc
 from app.platform.engines.base import EngineAdapter, EngineExecutionContext, EngineExecutionOutput
 from app.platform.result_exports import artifact_entry, build_result_exports
 from app.schemas.analyses import FIRRISProduct
@@ -167,6 +168,21 @@ def _layer_metadata(
 
 
 _VALIDATION_REFERENCE_BASIS = "SAR screening labels; internal agreement, not independent flood-map accuracy"
+
+
+def _internal_scope_key(assessment: dict[str, Any] | None, basis: dict[str, Any] | None) -> str:
+    """The holdout's reference for the diagnostics ROC label: SAR screening labels or supplied labels (r5.2)."""
+    for scope in (assessment or {}).get("scopes", []):
+        if scope.get("scope") in ("internal_screening", "internal_supplied"):
+            return scope["scope"]
+    return "internal_screening" if "screening" in str((basis or {}).get("statement", "")).lower() else "internal_supplied"
+
+
+def _internal_auc_interval(assessment: dict[str, Any] | None):
+    for scope in (assessment or {}).get("scopes", []):
+        if scope.get("scope") in ("internal_screening", "internal_supplied"):
+            return (scope.get("confidence_intervals_95") or {}).get("roc_auc")
+    return None
 
 class FIRRISEngineAdapter(EngineAdapter):
     key = "firris"
@@ -329,7 +345,8 @@ class FIRRISEngineAdapter(EngineAdapter):
             summary = [{"class": row["class_name"], "area_ha": row["area_ha"], "omission_error_pct": row["omission_error_pct"],
                         "commission_error_pct": row["commission_error_pct"], "users_accuracy_pct": row["users_accuracy_pct"],
                         "producers_accuracy_pct": row["producers_accuracy_pct"], "overall_accuracy_pct": scope["overall_accuracy_pct"],
-                        "f1_score": row["f1_score"], "cohens_kappa": scope["cohens_kappa"], "n": scope["n"], "method": scope["method"]}
+                        "f1_score": row["f1_score"], "cohens_kappa": scope["cohens_kappa"], "n": scope["n"], "method": scope["method"],
+                        **scope_auc(scope).record()}
                        for row in scope["per_class"]]
             for suffix, frame, label in (
                 ("confusion", pd.DataFrame(rows), "confusion matrix (classified x reference)"),
@@ -355,7 +372,8 @@ class FIRRISEngineAdapter(EngineAdapter):
             holdout["observed_label"].to_numpy(), holdout["predicted_label"].to_numpy(),
             scores=holdout["conditional_score"].to_numpy(), kind="binary", units="binary_class_0_1",
             scope=f"{statement} Held-out pixels only (n = {len(holdout)}).",
-            version=context.result_version)
+            version=context.result_version, auc_scope=_internal_scope_key(workflow.accuracy_assessment, basis),
+            auc_interval=_internal_auc_interval(workflow.accuracy_assessment))
         if basis is not None:
             dashboard["reference_basis"] = dict(basis)
         dashboard["independent_validation"] = validation_record.get("independent_validation", "not_performed")
@@ -494,6 +512,10 @@ class FIRRISEngineAdapter(EngineAdapter):
                 "Area Statistics": pd.DataFrame([{"product": key, **{field: item for field, item in value["area_statistics"].items() if field != "class_areas"}} for key, value in summaries.items() if "area_statistics" in value]),
                 "Class Areas": pd.DataFrame([{"product": key, **class_area} for key, value in summaries.items() for class_area in value.get("area_statistics", {}).get("class_areas", [])]),
                 "Validation Metrics": pd.DataFrame([{"metric": key, "value": json.dumps(value) if isinstance(value, dict) else value} for key, value in workflow.validation_metrics.items()]),
+                # r5.2: every AUC with the reference it is measured against; holdout values are never independent.
+                "AUC by reference": pd.DataFrame([{"scope": scope["scope"], **scope_auc(scope).record()}
+                                                  for scope in (workflow.accuracy_assessment or {}).get("scopes", [])]
+                                                 or [{"scope": None, "auc_reference": "no accuracy scope recorded"}]),
                 "Samples": workflow.samples,
             }, str(xlsx_path),
         )
