@@ -102,7 +102,7 @@ No rollback was needed. Rollback stays ready: `rollback/compose.previous.json` w
 | Broker | `LLEN celery` (db 3) = 0 |
 | Logs from the cutover (05:39 UTC) to the check | 0 errors / tracebacks in api, bff, worker and gateway; 0 edge 5xx responses |
 
-**Pre-existing note:** one task record (`86408bc6…`, created 2026-09-22) has been `QUEUED` in the database since September. It is not in the broker queue (db 3 is empty). It was left untouched; clean it up separately if wanted.
+**Pre-existing note:** one task record (`86408bc6…`, created 2026-09-22) had been `QUEUED` in the database since September without being in the broker queue. It was closed after the release (below).
 
 ### Redis housekeeping (owner instruction)
 
@@ -111,6 +111,26 @@ After the cutover, only these two keys in the Celery database (db 3) were delete
 - `_kombu.binding.diag_noop_r51_20261116t053600z`.
 
 Each was a set with one member. Nothing else in production Redis was touched. No `diag_noop` key remains in databases 0–5.
+
+### After the release (owner instruction, 2026-11-16)
+
+**Stale task closed.** `86408bc6-2b98-417b-a06c-889aa7917b8e` (project "NOVA Production Test", NOVAREX), created 2026-09-22 and `QUEUED` since then.
+- **Reason (owner):** stale: not in broker queue since r2 cutover. No Celery id, no execution record, never started.
+- **How:** the cancel API only (`POST /api/v1/tasks/{id}/cancel`), called inside the API container with the NOVAREX owner's context (user `3908bc44…`), at 06:05:42 UTC. No manual audit row and no direct database change. The record was not deleted.
+- **Result:** status `CANCELED`, `completed_at` 2026-11-16 06:05:42 UTC, error summary empty (as the cancel path sets it). The task now has an execution record with the usual hash-chained events: `initialized`, then `canceled` with actor `3908bc44…`.
+- **Gap:** the cancel API has no reason field, so the reason is recorded here only. Plan §4.7 item 19 adds an optional reason to the cancel API, kept in the audit trail.
+- **After:** 0 tasks `QUEUED` or `RUNNING`.
+
+**AOI saved for the orbit-101 check.** `ugalla-river-north-bank-o101` (`674b8ad4-e9c2-4e51-b5d3-a46151737add`) in project "Ugalla" (NOVAREX), through `POST /api/v1/aoi` with the same owner context.
+- **Geometry:** a copy of "ugalla-river-north-bank (trimmed)" (`f655c571…`) clipped at longitude 31.540 on the west edge (was 31.5328); east, south and north edges unchanged. One valid polygon, 305.3 km² (was 315.0). Source type `geojson` (derived, not an uploaded shapefile).
+- **Production preflight (read-only, 30 m, no run submitted):**
+
+| Target / baseline | Sentinel-1 coverage | Download size | Result |
+|---|---|---|---|
+| 22 Apr 2024 / 19 Sep 2023 | 100% / 100% (orbit 101) | 42.0 of 48 MiB | Ready |
+| 22 Apr 2024 / 7 Sep 2023 | 100% / 100% (orbit 101) | 42.0 of 48 MiB | Ready |
+
+  Both warn that no compliant Sentinel-2 scene exists in either window (independent accuracy would not be assessable).
 
 ## 6. Owner browser tests
 
