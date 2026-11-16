@@ -109,7 +109,7 @@ def capacity_estimate(bounds: tuple[float, float, float, float], scale: float) -
 def scene_availability(aoi_geometry: dict, windows: dict[str, tuple[date, date]], max_cloud: float) -> dict[str, dict]:
     """Earth Engine metadata queries only (no pixels). Patched in tests."""
     from app.services.gee import auth, ingestion
-    from app.services.gee.scene_qa import MAX_DEGRADED_MSI_PCT, granule_summary, optical_reference_qa
+    from app.services.gee.scene_qa import MAX_DEGRADED_MSI_PCT, aoi_coverage, footprint_polygon, granule_summary, optical_reference_qa
     ee = ingestion.ee
     auth.initialize_gee()
     aoi = ingestion.build_aoi_geometry(aoi_geometry)
@@ -123,11 +123,15 @@ def scene_availability(aoi_geometry: dict, windows: dict[str, tuple[date, date]]
         s2 = ingestion.get_sentinel2_collection(aoi, start.isoformat(), end.isoformat(), max_cloud_pct=max_cloud,
                                                 max_degraded_msi_pct=MAX_DEGRADED_MSI_PCT)
         info = ee.Dictionary({"times": s1.aggregate_array("system:time_start"),
-                              "orbits": s1.aggregate_array("relativeOrbitNumber_start"), "s2": s2.size()}).getInfo()
+                              "orbits": s1.aggregate_array("relativeOrbitNumber_start"),
+                              "footprints": s1.aggregate_array("system:footprint"), "s2": s2.size()}).getInfo()
         periods[name] = {"sentinel1_pass_dates": sorted({to_date(t) for t in info["times"]}),
                          "relative_orbits": sorted({int(o) for o in info["orbits"]}),
                          "sentinel2_compliant_scenes": int(info["s2"]),
-                         "nearest_pass_before": None, "nearest_pass_after": None}
+                         "nearest_pass_before": None, "nearest_pass_after": None,
+                         # r5.1: the run's own rule (scene_qa.aoi_coverage) on the same scenes' footprints.
+                         SENTINEL1_COVERAGE_KEY: (aoi_coverage(aoi_geometry, [footprint_polygon(f) for f in info.get("footprints") or []])[1]
+                                                  if info["times"] and info.get("footprints") else None)}
         if info["s2"]:
             try:
                 record = optical_reference_qa(aoi, aoi_geometry, {"start": start.isoformat(), "end": end.isoformat()}, max_cloud)
@@ -156,6 +160,21 @@ def scene_availability(aoi_geometry: dict, windows: dict[str, tuple[date, date]]
         periods[name]["nearest_pass_before"] = to_date(info["before"]) if info.get("before") else None
         periods[name]["nearest_pass_after"] = to_date(info["after"]) if info.get("after") else None
     return periods
+
+
+SENTINEL1_COVERAGE_KEY = "_sentinel1_aoi_coverage_pct"  # internal: not part of the API response
+
+
+def coverage_issues(periods: dict[str, AnalysisPreflightPeriod], coverage: dict[str, float | None]) -> list[AnalysisPreflightIssue]:
+    """r5.1: block when the radar passes of a window cover only part of the AOI, as the run would fail on it."""
+    from app.services.gee.scene_qa import sentinel1_coverage_message
+    issues = []
+    for name, period in periods.items():
+        covered = coverage.get(name)
+        if period.sentinel1_pass_dates and covered is not None and covered < 100:
+            issues.append(_issue("sentinel1_partial_coverage",
+                                 sentinel1_coverage_message(period.start, period.end, covered, period.relative_orbits), name))
+    return issues
 
 
 def _orbit_issues(periods: dict[str, AnalysisPreflightPeriod]) -> list[AnalysisPreflightIssue]:
@@ -203,8 +222,9 @@ def run_preflight(*, aoi_geometry: dict, source: SatelliteSourceConfig, today: d
     except Exception as exc:  # noqa: BLE001 - provider internals stay server-side
         logger.exception("FRRIS preflight provider query failed")
         raise PreflightUnavailable(UNAVAILABLE_MESSAGE) from exc
+    coverage = {name: raw[name].pop(SENTINEL1_COVERAGE_KEY, None) for name in windows}
     periods = {name: AnalysisPreflightPeriod(start=windows[name][0], end=windows[name][1], **raw[name]) for name in windows}
-    blocking = _orbit_issues(periods)
+    blocking = _orbit_issues(periods) + coverage_issues(periods, coverage)
     warnings = []
     for name, period in periods.items():
         coverage = period.sentinel2_aoi_coverage_pct

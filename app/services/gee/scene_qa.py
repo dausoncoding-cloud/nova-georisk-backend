@@ -21,6 +21,18 @@ OPTICAL_REFERENCE_BANDS = ("B11", "B3", "SCL")
 MISSING_TILES_MESSAGE = "Missing scene tiles: collection footprints do not cover AOI"
 
 
+def sentinel1_coverage_message(start, end, covered_pct: float, orbits=()) -> str:
+    """Plain, allow-listed wording for radar passes that cover only part of the AOI (run and preflight, r5.1).
+
+    The run needs Sentinel-1 from one orbit over the whole AOI; a large or wide AOI can straddle the edge of
+    the orbit's swath, so each pass sees only part of it.
+    """
+    orbit = f" (orbit {', '.join(str(o) for o in sorted(set(orbits)))})" if orbits else ""
+    return (f"The Sentinel-1 radar pass {between_text(start, end)}{orbit} covers only {covered_pct:g}% of the area. "
+            "FRRIS needs radar from one orbit over the whole area in both windows. Split the area into parts "
+            "(Area playground) or trim it to the covered part.")
+
+
 def footprint_polygon(footprint_geometry):
     """Provider footprints are often LinearRings; as polygons they have an area."""
     if footprint_geometry.get("type") == "LinearRing":
@@ -135,6 +147,9 @@ def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_c
                         "qa_scope": "provider metadata and required bands/grid; pixel mask applied before composite", **checks})
     complete, covered_pct = aoi_coverage(aoi, footprints)
     if require_full_coverage and not complete:
+        if sensor == "Sentinel-1":  # r5.1: a plain, allow-listed message instead of the generic failure
+            raise ValueError(sentinel1_coverage_message(period["start"], period["end"], covered_pct,
+                                                        [record["relative_orbit"] for record in records]))
         raise ValueError(MISSING_TILES_MESSAGE)
     return {"scene_count": count, "scenes": records, "footprint_coverage": "complete" if complete else "partial",
             "aoi_coverage_pct": covered_pct, "tiles": sorted({r["tile"] for r in records if r.get("tile")}),

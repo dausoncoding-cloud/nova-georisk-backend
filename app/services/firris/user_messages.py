@@ -14,6 +14,10 @@ _LAST = r"\d{1,2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4}"
 ALLOWED = (
     # P6: inclusive wording ("between 21 and 22 May 2024", "on 21 May 2024"), see app/services/reporting/dates.py.
     re.compile(rf"No Sentinel-1 scene over the area (?:between {_DAY} and {_LAST}|on {_LAST})\."),
+    # r5.1: radar passes covering only part of the AOI (scene_qa.sentinel1_coverage_message).
+    re.compile(rf"The Sentinel-1 radar pass (?:between {_DAY} and {_LAST}|on {_LAST})(?: \(orbit \d+(?:, \d+)*\))? covers only "
+               r"\d+(?:\.\d+)?% of the area\. FRRIS needs radar from one orbit over the whole area in both windows\. "
+               r"Split the area into parts \(Area playground\) or trim it to the covered part\."),
     re.compile(r"The target and baseline windows must each contain Sentinel-1 passes from exactly one relative orbit, "
                r"the same in both \(target: (?:[0-9]+(?:, [0-9]+)*|none); baseline: (?:[0-9]+(?:, [0-9]+)*|none)\)\."),
     re.compile(r"Valid pixel coverage \d+\.\d{2}% is below the configured \d+\.\d{2}% threshold\.?"),

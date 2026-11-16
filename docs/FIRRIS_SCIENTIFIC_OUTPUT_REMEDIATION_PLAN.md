@@ -593,6 +593,7 @@ Acceptance: no client-visible text uses "Flood Extent" without qualification, an
 13. *(Added 2026-11-16 after the r5 browser test.)* New analysis: the Run summary can show "Products: None selected". Block submission with "Choose at least one product", and make the default product survive AOI and date changes; with tests.
 14. *(Added 2026-11-16, r5.)* Show the date on the "Use nearest pass" button as "25 May 2024" (inclusive day format of the UI), not ISO.
 15. *(Added 2026-11-16, r5.)* Area playground: when the coarser option is 120 m, recommend Split. The option already states "with less map detail".
+16. *(Added 2026-11-16 after production task efd93391; not implemented.)* Area playground: a split that follows Sentinel-1 swath edges. The Ugalla AOI (107 x 63 km) lay across the edge of the orbit-174 swath (each pass covered about 40%). r5.1 makes the preflight block this before submit (same coverage rule as the run) and the run message plain; the playground cannot see it because its capacity check deliberately makes no Earth Engine calls. Option: an orbit-aware split using Sentinel-1 footprint metadata (one metadata query), behind the same rate limits.
 
 ---
 
