@@ -14,7 +14,7 @@ from types import SimpleNamespace
 from typing import Any
 
 from docx import Document
-from docx.shared import Inches
+from docx.shared import Cm, Inches
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
@@ -93,6 +93,12 @@ def _independent_summary(scope: dict) -> list[str]:
     return lines
 
 
+# A4 with 2 cm side margins leaves a 16.6 cm PDF frame (ReportLab pads 6 pt) and Word's default page 16.5 cm;
+# figures are drawn at 16 cm (1:1) and never exceed these limits, so nothing is clipped or rescaled by a viewer.
+FIGURE_MAX_WIDTH_CM = 16.0
+FIGURE_MAX_HEIGHT_CM = 20.5  # frame height 24.2 cm (PDF) / 22.9 cm (Word) less room for a caption
+
+
 class _Writer:
     """Writes the same content to a ReportLab story and a python-docx document."""
 
@@ -103,6 +109,14 @@ class _Writer:
             self.styles[name].keepWithNext = 1  # a heading never ends a page
         self.story: list = []
         self.doc = Document()
+        section = self.doc.sections[0]  # the same page as the PDF: A4, 2 cm side margins (17 cm text width)
+        section.page_width, section.page_height = Cm(21.0), Cm(29.7)
+        section.left_margin = section.right_margin = Cm(2.0)
+        self.figures = 0  # figures are numbered in order: "Figure 1.", "Figure 2.", …
+
+    @property
+    def next_figure(self) -> int:
+        return self.figures + 1
 
     def heading(self, text: str, level: int = 1):
         self.story.append(Paragraph(escape(text), self.styles["Heading1" if level == 0 else "Heading2" if level == 1 else "Heading3"]))
@@ -135,16 +149,24 @@ class _Writer:
             for c, value in enumerate(row):
                 docx_table.cell(r, c).text = str(value)
 
-    def image(self, path: Path, width_cm: float, caption: str, max_height_cm: float | None = None):
+    def image(self, path: Path, width_cm: float, caption: str, max_height_cm: float | None = None) -> int:
+        """Add a numbered figure ("Figure N. caption"), never wider or taller than the page allows; returns N."""
         from PIL import Image
         with Image.open(path) as source:
             ratio = source.height / source.width
-        if max_height_cm and width_cm * ratio > max_height_cm:
-            width_cm = max_height_cm / ratio
+        width_cm = min(width_cm, FIGURE_MAX_WIDTH_CM)
+        limit = min(max_height_cm or FIGURE_MAX_HEIGHT_CM, FIGURE_MAX_HEIGHT_CM)
+        if width_cm * ratio > limit:
+            width_cm = limit / ratio
+        self.figures += 1
+        caption = f"Figure {self.figures}. {caption}"
+        start = len(self.story)
         self.story += [PdfImage(str(path), width=width_cm * cm, height=width_cm * ratio * cm), Paragraph(escape(caption), self.styles["Italic"]),
                        Spacer(1, 0.3 * cm)]
+        self.keep_together(start)  # a figure is never separated from its caption
         self.doc.add_picture(str(path), width=Inches(width_cm / 2.54))
         self.doc.add_paragraph(caption)
+        return self.figures
 
 
 def write_pdf(writer: "_Writer", path: Path) -> None:
@@ -163,10 +185,35 @@ def internal_agreement_sentence(scope: dict) -> str:
 VARIABLE_ROC_TITLE = "ROC by variable — vs Sentinel-2 reference (independent)"
 
 
-def variable_roc_section(writer: "_Writer", output_directory: Path, record: dict, *, same_reason: str | None = None) -> dict[str, tuple[Path, str]]:
+def variable_roc_caption(record: dict, context: dict, *, panels: bool = False, combined: int | None = None) -> str:
+    """Full caption: what is measured, the reference, n, area and dates."""
+    from app.services.firris.variable_roc import MODEL_SCORE, model_label
+
+    model = next((c["label"] for c in record.get("curves") or [] if c["name"] == MODEL_SCORE), model_label(None))
+    where = (f"{context.get('aoi') or 'the area of interest'}"
+             + (f" ({_num(context['area_km2'])} km²)" if context.get("area_km2") is not None else "")
+             + f"; target {context.get('target') or 'not recorded'}, baseline {context.get('baseline') or 'not recorded'}")
+    head = (f"ROC by variable, one panel per variable: the same curves and AUCs as Figure {combined}. " if panels and combined
+            else "ROC by variable, one panel per variable. " if panels
+            else f"ROC by variable: the {model} (the map's model score) and each model variable. ")
+    measured = ("Measured against the independent Sentinel-2 optical flood reference (MNDWI change; not a model input; "
+                f"not field-verified) on n = {record['n']:,} eligible pixels not used for training, the same pixels as the "
+                f"accuracy census ({record['positives']:,} flood, {record['negatives']:,} not flood), in {where}. ")
+    how = ("Each AUC is exact and comes from the continuous values, not from classes; directions (lower or higher = flood) "
+           "were fixed before the analysis. Dashed grey line: random classifier (AUC 0.500). ")
+    tail = ("Each panel gives the AUC with its direction and n; the circle on the model panel is the map's operating point "
+            "(t = 0.50); a panel that is not assessable gives the reason instead of a curve." if panels
+            else "Legend ordered by AUC, high to low; the circle is the map's operating point (t = 0.50). Threshold tables: "
+                 "workbook sheet \"ROC thresholds by variable\" and the CSV in the result package; summary in Appendix C.")
+    return head + measured + how + tail
+
+
+def variable_roc_section(writer: "_Writer", output_directory: Path, record: dict, *, same_reason: str | None = None,
+                         context: dict | None = None) -> dict[str, tuple[Path, str]]:
     """r5.3: one chart with the model score and each variable against the Sentinel-2 reference, or why not."""
     from app.services.firris.variable_roc import MODEL_SCORE, OPERATING_POINT_NOTE
 
+    context = context or {}
     writer.heading("ROC by variable (independent Sentinel-2 reference)", 2)
     if record.get("status") != "assessed":
         reason = record.get("reason")
@@ -175,34 +222,33 @@ def variable_roc_section(writer: "_Writer", output_directory: Path, record: dict
         return {}
     paths = multi_roc_figure(record, output_directory / "figure-independent_optical-roc_by_variable", title=VARIABLE_ROC_TITLE,
                              model=MODEL_SCORE, note=OPERATING_POINT_NOTE, positive="flood")
-    rows = record_summary_rows(record)
-    missing = [f"{row['label']}: {row['reason']}" for row in rows if row["status"] != "assessed"]
-    writer.para(f"Each curve uses the continuous value on the same {record['n']:,} census pixels as the accuracy above "
-                "(eligible pixels not used for training), never binary classes; each AUC is exact. The model curve is the ROC "
-                "reported above. The variables are model inputs: their curves show how well each one alone separates the "
-                "Sentinel-2 flood reference; they are not separate models. Directions (lower or higher = flood) were fixed "
-                "before the analysis; an AUC below 0.5 means the variable runs opposite to that direction in this area."
-                + (f" Not assessable: {'; '.join(missing)}." if missing else ""))
-    writer.image(paths["png"], 14, "Independent optical reference: ROC by variable, with the 1:1 random-classifier line "
-                 "and each AUC in the legend. Threshold tables: workbook sheet \"ROC thresholds by variable\" and the CSV "
-                 "in the result package; summary in Appendix C.")
     panels = multi_roc_panels_figure(record, output_directory / "figure-independent_optical-roc_by_variable_panels",
                                      title=VARIABLE_ROC_TITLE + ", one panel per variable", model=MODEL_SCORE, positive="flood")
+    rows = record_summary_rows(record)
+    missing = [f"{row['label']}: {row['reason']}" for row in rows if row["status"] != "assessed"]
+    number = writer.next_figure
+    writer.para(f"Figure {number} shows each curve from the continuous value on the same {record['n']:,} census pixels as the "
+                "accuracy above (eligible pixels not used for training), never binary classes; each AUC is exact. The model "
+                "curve is the ROC reported above. The variables are model inputs: their curves show how well each one alone "
+                "separates the Sentinel-2 flood reference; they are not separate models. Directions (lower or higher = flood) "
+                "were fixed before the analysis; an AUC below 0.5 means the variable runs opposite to that direction in this "
+                "area. Appendix C shows the same curves one panel per variable."
+                + (f" Not assessable: {'; '.join(missing)}." if missing else ""))
+    writer.image(paths["png"], FIGURE_MAX_WIDTH_CM, variable_roc_caption(record, context))
     return {"figure_independent_optical_roc_by_variable_png": (paths["png"], "image/png"),
             "figure_independent_optical_roc_by_variable_svg": (paths["svg"], "image/svg+xml"),
             "figure_independent_optical_roc_by_variable_panels_png": (panels["png"], "image/png"),
-            "figure_independent_optical_roc_by_variable_panels_svg": (panels["svg"], "image/svg+xml")}
+            "figure_independent_optical_roc_by_variable_panels_svg": (panels["svg"], "image/svg+xml"),
+            "_combined_figure_number": number}
 
 
-def variable_roc_appendix(writer: "_Writer", record: dict, panels: Path | None = None) -> None:
+def variable_roc_appendix(writer: "_Writer", record: dict, panels: Path | None = None, *, context: dict | None = None,
+                          combined: int | None = None) -> None:
     if record.get("status") != "assessed":
         return
     writer.heading("Appendix C: ROC by variable — threshold summary", 1)
     if panels is not None and panels.exists():
-        writer.image(panels, 16, "Independent optical reference: ROC by variable, one panel per variable (the same curves "
-                     "and AUCs as the combined chart in section 9). Each panel shows the 1:1 random-classifier line, the AUC "
-                     "with its direction and n; the operating point is on the model panel only; a panel that is not "
-                     "assessable gives the reason instead of a curve.")
+        writer.image(panels, FIGURE_MAX_WIDTH_CM, variable_roc_caption(record, context or {}, panels=True, combined=combined))
     def pair(tpr, fpr):
         return "—" if tpr is None else f"TPR {tpr:.3f}, FPR {fpr:.3f}"
     rows = []
@@ -211,7 +257,7 @@ def variable_roc_appendix(writer: "_Writer", record: dict, panels: Path | None =
         rows.append([row["label"], row["positive_when"].replace("score", "flood when value"),
                      f"{row['auc']:.3f}" if row["auc"] is not None else "not assessable", best,
                      pair(row["operating_point_tpr"], row["operating_point_fpr"]) if row["operating_point_tpr"] is not None else "—"])
-    writer.table(["Variable", "Direction", "AUC", "Highest TPR − FPR on the grid (threshold)", "Operating point"], rows,
+    writer.table(["Variable", "Direction", "AUC", "Highest TPR − FPR on the grid (threshold)", "Operating point (t = 0.50)"], rows,
                  caption=f"Against the Sentinel-2 reference, census of n = {record['n']:,} pixels "
                          f"({record['positives']:,} flood, {record['negatives']:,} not flood).")
     writer.para("Thresholds: the model score uses 0.99 to 0.01 in steps of 0.01; each variable uses the 1st to 99th "
@@ -534,10 +580,11 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     figure_files: dict[str, tuple[Path, str]] = {}
     writer.heading("9. Accuracy assessment")
     variable_record = (summary.get("independent_accuracy") or {}).get("variable_roc") or {}
+    roc_context = {"aoi": aoi, "area_km2": area.get("aoi_area_km2_estimate"), "target": target_text, "baseline": baseline_text}
     if status != "assessed":
         writer.para(f"Independent accuracy: {STATUS.get(status, status)}." + (f" {reason}" if reason else ""))
         if variable_record:
-            figure_files.update(variable_roc_section(writer, output_directory, variable_record, same_reason=reason))
+            figure_files.update(variable_roc_section(writer, output_directory, variable_record, same_reason=reason, context=roc_context))
     internal_scopes = []
     for scope in assessment.get("scopes", []):
         figures = scope_figures(output_directory, scope)
@@ -547,7 +594,7 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
         if scope["scope"] == "independent_optical":
             _accuracy_scope(writer, scope, figures, (summary.get("independent_accuracy") or {}).get("audit_sample"))
             if variable_record:
-                figure_files.update(variable_roc_section(writer, output_directory, variable_record, same_reason=reason))
+                figure_files.update(variable_roc_section(writer, output_directory, variable_record, same_reason=reason, context=roc_context))
         else:
             internal_scopes.append((scope, figures))
             writer.para(internal_agreement_sentence(scope))
@@ -582,10 +629,11 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     writer.heading("Appendix B: downloads")
     report_entries = [("scientific_report_pdf", {"format": "pdf", "label": "Scientific report (PDF)"}),
                       ("scientific_report_word", {"format": "docx", "label": "Scientific report (Word)"})]
+    combined_figure = figure_files.pop("_combined_figure_number", None)
     figure_entries = [(name, {"format": name.rsplit("_", 1)[1]}) for name in figure_files]
     _appendix(writer, downloads + report_entries + figure_entries)
     panels = figure_files.get("figure_independent_optical_roc_by_variable_panels_png")
-    variable_roc_appendix(writer, variable_record, panels[0] if panels else None)
+    variable_roc_appendix(writer, variable_record, panels[0] if panels else None, context=roc_context, combined=combined_figure)
 
     pdf = output_directory / "scientific-report.pdf"
     write_pdf(writer, pdf)

@@ -58,9 +58,9 @@ def variable_roc(*, independent_accuracy: dict[str, Any], candidates: np.ndarray
             skipped.append(name)  # no direction declared in advance: not drawn
             continue
         direction, text, units = VARIABLES[name]
-        specs.append(ScoreSpec(name, feature_layers[name][candidates], direction, f"{text} ({units})", "continuous", units))
-    point = operating_point_from_classes(truth, predicted_class[candidates], OPERATING_POINT_LABEL)
+        specs.append(ScoreSpec(name, feature_layers[name][candidates], direction, f"{text}, {units}", "continuous", units))
+    point = operating_point_from_classes(truth, predicted_class[candidates], OPERATING_POINT_LABEL, threshold=0.5)
     record = multi_roc(truth, specs, reference=REFERENCE, operating_points={MODEL_SCORE: point}).record()
-    record.update({"model": MODEL_SCORE, "pixels": "eligible pixels not used for training (the census)",
+    record.update({"model": MODEL_SCORE, "order": [MODEL_SCORE, *VARIABLES], "pixels": "eligible pixels not used for training (the census)",
                    "skipped_variables": skipped, "note": OPERATING_POINT_NOTE})
     return record

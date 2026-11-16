@@ -136,7 +136,7 @@ def test_not_assessable_record():
     assert record_table_rows(record) == [] and record_summary_rows(record) == []
 
 
-# --- figure -----------------------------------------------------------------------------------------------
+# --- figures (r5.3 polish: one style, legend by AUC, 3×2 panels, report-ready export) ------------------------
 
 @pytest.fixture
 def captured(monkeypatch):
@@ -146,64 +146,124 @@ def captured(monkeypatch):
     return seen
 
 
-def _texts(fig):
-    ax = fig.axes[0]
-    legend = [text.get_text() for text in ax.get_legend().get_texts()] if ax.get_legend() else []
-    return legend, [text.get_text() for text in ax.texts], ax.get_title()
+def _legend(fig):
+    legends = [ax.get_legend() for ax in fig.axes if ax.get_legend()]
+    return [text.get_text() for text in legends[0].get_texts()] if legends else []
 
 
-def test_figure_has_every_auc_the_random_line_and_the_operating_point(captured, tmp_path):
-    point = OperatingPoint("Operating point", tp=10, fp=5, tn=95, fn=20)
-    rain = ScoreSpec("rain", np.zeros(N), "higher", "Rainfall (mm)", units="mm")
-    record = multi_roc(TRUTH, [ScoreSpec("model", PROB, "higher", "Model", "probability"),
-                               ScoreSpec("depth", DEPTH, "lower", "Depth (dB)"), rain],
-                       reference="r", operating_points={"model": point}).record()
-    paths = figures.multi_roc_figure(record, tmp_path / "multi", title="ROC by variable", model="model",
-                                     note="Directions fixed in advance.", positive="flood")
-    legend, _, title = _texts(captured[-1])
-    auc = {curve["name"]: curve["auc"] for curve in record["curves"]}
-    assert legend[0] == "Random classifier (AUC 0.500)"
-    assert legend[1] == f"Model (AUC {auc['model']:.3f})"
-    assert "Operating point (TPR 0.333, FPR 0.050)" in legend
-    assert f"Depth (dB), lower = flood (AUC {auc['depth']:.3f})" in legend
-    assert any(line.startswith("Rainfall (mm): not assessable (the same value") for line in legend)
-    assert "Directions fixed in advance." in legend and f"n = {N:,}" in title
+def _six():
+    """Six scores like FRRIS: a model, four variables (one below 0.5 AUC by direction) and one constant."""
+    point = OperatingPoint("Operating point", tp=10, fp=5, tn=95, fn=20, threshold=0.5)
+    specs = [ScoreSpec("model", PROB, "higher", "Model score", "probability"),
+             ScoreSpec("depth", DEPTH, "lower", "Depth, dB"),
+             ScoreSpec("noise", NOISE, "higher", "Noise"),
+             ScoreSpec("weak", DEPTH + RNG.normal(0, 6, N), "lower", "Weak depth, dB"),
+             ScoreSpec("strong", -DEPTH * 2, "higher", "Strong, m"),
+             ScoreSpec("rain", np.zeros(N), "higher", "Rainfall, mm", units="mm")]
+    return multi_roc(TRUTH, specs, reference="r", operating_points={"model": point}).record()
+
+
+def test_one_style_for_every_roc_axes(captured, tmp_path):
+    record = _six()
+    figures.multi_roc_figure(record, tmp_path / "c", title="T", model="model", positive="flood")
+    figures.multi_roc_panels_figure(record, tmp_path / "p", title="T", model="model", positive="flood")
+    plots = [ax for fig in captured for ax in fig.axes if ax.axison and ax.get_lines()]
+    assert len(plots) == 1 + 6
+    for ax in plots:
+        assert ax.get_xlim() == (0, 1) and ax.get_ylim() == (0, 1) and ax.get_aspect() == 1.0
+        assert any(line.get_visible() for line in ax.get_xgridlines())
+        random = ax.get_lines()[0]  # drawn first in every axes
+        assert list(random.get_xdata()) == [0, 1] and random.get_color() == figures.RANDOM_COLOUR and random.get_linestyle() == "--"
+        for text in [ax.title, ax.xaxis.label, ax.yaxis.label, *ax.texts]:
+            assert text.get_fontfamily() == ["DejaVu Sans"]
+            assert text.get_text() == "" or text.get_fontsize() >= 6.5
+    combined = captured[0].axes[0]
+    assert combined.get_xlabel() == "False positive rate (1 − specificity)"
+    assert combined.get_ylabel() == "True positive rate (sensitivity)"
+
+
+def test_each_variable_keeps_its_colour_in_both_figures(captured, tmp_path):
+    record = _six()
+    figures.multi_roc_figure(record, tmp_path / "c", title="T", model="model")
+    figures.multi_roc_panels_figure(record, tmp_path / "p", title="T", model="model")
+    colours = figures.roc_colours(record, "model")
+    assert colours["model"] == figures.MODEL_COLOUR and len(set(colours.values())) == len(colours)
+    assert set(colours.values()) - {figures.MODEL_COLOUR} <= set(figures.VARIABLE_COLOURS)
+    panels = [ax for ax in captured[1].axes if ax.axison]
+    for ax in panels:
+        name = next(c["name"] for c in record["curves"] if c["label"] == ax.get_title())
+        drawn = [line for line in ax.get_lines()[1:] if len(line.get_xdata()) > 1]
+        assert all(line.get_color() == colours[name] for line in drawn)
+    by_label = {c["label"]: c["name"] for c in record["curves"]}
+    combined_lines = [line for line in captured[0].axes[0].get_lines()[1:] if len(line.get_xdata()) > 1]
+    assert {line.get_color() for line in combined_lines} == {colours[n] for n in by_label.values() if n != "rain"}
+
+
+def test_legend_ordered_by_auc_never_over_the_plot_and_lists_not_assessable(captured, tmp_path):
+    record = _six()
+    figures.multi_roc_figure(record, tmp_path / "c", title="T", model="model", note="Directions fixed.", positive="flood")
+    fig = captured[-1]
+    fig.canvas.draw()
+    legend = _legend(fig)
+    assessed = sorted([c for c in record["curves"] if c["assessable"]], key=lambda c: -c["auc"])
+    expected = [f"{c['label']} ({c['direction']} = flood) — AUC {c['auc']:.3f}" for c in assessed]
+    assert legend[:len(expected)] == expected
+    assert any(c["auc"] < 0.5 for c in assessed)  # reported as is, not flipped
+    assert legend[len(expected)] == "Model score operating point, t = 0.50: TPR 0.333, FPR 0.050"
+    assert legend[len(expected) + 1] == "Random classifier (1:1) — AUC 0.500"
+    assert legend[len(expected) + 2].startswith("Not assessable: Rainfall, mm — the same value on every evaluated pixel")
+    assert legend[-1] == "Directions fixed."
+    plot, legend_axes = fig.axes
+    box = legend_axes.get_legend().get_window_extent()
+    assert not box.overlaps(plot.get_window_extent())  # the legend never covers a curve
+
+
+def test_panels_are_a_3x2_grid_with_title_auc_direction_n_and_the_labelled_operating_point(captured, tmp_path):
+    record = _six()
+    paths = figures.multi_roc_panels_figure(record, tmp_path / "panels", title="ROC by variable", model="model", positive="flood")
+    fig = captured[-1]
+    panels = [ax for ax in fig.axes if ax.axison]
+    assert len(fig.axes) == 6 and len(panels) == 6
+    assert {ax.get_subplotspec().get_geometry()[:2] for ax in panels} == {(2, 3)}
+    curves = {c["label"]: c for c in record["curves"]}
+    assert [ax.get_title() for ax in panels] == ["Model score", "Depth, dB", "Noise", "Weak depth, dB", "Strong, m", "Rainfall, mm"]
+    for ax in panels:
+        curve, n = curves[ax.get_title()], N
+        if curve["assessable"]:
+            assert ax.texts[0].get_text() == f"AUC {curve['auc']:.3f}\n{curve['direction']} = flood\nn = {n:,}"
+        else:
+            assert ax.texts[0].get_text() == f"Not assessable\nThe same value on every\nevaluated pixel (0 mm)\nn = {n:,}"
+            assert len(ax.get_lines()) == 1  # the random line only: no curve
+    model = panels[0]
+    assert [t.get_text() for t in model.texts if t.get_text().startswith("t = ")] == ["t = 0.50:\nTPR 0.333, FPR 0.050"]
+    assert all(not t.get_text().startswith("t = ") for ax in panels[1:] for t in ax.texts)
+    assert sum(1 for line in model.get_lines() if line.get_marker() == "o") == 1
+    assert all(line.get_marker() != "o" for ax in panels[1:] for line in ax.get_lines())
     assert paths["png"].exists() and paths["svg"].exists()
-    assert "Random classifier (AUC 0.500)" in paths["svg"].read_text()
+
+
+def test_exports_are_300_dpi_png_and_svg_drawn_at_the_report_width(tmp_path):
+    from PIL import Image
+    record = _six()
+    for draw in (figures.multi_roc_figure, figures.multi_roc_panels_figure):
+        paths = draw(record, tmp_path / draw.__name__, title="T", model="model")
+        with Image.open(paths["png"]) as image:
+            assert round(image.info["dpi"][0]) == 300
+            width_cm = image.width / 300 * 2.54
+        assert 14 <= width_cm <= 16.5, width_cm  # drawn at ~16 cm, so the report prints it 1:1
+        assert "<svg" in paths["svg"].read_text()[:400]
 
 
 def test_figure_not_assessable_draws_no_curve(captured, tmp_path):
     figures.multi_roc_figure(not_assessable_record("no compliant Sentinel-2 scene"), tmp_path / "na", title="ROC by variable")
-    fig = captured[-1]
-    assert fig.axes[0].get_lines() == []
-    assert "Multi-variable ROC not assessable\nNo compliant Sentinel-2 scene" in _texts(fig)[1]
-
-
-def test_panels_show_each_curve_its_auc_direction_n_and_the_operating_point_on_the_model_only(captured, tmp_path):
-    point = OperatingPoint("Operating point", tp=10, fp=5, tn=95, fn=20)
-    record = multi_roc(TRUTH, [ScoreSpec("model", PROB, "higher", "Model", "probability"),
-                               ScoreSpec("depth", DEPTH, "lower", "Depth (dB)"),
-                               ScoreSpec("rain", np.zeros(N), "higher", "Rainfall (mm)", units="mm")],
-                       reference="r", operating_points={"model": point}).record()
-    paths = figures.multi_roc_panels_figure(record, tmp_path / "panels", title="ROC by variable", model="model", positive="flood")
-    fig = captured[-1]
-    panels = [ax for ax in fig.axes if ax.axison]
-    assert [ax.get_title() for ax in panels] == ["Model", "Depth (dB)", "Rainfall (mm)"]
-    model, depth, rain = panels
-    auc = {curve["name"]: curve["auc"] for curve in record["curves"]}
-    assert len(model.get_lines()) == 3 and len(depth.get_lines()) == 2  # 1:1 line, curve, + operating point on the model
-    assert len(rain.get_lines()) == 1  # only the 1:1 line: no curve when not assessable
-    assert model.texts[0].get_text().startswith(f"AUC {auc['model']:.3f}\nmodel score, higher = flood\nn = {N:,}")
-    assert "operating point\n(TPR 0.333, FPR 0.050)" in model.texts[0].get_text()
-    assert depth.texts[0].get_text() == f"AUC {auc['depth']:.3f}\nlower = flood\nn = {N:,}"
-    assert "operating point" not in depth.texts[0].get_text()
-    assert rain.texts[0].get_text() == f"Not assessable\nThe same value on every\nevaluated pixel (0 mm)\nn = {N:,}"
-    assert len([ax for ax in fig.axes if not ax.axison]) == 0 and paths["png"].exists() and paths["svg"].exists()
+    ax = captured[-1].axes[0]
+    assert len(ax.get_lines()) == 1  # the random line only
+    assert ax.texts[0].get_text() == "Multi-variable ROC not assessable\nNo compliant Sentinel-2 scene"
 
 
 def test_panels_fall_back_to_the_not_assessable_figure(captured, tmp_path):
     figures.multi_roc_panels_figure(not_assessable_record("no scene"), tmp_path / "p", title="t")
-    assert "Multi-variable ROC not assessable\nNo scene" in _texts(captured[-1])[1]
+    assert captured[-1].axes[0].texts[0].get_text() == "Multi-variable ROC not assessable\nNo scene"
 
 
 # --- FRRIS wiring -----------------------------------------------------------------------------------------
@@ -265,7 +325,14 @@ def test_engine_run_records_reports_and_exports_the_variable_roc(run):
     flat = " ".join(text.split())
     body = " ".join(section(text, "9. Accuracy assessment", "10. Limitations").split())
     assert "ROC by variable (independent Sentinel-2 reference)" in body and "never binary classes" in body
-    assert "Independent optical reference: ROC by variable" in body
+    import re
+    number = int(re.search(r"Figure (\d+)\. ROC by variable: the RF vote fraction", body).group(1))
+    assert f"Figure {number} shows each curve" in body
+    caption = body[body.index(f"Figure {number}. ROC by variable"):]
+    record_n = result.summary["independent_accuracy"]["variable_roc"]["n"]
+    for part in ("independent Sentinel-2 optical flood reference", f"n = {record_n:,}", "in Ikwiriri floodplain", "; target ",
+                 ", baseline ", "Legend ordered by AUC", "operating point (t = 0.50)"):
+        assert part in caption, part
     appendix_a = " ".join(text[text.index("Appendix A: "):text.index("Appendix B")].split())
     assert " ".join(frris_roc.HOLDOUT_NOTE.split()) in appendix_a
     assert "Appendix C: ROC by variable — threshold summary" in flat and "ROC thresholds by variable" in flat
@@ -276,7 +343,12 @@ def test_engine_run_records_reports_and_exports_the_variable_roc(run):
     panels = result.output_files["figure_independent_optical_roc_by_variable_panels_png"]
     assert (directory / panels["path"]).exists() and "one panel per variable" in panels["label"]
     appendix_c = " ".join(text[text.index("Appendix C: "):].split())
-    assert "ROC by variable, one panel per variable (the same curves and AUCs as the combined chart in section 9)" in appendix_c
+    assert re.search(rf"Figure \d+\. ROC by variable, one panel per variable: the same curves and AUCs as Figure {number}\.", appendix_c)
+    # Figures are numbered 1, 2, 3, … in order, in the PDF and in Word.
+    numbers = [int(n) for n in re.findall(r"(?<!as )Figure (\d+)\. ", flat)]  # captions, not cross-references
+    assert numbers == list(range(1, len(numbers) + 1)) and number in numbers
+    word_numbers = [int(n) for n in re.findall(r"(?<!as )Figure (\d+)\. ", docx_text)]
+    assert word_numbers == numbers
     import zipfile
     with zipfile.ZipFile(directory / result.output_files["report_package"]["path"]) as package:
         names = set(package.namelist())
@@ -317,3 +389,54 @@ def _no_optical(tmp_path_factory, status):
         monkeypatch.undo()
     pdf = directory / result.output_files["scientific_report_pdf"]["path"]
     return result, directory, pdf, _pdf_text(pdf), None, None
+
+
+def test_report_figures_fit_the_page_in_pdf_and_word(run):
+    """Every figure is at most 16 cm wide and 20.5 cm tall, inside the A4 frame (PDF) and the A4 page (Word)."""
+    from docx import Document
+    from pypdf import PdfReader
+    from app.services.reporting.scientific_report import FIGURE_MAX_HEIGHT_CM, FIGURE_MAX_WIDTH_CM
+
+    result, directory, pdf, _, docx, _ = run
+    section = docx.sections[0]
+    emu_cm = 360000
+    assert (round(section.page_width / emu_cm, 1), round(section.page_height / emu_cm, 1)) == (21.0, 29.7)
+    usable = (section.page_width - section.left_margin - section.right_margin) / emu_cm
+    usable_height = (section.page_height - section.top_margin - section.bottom_margin) / emu_cm
+    assert usable >= FIGURE_MAX_WIDTH_CM and usable_height >= FIGURE_MAX_HEIGHT_CM
+    shapes = list(docx.inline_shapes)
+    assert shapes and all(s.width / emu_cm <= FIGURE_MAX_WIDTH_CM + 0.01 and s.height / emu_cm <= FIGURE_MAX_HEIGHT_CM + 0.01 for s in shapes)
+    roc = [s for s in shapes if abs(s.width / emu_cm - FIGURE_MAX_WIDTH_CM) < 0.01]
+    assert len(roc) >= 2  # the combined chart and the panels use the full figure width
+    # PDF: an image is sized inside the A4 frame before layout (even when asked for more), so it is never clipped.
+    assert len(PdfReader(pdf).pages) > 0
+    from app.services.reporting import scientific_report as report
+    from reportlab.platypus import Image as PdfImage, KeepTogether
+
+    def flowables(items):
+        for item in items:
+            yield from flowables(item._content) if isinstance(item, KeepTogether) else [item]
+    writer = report._Writer()
+    png = directory / result.output_files["figure_independent_optical_roc_by_variable_png"]["path"]
+    writer.image(png, 30, "too wide on purpose")
+    image = next(f for f in flowables(writer.story) if isinstance(f, PdfImage))
+    frame_width_cm, frame_height_cm = (21.0 - 4.0) - 12 / 72 * 2.54, 29.7 - 2 * 2.54 - 12 / 72 * 2.54
+    assert image.drawWidth / 28.3465 <= min(FIGURE_MAX_WIDTH_CM, frame_width_cm) + 1e-6
+    assert image.drawHeight / 28.3465 <= min(FIGURE_MAX_HEIGHT_CM, frame_height_cm) + 1e-6
+
+
+def test_captions_state_what_is_measured_reference_n_area_and_dates():
+    from app.services.reporting.scientific_report import variable_roc_caption
+    record = _six()
+    context = {"aoi": "rufiji-2024-aoi", "area_km2": 98.8, "target": "24–25 May 2024", "baseline": "28 Aug – 2 Sep 2022"}
+    combined = variable_roc_caption(record, context)
+    # The FRRIS caption names the model curve by its FRRIS key; a record without it falls back to the RF label.
+    assert combined.startswith("ROC by variable: the RF vote fraction (the map's model score) and each model variable. ")
+    for part in ("independent Sentinel-2 optical flood reference", "not field-verified", f"n = {N:,} eligible pixels not used for training",
+                 f"({int(TRUTH.sum()):,} flood, {int((TRUTH == 0).sum()):,} not flood)",
+                 "), in rufiji-2024-aoi (98.80 km²); target 24–25 May 2024, baseline 28 Aug – 2 Sep 2022.",
+                 "not from classes", "random classifier (AUC 0.500)", "Legend ordered by AUC, high to low"):
+        assert part in combined, part
+    panels = variable_roc_caption(record, context, panels=True, combined=5)
+    assert panels.startswith("ROC by variable, one panel per variable: the same curves and AUCs as Figure 5. ")
+    assert "in rufiji-2024-aoi (98.80 km²)" in panels and "a panel that is not assessable gives the reason" in panels

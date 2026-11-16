@@ -50,6 +50,7 @@ class OperatingPoint:
     fp: int
     tn: int
     fn: int
+    threshold: float | None = None  # the decision threshold the point stands for, when there is one
 
     @property
     def tpr(self) -> float | None:
@@ -60,8 +61,8 @@ class OperatingPoint:
         return self.fp / (self.fp + self.tn) if self.fp + self.tn else None
 
     def record(self) -> dict[str, Any]:
-        return {"label": self.label, "tp": self.tp, "fp": self.fp, "tn": self.tn, "fn": self.fn,
-                "tpr": self.tpr, "fpr": self.fpr}
+        return {"label": self.label, "threshold": self.threshold, "tp": self.tp, "fp": self.fp, "tn": self.tn,
+                "fn": self.fn, "tpr": self.tpr, "fpr": self.fpr}
 
 
 @dataclass(frozen=True)
@@ -191,9 +192,9 @@ def _curve(truth: np.ndarray, spec: ScoreSpec, operating_point: OperatingPoint |
                     positives=positives, negatives=negatives, rows=rows, operating_point=operating_point)
 
 
-def operating_point_from_classes(truth, predicted, label: str) -> OperatingPoint:
+def operating_point_from_classes(truth, predicted, label: str, *, threshold: float | None = None) -> OperatingPoint:
     truth, predicted = np.asarray(truth).astype(int), np.asarray(predicted).astype(int)
-    return OperatingPoint(label=label, tp=int(((predicted == 1) & (truth == 1)).sum()),
+    return OperatingPoint(label=label, threshold=threshold, tp=int(((predicted == 1) & (truth == 1)).sum()),
                           fp=int(((predicted == 1) & (truth == 0)).sum()), tn=int(((predicted == 0) & (truth == 0)).sum()),
                           fn=int(((predicted == 0) & (truth == 1)).sum()))
 
