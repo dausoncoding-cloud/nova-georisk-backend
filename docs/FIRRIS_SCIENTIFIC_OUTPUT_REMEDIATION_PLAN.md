@@ -599,3 +599,45 @@ Acceptance: no client-visible text uses "Flood Extent" without qualification, an
 19. *(Added 2026-11-16 after closing stale task 86408bc6; not implemented.)* Optional `reason` on `POST /api/v1/tasks/{id}/cancel` (plain text, length-limited, no markup), stored in the task's hash-chained execution event (`canceled`, with the actor) and shown in the task archive. Today a cancel records who and when but not why, so operator clean-ups need a separate note in the deploy record. Additive API change (OpenAPI regenerated); the frontend may offer the field in a later release.
 20. *(Added 2026-11-16 from the r5.2 browser tests; not implemented.)* In the scientific report's quality-gates table, the Sentinel-2 cloud and MSI rows read "Not recorded" when no compliant Sentinel-2 scene exists, which suggests a missing measurement. Show **"Not applicable (no compliant scene)"** in that case; keep "Not recorded" for a scene that exists but whose value is missing. The status map is `GATE_STATUS` in `app/services/reporting/scientific_report.py`. Presentation only; no change to the gates or to provenance. Add a test for each of the two cases.
 21. *(Added 2026-11-16 from the r5.2 browser tests; not implemented.)* The long "No compliant optical scene in the requested window …" text (from `app/services/gee/scene_qa.py`) is repeated 4 times in the report. Keep it in full once, in the independent-accuracy section where the reason matters. Elsewhere use a short form, e.g. "Not assessable: no compliant Sentinel-2 scene (see Independent accuracy)". The full text stays in provenance and in the API field. Add a test that counts the full text exactly once.
+
+---
+
+## 6. Bundle 5 — Production acceptance evidence
+
+| Step | Detail | Acceptance |
+|---|---|---|
+| 5.1 Event selection | A documented flood event in Tanzania over normally dry land, with a pre-event baseline weeks (not a year) before, chosen with preflight (4.1) and recorded with the public source documenting the event | Event source cited; preflight passes all gates unchanged |
+| 5.2 Independent reference | Obtain one of: Copernicus EMS / UNOSAT delineation for the event; Global Flood Database event (if within 2000–2018); analyst-interpreted reference sample from very-high-resolution imagery (stratified, documented protocol, ≥ 100 points per class where feasible). Upload through the External Data Manager, review, approve. If none obtainable, state so; metrics remain "internal agreement" | Either an approved reference dataset with metrics labelled "independent accuracy (reference: …)" or an explicit "not available" statement |
+| 5.3 Production run | Full run on the selected AOI with Bundles 1–4 deployed | Maps, figures, water layers, trends, report, package all present; protected downloads; archive reproducible; no secrets; no contradictory labels |
+| 5.4 Re-run of legacy cases | Mindu and Ugalla-small re-run under `firris-science-2` for comparison (new versions; old versions retained) | Differences tabulated against verification §2.4 bounds |
+| 5.5 Full-Ugalla preflight | Preflight only | Records whether capacity is now the sole blocker |
+| 5.6 Final report | `docs/FIRRIS_FINAL_SCIENTIFIC_OUTPUT_ACCEPTANCE.md` (requirements audited, gaps fixed, outputs, test counts, task UUID, gates, limitations, external-data dependencies, independent-validation statement) | Written only after 5.3 passes |
+
+---
+
+## 7. Cross-cutting impact summary
+
+| Bundle | DB migration | API change | Backward compatibility | Rollback |
+|---|---|---|---|---|
+| 1 | None | Additive provenance/dashboard fields; `display_label` | Read-time notice for legacy results | Previous image tag |
+| 2 | None | Additive artifact keys, `deliverable_group`, dashboard `curves`/`figures` | Old results render with existing artifacts; new UI degrades gracefully when fields absent | Previous image tags (backend + frontend) |
+| 3 | None (enum stored as string in parameters JSON — confirm in PR; add migration only if a DB enum exists) | Additive product keys and series kinds | Old results lack water/trend sections; UI hides them | Previous image tags |
+| 4 | One additive migration: nullable `tasks.idempotency_key` with a unique partial index per (project, actor, key) (4.5) | New preflight endpoint; additive task fields; optional `Idempotency-Key` request header; sensor-availability validation errors (422) | Old failed tasks show the generic message. Requests without the header behave as today | Previous image tags; the migration's downgrade drops the column and index (no data loss for existing tasks) |
+| 5 | None | None | – | – |
+
+---
+
+## 8. Exact next implementation bundle
+
+**Bundle 1**, in this commit order on branch `fix/firris-science-bundle-1` from `main`:
+
+1. ~~Run verification §10.1 and §10.2 read-only on the production worker; append results to the verification document.~~ Done 2026-11-11, verification §11.
+2. `fix(gee): enforce zero degraded-MSI at scene selection` (1.2) + tests. **Priority 1:** it blocked 12/13 real failures (verification §11.2).
+3. `fix(gee): treat JRC never-water as 0% within Metadata valid_obs footprint` (1.1) + tests, including the `valid_obs > 0` admitted / `valid_obs = 0` nodata fixture.
+4. `fix(validation): mask and encode agreement/confusion rasters` (1.3) + tests.
+5. `fix(firris): name classifier score as model confidence` (1.4) + contract/OpenAPI/frontend label.
+6. `fix(firris): frame pseudo-label metrics as internal agreement` (1.5) + backend/frontend/report wording tests.
+7. `feat(results): legacy interpretation notice` (1.6).
+7a. `feat(validation): assess accuracy against independent Sentinel-2 optical reference` (1.7) + tests. This commit also carries the deferred export part of 1.1 (`jrc_occurrence` band), so the band contract changes once (decisions in 1.7).
+7b. ~~1.8 label rule review~~ **Closed 2026-11-16: tested, not adopted** (§1.8a–1.8b). Science-2 stays; branch `feat/frris-science-3-hsba` (`978e35d`, `8caaa4c`) is kept for the record and not merged.
+8. Full test gate (Section 0.6) → staging checks (Section 0.7) → staging runs (Mindu AOI + dry-land AOI) → before/after table → production activation with previous tag retained.
