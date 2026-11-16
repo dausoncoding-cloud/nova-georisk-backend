@@ -142,7 +142,7 @@ def test_per_scene_assertion_still_rejects_a_forged_degraded_record():
 def test_empty_sar_collection_names_the_window():
     collection = MagicMock()
     collection.size.return_value.getInfo.return_value = 0
-    with pytest.raises(ValueError, match=r"No Sentinel-1 scene over the area between 2024-03-01 and 2024-04-01 \(end date exclusive\)\."):
+    with pytest.raises(ValueError, match=r"^No Sentinel-1 scene over the area between 1 and 31 Mar 2024\.$"):
         inspect_collection(collection, sensor="Sentinel-1", period={"start": "2024-03-01", "end": "2024-04-01"},
                            aoi=AOI, required_bands=["VV"])
 

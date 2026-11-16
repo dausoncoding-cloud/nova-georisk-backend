@@ -16,13 +16,16 @@ def test_empty_sentinel1_window_names_its_dates():
     with pytest.raises(ValueError) as caught:
         inspect_collection(collection, sensor="Sentinel-1", period={"start": "2024-05-21", "end": "2024-05-23"}, aoi=AOI, required_bands=["VV"])
     message = str(caught.value)
-    assert message == "No Sentinel-1 scene over the area between 2024-05-21 and 2024-05-23 (end date exclusive)."
+    assert message == "No Sentinel-1 scene over the area between 21 and 22 May 2024."
     assert public_error_summary(FIRRISQualityError(message)) == message
 
 
 @pytest.mark.parametrize("message", [
     "The target and baseline windows must each contain Sentinel-1 passes from exactly one relative orbit, the same in both (target: 57; baseline: 130).",
     "Valid pixel coverage 41.20% is below the configured 70.00% threshold",
+    "No Sentinel-1 scene over the area between 28 Aug and 2 Sep 2022.",
+    "No Sentinel-1 scene over the area between 30 Dec 2023 and 2 Jan 2024.",
+    "No Sentinel-1 scene over the area on 21 May 2024.",
 ])
 def test_allow_listed_quality_messages_are_shown(message):
     assert public_error_summary(FIRRISQualityError(message)) == message
@@ -31,8 +34,9 @@ def test_allow_listed_quality_messages_are_shown(message):
 @pytest.mark.parametrize("error", [
     FIRRISQualityError("Remote source metadata/export could not be verified; analysis inputs not released"),
     FIRRISQualityError("Required collection is empty or exceeds bounded per-scene QA limit"),
-    FIRRISQualityError("No Sentinel-1 scene over the area between 2024-05-21 and 2024-05-23 (end date exclusive). /etc/secret"),
-    ValueError("No Sentinel-1 scene over the area between 2024-05-21 and 2024-05-23 (end date exclusive)."),  # not a quality error
+    FIRRISQualityError("No Sentinel-1 scene over the area between 21 and 22 May 2024. /etc/secret"),
+    ValueError("No Sentinel-1 scene over the area between 21 and 22 May 2024."),  # not a quality error
+    FIRRISQualityError("No Sentinel-1 scene over the area between 2024-05-21 and 2024-05-23 (end date exclusive)."),  # pre-P6 wording
     RuntimeError("ee.EEException: Total request size (51340557 bytes) must be less than or equal to 50331648 bytes."),
 ])
 def test_everything_else_keeps_the_generic_message(error):

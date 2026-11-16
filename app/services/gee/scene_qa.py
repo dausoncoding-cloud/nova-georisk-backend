@@ -1,6 +1,7 @@
 """Bounded per-scene metadata QA before compositing or downloading pixels."""
 from datetime import datetime, timezone
 import math
+from app.services.reporting.dates import between_text
 
 from pyproj import CRS
 from pyproj.exceptions import CRSError
@@ -50,7 +51,7 @@ def inspect_collection(collection, *, sensor, period, aoi, required_bands, max_c
             f"(cloud <= {max_cloud:g}% and degraded MSI <= {MAX_DEGRADED_MSI_PCT:g}% required)"
         )
     if count == 0 and sensor == "Sentinel-1":
-        raise ValueError(f"No Sentinel-1 scene over the area between {period['start']} and {period['end']} (end date exclusive).")
+        raise ValueError(f"No Sentinel-1 scene over the area {between_text(period['start'], period['end'])}.")
     if not 1 <= count <= MAX_SCENES:
         raise ValueError("Required collection is empty or exceeds bounded per-scene QA limit")
     images = collection.toList(count).getInfo()

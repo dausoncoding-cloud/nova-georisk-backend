@@ -26,6 +26,7 @@ from typing import Any
 
 from shapely.geometry import shape
 
+from app.services.reporting.dates import between_text, day_text
 from app.schemas.analyses import (
     AnalysisPreflightCapacity,
     AnalysisPreflightIssue,
@@ -78,6 +79,15 @@ def date_issues(windows: dict[str, tuple[date, date]], today: date) -> list[Anal
                                  f"The {name} window ends after today ({today.isoformat()}, UTC). Satellite data for "
                                  "future dates does not exist yet.", name))
     return issues
+
+
+def capacity_message(capacity: AnalysisPreflightCapacity) -> str:
+    """Backlog §4.7 item 3: sizes in MiB (2^20 bytes), as computed."""
+    mebibytes = capacity.estimated_request_bytes / 1_048_576
+    advice = f", or a coarser resolution of {capacity.suggested_scale_m:g} m" if capacity.suggested_scale_m else ""
+    return (f"This area needs about {mebibytes:,.0f} MiB per download at {capacity.scale_m:g} m, "
+            f"{capacity.ratio:.1f} times the 48 MiB limit (about a 500 km² bounding box at 30 m). "
+            f"Use a smaller area or split it into parts{advice}.")
 
 
 def capacity_estimate(bounds: tuple[float, float, float, float], scale: float) -> dict[str, Any]:
@@ -152,13 +162,12 @@ def _orbit_issues(periods: dict[str, AnalysisPreflightPeriod]) -> list[AnalysisP
     issues = []
     for name, period in periods.items():
         if not period.sentinel1_pass_dates:
-            nearest = [f"{label} {day.isoformat()}" for label, day in (("before", period.nearest_pass_before),
-                                                                       ("after", period.nearest_pass_after)) if day]
+            nearest = [f"{label} {day_text(day)}" for label, day in (("before", period.nearest_pass_before),
+                                                                     ("after", period.nearest_pass_after)) if day]
             hint = (f" Nearest usable passes: {', '.join(nearest)}." if nearest
                     else f" No usable pass within {NEAREST_SEARCH_DAYS} days either side.")
             issues.append(_issue("no_sentinel1_pass",
-                                 f"No Sentinel-1 pass over this area between {period.start.isoformat()} and "
-                                 f"{period.end.isoformat()} (end date exclusive).{hint}", name))
+                                 f"No Sentinel-1 pass over this area {between_text(period.start, period.end)}.{hint}", name))
         elif len(period.relative_orbits) > 1:
             issues.append(_issue("multiple_orbits",
                                  f"The {name} window contains Sentinel-1 passes from relative orbits "
@@ -181,12 +190,7 @@ def run_preflight(*, aoi_geometry: dict, source: SatelliteSourceConfig, today: d
     blocking = date_issues(windows, today)
     capacity = AnalysisPreflightCapacity(**capacity_estimate(shape(aoi_geometry).bounds, source.scale))
     if capacity.estimated_request_bytes > capacity.limit_bytes:
-        megabytes = capacity.estimated_request_bytes / 1_048_576
-        advice = f", or a coarser resolution of {capacity.suggested_scale_m:g} m" if capacity.suggested_scale_m else ""
-        blocking.append(_issue("capacity_exceeded",
-                               f"This area needs about {megabytes:,.0f} MB per download at {capacity.scale_m:g} m, "
-                               f"{capacity.ratio:.1f} times the 48 MB limit (about a 500 km² bounding box at 30 m). "
-                               f"Use a smaller area or split it into parts{advice}."))
+        blocking.append(_issue("capacity_exceeded", capacity_message(capacity)))
     empty = {name: AnalysisPreflightPeriod(start=start, end=end) for name, (start, end) in windows.items()}
     if blocking:  # do not query the provider for a request that cannot run
         return AnalysisPreflightResponse(ok=False, capacity=capacity, blocking=blocking, **empty)

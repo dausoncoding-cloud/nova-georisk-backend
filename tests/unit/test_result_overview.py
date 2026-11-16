@@ -61,7 +61,7 @@ def _result(summary=SUMMARY, provenance=PROVENANCE, engine_key="firris"):
 def test_headline_states_value_denominator_dates_and_meaning():
     headline = build_result_overview(_result())["headline"]
     assert headline["text"] == ("Model-classified flood candidates cover 5.34 km² (5.44% of the 97.73 km² valid analysed area) "
-                                "for target 2024-05-24 to 2024-05-26, compared with baseline 2022-08-28 to 2022-09-03 (end dates exclusive). "
+                                "for target 24–25 May 2024, compared with baseline 28 Aug – 2 Sep 2022. "
                                 "Flood candidates are a model classification trained on SAR screening labels, not confirmed flood observations.")
     assert headline["flood_candidate_area_km2"] == pytest.approx(5.339)
 

@@ -136,8 +136,8 @@ def test_gis_layer_package_is_georeferenced_styled_and_credited(tmp_path):
         assert clr == ["0 34 139 34", "1 0 191 255"]
         readme = archive.read("README.txt").decode()
         assert "Contains modified Copernicus Sentinel data" in readme and "JRC Global Surface Water" in readme
-        assert "Target period: 2024-05-24 to 2024-05-26 (end-exclusive)" in readme
-        assert "Baseline period: 2022-08-28 to 2022-09-03 (end-exclusive)" in readme
+        assert "Target period: 24–25 May 2024 (last day included)" in readme
+        assert "Baseline period: 28 Aug – 2 Sep 2022 (last day included)" in readme
 
 
 def test_non_renderable_products_are_not_mapped(tmp_path):

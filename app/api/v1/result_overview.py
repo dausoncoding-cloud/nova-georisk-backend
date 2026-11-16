@@ -8,6 +8,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from app.services.reporting.dates import period_dict_text
+
 from app.services.reporting.data_sources import SOURCES, credit, datasets_with_companions
 
 DEFAULT_MINIMUM_COVERAGE_PCT = 70.0  # pipeline default when a result did not record its gate value
@@ -39,8 +41,11 @@ def _period(provenance: dict, key: str) -> str | None:
 
 def _headline(area: dict, provenance: dict) -> dict[str, Any]:
     flooded, share, valid = area.get("flooded_area_km2"), area.get("flooded_percent_of_valid"), area.get("valid_area_km2")
+    # API fields keep the exclusive windows; the sentence people read shows them inclusive (P6).
     target, baseline = _period(provenance, "target_period"), _period(provenance, "baseline_period")
-    dates = (f"for target {target}, compared with baseline {baseline} (end dates exclusive)" if target and baseline
+    target_text = period_dict_text(provenance.get("target_period"))
+    baseline_text = period_dict_text(provenance.get("baseline_period"))
+    dates = (f"for target {target_text}, compared with baseline {baseline_text}" if target_text and baseline_text
              else "(target and baseline dates not recorded)")
     text = (f"Model-classified flood candidates cover {flooded:,.2f} km² ({share:.2f}% of the {valid:,.2f} km² valid analysed area) {dates}. "
             "Flood candidates are a model classification trained on SAR screening labels, not confirmed flood observations.")

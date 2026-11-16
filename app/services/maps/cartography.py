@@ -5,6 +5,7 @@ protected raster/vector product, nodata, lineage and uncertainty remain in the
 Result and its package.
 """
 from __future__ import annotations
+from app.services.reporting.dates import period_dict_text
 
 import hashlib
 import json
@@ -373,9 +374,9 @@ def _readme(key: str, title: str, meta: dict, provenance: dict, continuous: bool
              f"CRS: {crs.to_string()}", f"Units: {meta.get('units', 'not recorded')}",
              f"Representation: {'continuous values' if continuous else 'classes'}"]
     for name, label in (("target_period", "Target period"), ("baseline_period", "Baseline period")):
-        period = provenance.get(name) or {}
-        if period.get("start") and period.get("end"):
-            lines.append(f"{label}: {period['start']} to {period['end']} (end-exclusive)")
+        text = period_dict_text(provenance.get(name))
+        if text:
+            lines.append(f"{label}: {text} (last day included)")
     lines += ["", "Credits:"] + [f"- {credit(dataset)}" for dataset in dict.fromkeys(datasets_with_companions(provenance))]
     return "\n".join(lines) + "\n"
 

@@ -574,9 +574,9 @@ On 2026-11-14 the report-polish branch gave every client surface of a satellite 
 Acceptance: no client-visible text uses "Flood Extent" without qualification, and a test guards each surface. This matches the existing test for the satellite report and downloads.
 
 **Analysis-period UX backlog (added 2026-11-14 after the r3 browser test; not yet implemented):**
-1. Inclusive end dates in the UI. The user enters the last day of a window, and the UI adds one day internally before sending the API's exclusive end date.
-2. A green "ready" status box, the counterpart of the red blocked box and the blue warnings box.
-3. Use MiB consistently for sizes (the download estimate and the 48 MiB limit), instead of mixing MB and MiB.
+1. *(Done in r5, 2026-11-16: UI refresh P3 and backend P6.)* Inclusive end dates in the UI. The user enters the last day of a window, and the UI adds one day internally before sending the API's exclusive end date. P6 shows every user-facing period inclusive in one convention ("24–25 May 2024", "between 21 and 22 May 2024"): preflight and run messages, the result summary sentence, the scientific report (periods, map captions, baseline-gap limitation) and the GIS-layer README (`app/services/reporting/dates.py`). API fields, provenance.json and the science stay end-exclusive.
+2. *(Done in r5: UI refresh P3.)* A green "ready" status box, the counterpart of the red blocked box and the blue warnings box.
+3. *(Done in r5: UI refresh P3 and P4; the preflight capacity message now says MiB too.)* Use MiB consistently for sizes (the download estimate and the 48 MiB limit), instead of mixing MB and MiB.
 4. A preflight warning when the baseline window is far from the target (more than 90 days, or a different season), the same rule as the report's baseline-gap limitation.
 5. *(Done in r4, 2026-11-15.)* *(Added 2026-11-14 after the r3.1 browser test.)* The note next to Continue must name the window(s) that lack a compliant Sentinel-2 scene: target, baseline or both. In the test the target had 1 scene and the baseline (2024-03-01→04-01) had 0, but the note said "this window", which reads as the target.
 6. Extend item 4 with seasonality.
@@ -586,6 +586,9 @@ Acceptance: no client-visible text uses "Flood Extent" without qualification, an
 7. *(Done in r4, 2026-11-15, with GNU tar `--listed-incremental` instead of `rsync`: the volume's host path is root-only and the image has no `rsync`.)* Cutover script (operations): take the large artifacts backup before quiescing, then only an incremental `rsync` while services are stopped. The r3.1 cutover took 62.0 s, of which about 18 s was the 119 MB artifacts archive inside the quiesce window.
 8. *(Added 2026-11-15 after the r4 browser test.)* The report's provenance shows the internal ids `firris-science-2` and `firris-random-forest-baseline`. Show a display label that keeps the id, for example "Science version 2 (id: firris-science-2)". The ids themselves stay unchanged (they identify existing results).
 9. *(Added 2026-11-15.)* Preflight timing: the uncached Kilombero preflight took 14.1 s in production (timeout 20 s). Consider adding `$request_time` to the nginx log format so preflight durations are measured from real requests.
+10. *(Added 2026-11-16 from the frontend follow-ups, UI refresh P2.)* Expose the current stage name in the task API (`TaskStatusResponse`). The Analyses list shows "Running · 48%"; the design's "Running · Sentinel-1 download" and the step ticks on the running page need a stage field.
+11. *(Added 2026-11-16, UI refresh P2.)* Filter the Analyses list by the selected system once a second engine exists (frontend, with `engine_key`). Today every task in the organization is listed; all are FRRIS.
+12. *(Added 2026-11-16, UI refresh P2.)* Target period of running and queued analyses in the list: the task list response does not carry the submitted parameters (only `/tasks/{id}/archive` does), so these rows show "—" until the result exists. Expose the windows on the task response if needed.
 
 ---
 

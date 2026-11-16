@@ -6,6 +6,7 @@ area accounting, quality gates, data sources, limitations), the accuracy assessm
 Maps are embedded as delivered; captions, dates and keys are written as report text.
 """
 from __future__ import annotations
+from app.services.reporting.dates import period_dict_text
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -338,8 +339,8 @@ def baseline_gap_text(target: dict | None, baseline: dict | None, *, max_days: i
     if abs(gap) <= max_days and season <= max_season_days:
         return None
     direction = "before" if gap >= 0 else "after"
-    return (f"The baseline period ({baseline['start']} to {baseline['end']}) is {abs(gap):,} days {direction} the target period "
-            f"({target['start']} to {target['end']}), measured between period midpoints, and {season} days apart in the annual "
+    return (f"The baseline period ({period_dict_text(baseline)}) is {abs(gap):,} days {direction} the target period "
+            f"({period_dict_text(target)}), measured between period midpoints, and {season} days apart in the annual "
             "cycle; seasonal changes in vegetation, soil moisture and standing water can therefore be mixed with flooding in the "
             "change signal.")
 
@@ -410,7 +411,9 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
 
     writer.heading("3. Target and baseline periods")
     headline = overview["headline"]
-    writer.para(f"Target: {headline['target_period'] or 'not recorded'}; baseline: {headline['baseline_period'] or 'not recorded'} (end dates exclusive).")
+    target_text = period_dict_text(provenance.get("target_period")) or "not recorded"
+    baseline_text = period_dict_text(provenance.get("baseline_period")) or "not recorded"
+    writer.para(f"Target: {target_text}; baseline: {baseline_text}. Both periods include their last day.")
     writer.table(["Dataset", "Scene dates"], [[s["dataset"], ", ".join(s["scene_dates"]) or "static product"] for s in overview["data_sources"]])
 
     writer.heading("4. Input data")
@@ -438,8 +441,7 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
         if entry.get("delivery_type") == "map_png":
             title = (entry.get("gis_metadata") or {}).get("cartography", {}).get("title", key)
             # Two maps share one A4 page: each image is at most 10 cm tall.
-            writer.image(output_directory / entry["path"], 16, f"{title}. Target {headline['target_period'] or 'not recorded'}; "
-                         f"baseline {headline['baseline_period'] or 'not recorded'}.",
+            writer.image(output_directory / entry["path"], 16, f"{title}. Target {target_text}; baseline {baseline_text}.",
                          max_height_cm=10)
     writer.keep_together(start)
 
