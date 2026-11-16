@@ -344,6 +344,15 @@ def run_satellite_workflow(
     independent_accuracy, reference_points = assess_independent_accuracy(
         provider=provider, optical_status=optical_status, reference=optical_reference, valid_mask=valid_mask,
         train_rows=split.train.rows, train_cols=split.train.cols, predicted_class=predicted_class, probability=probability)
+    # r5.3: ROC of the model score and each variable against the Sentinel-2 reference, on the census pixels.
+    from app.services.firris.reference_accuracy import census_candidates
+    from app.services.firris.variable_roc import variable_roc
+    census = (census_candidates(optical_reference, valid_mask, split.train.rows, split.train.cols)[2]
+              if independent_accuracy.get("status") == "assessed" and optical_reference is not None else None)
+    independent_accuracy["variable_roc"] = variable_roc(
+        independent_accuracy=independent_accuracy, candidates=census, reference=optical_reference,
+        probability=probability, predicted_class=predicted_class, feature_layers=feature_layers,
+        feature_names=trained.feature_names, algorithm=algorithm)
     if reference_points is not None:
         xs_ref, ys_ref = raster_xy(raster_spec.transform, reference_points["pixel_row"].to_numpy(),
                                    reference_points["pixel_col"].to_numpy(), offset="center")

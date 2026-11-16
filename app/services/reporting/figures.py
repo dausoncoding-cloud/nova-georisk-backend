@@ -63,6 +63,102 @@ def roc_figure(scope: dict[str, Any], stem: Path) -> dict[str, Path]:
     return _save(fig, stem)
 
 
+# Okabe–Ito colour-blind-safe palette for the per-variable curves; the model keeps the house blue.
+VARIABLE_COLOURS = ["#E69F00", "#009E73", "#CC79A7", "#56B4E9", "#D55E00", "#F0E442", "#000000"]
+
+
+def multi_roc_figure(record: dict[str, Any], stem: Path, *, title: str, model: str | None = None,
+                     note: str | None = None, positive: str = "positive") -> dict[str, Path]:
+    """r5.3: one ROC per score against one reference, the 1:1 random-classifier line, each AUC in the legend.
+
+    ``record`` is ``MultiRoc.record()`` (app.services.validation.multi_roc). ``model`` names the curve drawn as
+    the combined model (thick line, operating point marked). Curves that are not assessable are listed under
+    the legend with the reason; no curve is drawn for them. When the record itself is not assessable, only
+    the reason is shown. ``positive`` names the positive class in the legend ("lower = flood").
+    """
+    fig, ax = plt.subplots(figsize=(6.4, 6.6))
+    ax.set(xlim=LIMITS, ylim=LIMITS, xlabel="False positive rate", ylabel="True positive rate", aspect="equal")
+    if record.get("status") != "assessed":
+        ax.set_title(title, fontsize=9)
+        reason = record.get("reason") or "not recorded"
+        ax.text(0.5, 0.5, "Multi-variable ROC not assessable\n" + textwrap.fill(reason[:1].upper() + reason[1:], 44),
+                ha="center", va="center", fontsize=8, transform=ax.transAxes,
+                bbox={"boxstyle": "round", "facecolor": "white", "edgecolor": REFERENCE})
+        return _save(fig, stem)
+    ax.set_title(f"{title}\nn = {record['n']:,} (positives {record['positives']:,}, negatives {record['negatives']:,})", fontsize=9)
+    ax.plot([0, 1], [0, 1], linestyle="--", color=REFERENCE, linewidth=1, label="Random classifier (AUC 0.500)")
+    missing, colours = [], iter(VARIABLE_COLOURS)
+    curves = sorted(record["curves"], key=lambda c: c["name"] != model)  # the model first
+    for curve in curves:
+        if not curve["assessable"]:
+            missing.append(f"{curve['label']}: not assessable ({curve['reason']})")
+            continue
+        points = [(0.0, 0.0), *[(row["fpr"], row["tpr"]) for row in curve["table"]], (1.0, 1.0)]
+        is_model = curve["name"] == model
+        direction = "" if is_model else f", {curve['direction']} = {positive}"
+        ax.plot([x for x, _ in points], [y for _, y in points], color=LINE if is_model else next(colours),
+                linewidth=2.4 if is_model else 1.4, zorder=4 if is_model else 3, clip_on=False,
+                label=f"{curve['label']}{direction} (AUC {curve['auc']:.3f})")
+        op = curve.get("operating_point")
+        if is_model and op and op.get("fpr") is not None:
+            ax.plot([op["fpr"]], [op["tpr"]], marker="o", markersize=7, markerfacecolor="white", markeredgecolor=LINE,
+                    markeredgewidth=2, linestyle="none", zorder=5,
+                    label=f"{op['label']} (TPR {op['tpr']:.3f}, FPR {op['fpr']:.3f})")
+    for line in [*missing, *([note] if note else [])]:  # text-only legend rows, so nothing overlaps
+        ax.plot([], [], linestyle="none", label=textwrap.fill(line, 90))
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.11), fontsize=7, frameon=False, ncol=1, handlelength=2.2)
+    return _save(fig, stem)
+
+
+def multi_roc_panels_figure(record: dict[str, Any], stem: Path, *, title: str, model: str | None = None,
+                            positive: str = "positive", columns: int = 3) -> dict[str, Path]:
+    """r5.3: the same curves as ``multi_roc_figure``, one panel per score (small multiples).
+
+    Each panel: its own curve, the 1:1 random-classifier line, the AUC with its direction, and n. The operating
+    point is shown on the model panel only. A panel that is not assessable shows the reason instead of a curve.
+    No value is computed here: everything comes from ``MultiRoc.record()``.
+    """
+    curves = sorted(record.get("curves") or [], key=lambda c: c["name"] != model)  # the model first
+    if record.get("status") != "assessed" or not curves:
+        return multi_roc_figure(record, stem, title=title, model=model, positive=positive)
+    rows = -(-len(curves) // columns)
+    fig, axes = plt.subplots(rows, columns, figsize=(3.0 * columns, 3.25 * rows), squeeze=False)
+    colours = iter(VARIABLE_COLOURS)
+    for ax, curve in zip(axes.flat, curves):
+        is_model = curve["name"] == model
+        colour = LINE if is_model else next(colours)
+        ax.set(xlim=LIMITS, ylim=LIMITS, aspect="equal")
+        ax.set_xlabel("False positive rate", fontsize=7)
+        ax.set_ylabel("True positive rate", fontsize=7)
+        ax.tick_params(labelsize=6)
+        ax.set_title(textwrap.fill(curve["label"], 34), fontsize=7.5)
+        ax.plot([0, 1], [0, 1], linestyle="--", color=REFERENCE, linewidth=0.9)
+        n = curve["positives"] + curve["negatives"]
+        if not curve["assessable"]:
+            reason = curve["reason"] or "reason not recorded"
+            ax.text(0.5, 0.5, "Not assessable\n" + textwrap.fill(reason[:1].upper() + reason[1:], 26) + f"\nn = {n:,}",
+                    ha="center", va="center", fontsize=6.5, transform=ax.transAxes,
+                    bbox={"boxstyle": "round", "facecolor": "white", "edgecolor": REFERENCE})
+            continue
+        points = [(0.0, 0.0), *[(row["fpr"], row["tpr"]) for row in curve["table"]], (1.0, 1.0)]
+        ax.plot([x for x, _ in points], [y for _, y in points], color=colour, linewidth=2 if is_model else 1.5, clip_on=False)
+        direction = "model score, higher" if is_model else curve["direction"]
+        text = f"AUC {curve['auc']:.3f}\n{direction} = {positive}\nn = {n:,}"
+        op = curve.get("operating_point")
+        if is_model and op and op.get("fpr") is not None:
+            ax.plot([op["fpr"]], [op["tpr"]], marker="o", markersize=5, markerfacecolor="white", markeredgecolor=LINE,
+                    markeredgewidth=1.5, linestyle="none", zorder=5)
+            text += f"\ncircle = operating point\n(TPR {op['tpr']:.3f}, FPR {op['fpr']:.3f})"
+        ax.text(0.97, 0.04, text, ha="right", va="bottom", fontsize=6.5, transform=ax.transAxes,
+                bbox={"boxstyle": "round", "facecolor": "white", "edgecolor": colour, "linewidth": 0.8})
+    for ax in list(axes.flat)[len(curves):]:
+        ax.axis("off")
+    fig.suptitle(f"{title}\nn = {record['n']:,} (positives {record['positives']:,}, negatives {record['negatives']:,}); "
+                 "dashed line: random classifier (AUC 0.500)", fontsize=8.5)
+    fig.tight_layout()
+    return _save(fig, stem)
+
+
 def pr_figure(scope: dict[str, Any], stem: Path) -> dict[str, Path]:
     points = [(p["recall"], p["precision"]) for p in scope["pr"] if p["recall"] is not None and p["precision"] is not None]
     prevalence = scope["prevalence"] or 0.0

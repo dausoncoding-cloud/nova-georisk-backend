@@ -18,6 +18,7 @@ from rasterio.warp import transform_bounds
 from shapely.geometry import Point
 
 from app.services.validation.auc_presentation import scope_auc
+from app.services.validation.multi_roc import record_summary_rows, record_table_rows
 from app.platform.engines.base import EngineAdapter, EngineExecutionContext, EngineExecutionOutput
 from app.platform.result_exports import artifact_entry, build_result_exports
 from app.schemas.analyses import FIRRISProduct
@@ -505,6 +506,7 @@ class FIRRISEngineAdapter(EngineAdapter):
         )
         pdf_path = context.output_directory / "frris-analysis-report.pdf"
         xlsx_path = context.output_directory / "frris-analysis-report.xlsx"
+        variable_record = (workflow.independent_accuracy or {}).get("variable_roc") or {}
         generate_pdf_report(report_context, str(pdf_path))
         generate_excel_report(
             {
@@ -516,6 +518,11 @@ class FIRRISEngineAdapter(EngineAdapter):
                 "AUC by reference": pd.DataFrame([{"scope": scope["scope"], **scope_auc(scope).record()}
                                                   for scope in (workflow.accuracy_assessment or {}).get("scopes", [])]
                                                  or [{"scope": None, "auc_reference": "no accuracy scope recorded"}]),
+                # r5.3: ROC of the model score and each variable against the Sentinel-2 reference.
+                "ROC AUC by variable": pd.DataFrame(record_summary_rows(variable_record)
+                                                    or [{"status": "not_assessable", "reason": variable_record.get("reason")}]),
+                "ROC thresholds by variable": pd.DataFrame(record_table_rows(variable_record)
+                                                           or [{"status": "not_assessable", "reason": variable_record.get("reason")}]),
                 "Samples": workflow.samples,
             }, str(xlsx_path),
         )
@@ -544,6 +551,14 @@ class FIRRISEngineAdapter(EngineAdapter):
                                                   "predicted_label": predicted, "confusion": codes[(observed, predicted)],
                                                   "agreement": int(observed == predicted)}})
         _write_json(holdout_points, {"type": "FeatureCollection", "features": point_features})
+        if variable_record.get("status") == "assessed":
+            for suffix, rows, label in (("roc-by-variable", record_table_rows(variable_record), "ROC threshold table by variable"),
+                                        ("roc-auc-by-variable", record_summary_rows(variable_record), "ROC AUC by variable")):
+                path = context.output_directory / f"accuracy-independent_optical-{suffix}.csv"
+                export_csv(pd.DataFrame(rows), str(path))
+                reports[f"accuracy_independent_optical_{suffix.replace('-', '_')}"] = artifact_entry(
+                    path, label=f"Accuracy against the independent Sentinel-2 reference: {label}", media_type="text/csv",
+                    artifact_type="report", result_version=context.result_version, role="export", delivery_type="csv", format_name="csv")
         accuracy_path = context.output_directory / "independent-accuracy.json"
         _write_json(accuracy_path, _json_value(workflow.independent_accuracy))
         reports["independent_accuracy"] = artifact_entry(

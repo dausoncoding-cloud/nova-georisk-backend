@@ -215,7 +215,10 @@ def test_gee_run_without_clean_sentinel2_continues_and_reports_not_assessable(tm
     result = _run_gee_engine(tmp_path, monkeypatch, optical_status=status)
     assert result.summary["status"] == "completed"
     assert result.summary["validation_dashboard"]["independent_validation"] == "not_assessable"
-    assert result.summary["independent_accuracy"] == {"status": "not_assessable", "reason": status["reason"]}
+    independent = dict(result.summary["independent_accuracy"])
+    # r5.3: the per-variable ROC states the same reason instead of drawing curves.
+    assert independent.pop("variable_roc") == {"status": "not_assessable", "reason": status["reason"], "curves": []}
+    assert independent == {"status": "not_assessable", "reason": status["reason"]}
     assert result.summary["validation_dashboard"]["reference_basis"]["statement"].startswith("Internal agreement with SAR")
     assert not (tmp_path / "independent-reference-points.csv").exists()
 

@@ -91,7 +91,8 @@ def _distinct_points(points: Iterable[tuple[Any, Any]]) -> int:
 
 
 def auc_view(scope: str | None, *, auc, positives: int, negatives: int, roc_points: Iterable[tuple[Any, Any]],
-             interval=None, method: str | None = None, label: str | None = None) -> AucView:
+             interval=None, method: str | None = None, label: str | None = None,
+             subject: str = "the model scores") -> AucView:
     positives, negatives = int(positives or 0), int(negatives or 0)
     value = _finite(auc)
     reason = None
@@ -101,7 +102,7 @@ def auc_view(scope: str | None, *, auc, positives: int, negatives: int, roc_poin
         reason = (f"fewer than {MIN_PER_CLASS} samples in a reference class "
                   f"({positives:,} positive, {negatives:,} negative)")
     elif _distinct_points(roc_points) < MIN_DISTINCT_POINTS:
-        reason = "the model scores take too few distinct values to draw an ROC curve"
+        reason = f"{subject} take too few distinct values to draw an ROC curve"
     elif value is None:
         reason = "the AUC could not be computed"
     low, high = (_finite(v) for v in interval) if interval and len(interval) == 2 else (None, None)
