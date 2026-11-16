@@ -259,6 +259,15 @@ The file was checked: 4,592,996 B, 444 pages, March 2020, ISBN 978-9976-5670-0-7
   - science validation 2–3 days: code/name matching QA, WorldPop vs NBS 2022 ward totals on 2–3 AOIs, documenting the even-spread assumption and its effect;
   - tests 2 days;
   - deploy 1 day, including loading the client's data.
+- **Effort table (person-days, engineering only; no prices):**
+
+| Item | Backend | Frontend | Science validation | Tests | Deploy | Total |
+|---|---|---|---|---|---|---|
+| Base exposure output (b): WorldPop + Open Buildings, whole AOI (prerequisite) | 2.5–3 | 1 | 1–1.5 | 1 | 0.5–1 | **6–7.5** |
+| Ward-level add-on (C2) | 4–5 | 1.5–2 | 2–3 | 2 | 1 | **10.5–13** |
+| **C2 total, if the base is not built yet** | 6.5–8 | 2.5–3 | 3–4.5 | 3 | 1.5–2 | **16.5–20.5** |
+
+  The base row is broader than the spike's 4–6 days in (b), which covered the backend, report table and tests only. This row adds the Results-page display and a release. If both ship in one release, deploy is counted once (about 1 day less).
 - **Risks:**
   - The boundary and census versions don't match (2012 vs 2022 wards, renamed or split wards). This is the main schedule risk; joining by name instead of code is error-prone (spelling variants).
   - Licence terms that forbid redistribution of the polygons. Then the GIS layer is dropped and only the table is delivered.
