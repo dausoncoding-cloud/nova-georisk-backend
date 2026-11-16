@@ -112,6 +112,16 @@ Decisions needed from the client:
 - It removes granules where the tile is clear but the AOI is not. For the small Sunguvuni AOI (5.7 km²) the current rule admitted scenes that were 69–89% cloud over the AOI. The pixel mask then left only 11–31% of the AOI as reference, which the current rule does not disclose.
 - **Net:** (a) is more honest, not uniformly more permissive. Two of the five past runs would lose a reference window. Sunguvuni would end up with no independent accuracy in either run.
 
+### 6.1a Finding: the Sentinel-2 comparison has no clear-pixel minimum (why option B is recommended)
+
+Read-only check of every production result, 2026-11-16:
+- **The 70% gate does not apply to the comparison.** The existing gate (`minimum_valid_coverage_pct`, 70%) counts the run's admitted radar and feature pixels in the AOI. The optical reference bands are excluded from it, so it never looks at clear Sentinel-2 pixels.
+- **The comparison records a clear fraction, but applies no minimum to it.** It records `reference_eligible_fraction`: admitted pixels with a valid optical reference at both dates, after the SCL mask. The only protection is the rule of at least 50 reference pixels per class.
+- **Sunguvuni `b1179292`:** the baseline scene (10 Mar 2024, tile cloud 12.7%) was 89.4% cloud over the AOI, so only **10.0%** of the analysed area was clear (633 of 6,333 pixels). No accuracy was reported, but only because the flood-candidate class had 0 reference pixels. With 50 flood pixels in that 10%, an "independent accuracy" over a tenth of the area would have been reported without saying so.
+- **All accuracies actually reported** (Rufiji, 4 results, same scenes) rest on **98.8%** of the analysed area being clear. None rests on less than 70%.
+
+Option B's single minimum for the reference-eligible fraction (70% proposed), with "assessed over N% of the area" disclosed, closes this gap. That is why B is recommended before, or together with, C1.
+
 ### 6.2 C1(b): "cloudy-area exception"
 
 For persistently cloudy areas and seasons, the user may raise the cloud threshold above the default, within limits.
