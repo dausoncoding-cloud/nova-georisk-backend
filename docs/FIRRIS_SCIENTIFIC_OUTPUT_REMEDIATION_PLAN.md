@@ -360,6 +360,47 @@ The harness is `scripts/smoke_firris_gee_pipeline.py`, with the same AOIs, windo
 
 **§1.8 status: closed 2026-11-16, tested, not adopted.** Science-2 remains the production label. Branch `feat/frris-science-3-hsba` is kept for the record and not merged.
 
+
+### 1.9 Science-3 candidates from the r5.3 per-variable ROC (backlog; docs only, not implemented)
+
+> **Status:** backlog, recorded 2026-11-16 (owner). No code, no metric change and no threshold change.
+> - **Version id:** these are candidates for a future `firris-science-3`. That id was already used for the HSBA label rule tested and not adopted in §1.8, so a new science version would take the next free id when one is decided.
+> - **Pre-registration:** any change below is designed and pre-registered (AOIs, events, windows, decision rule, no tuning) before it is tested, as in §1.8a.
+
+**Source:** r5.3 per-variable ROC (`feat/frris-r5.3-multi-roc`, backend `208975e`). It was run read-only on the stored inputs of Rufiji result `443071be` (24–25 May 2024, baseline 28 Aug – 2 Sep 2022). The rebuild reproduced the published census exactly (n = 106,088; AUC 0.8050654). All curves were computed against the Sentinel-2 reference on the census pixels: 6,032 flood and 100,056 not flood.
+
+| Variable | Flood when | AUC |
+|---|---|---|
+| RF vote fraction (the model) | higher | 0.805 |
+| SAR VV backscatter, target | lower | 0.893 |
+| Elevation | lower | 0.878 |
+| SAR change, target − baseline | lower | 0.783 |
+| Slope | lower | 0.513 |
+| Rainfall, CHIRPS total over the target window | higher | not assessable (0 mm on every pixel) |
+
+This is one AOI and one event. The findings motivate the investigations below; they do not establish a general result.
+
+1. **Single variables beat the model against Sentinel-2.** VV backscatter (0.893) and elevation (0.878) each rank pixels better than the RF vote fraction (0.805). To investigate:
+   - **Labels:** the model is trained on the SAR screening rule (§1.8), not on the optical reference, so it learns to reproduce that rule rather than optical flooding.
+   - **Ranking:** 86.5% of valid pixels score exactly 0 (and 0.9% exactly 1), so the model ranks poorly. Pixels tied at the lowest score form one straight ROC segment from FPR 0.045 to 1, which contributes 0.751 of the 0.805.
+   - **Calibration and leaf settings:** for example `min_samples_leaf` (default 1, fully grown trees), or calibrating the scores.
+
+   Any comparison must keep the Sentinel-2 reference independent: it is never a training label or a feature, and it is never used to select settings on the AOIs it assesses.
+2. **Rainfall is not assessable on short windows.** The CHIRPS total over 24–25 May 2024 is 0 mm on every Rufiji pixel. Proposal: an **antecedent-rainfall** feature, pre-registered before testing:
+   - 7-day and 30-day totals before the target date;
+   - optionally, rainfall over the upstream catchment.
+
+   The definition, the windows and the decision rule are fixed in advance; CHIRPS resolution (about 5.5 km) and its few distinct values per AOI are stated as limitations.
+3. **Slope is near chance on flat floodplains** (AUC 0.513 at Rufiji). Recorded; **no action**.
+4. **The map is conservative.**
+
+   | | Threshold | TPR | FPR |
+   |---|---|---|---|
+   | Best TPR − FPR on the grid | 0.01 | 0.573 | 0.045 |
+   | Operating point (the map's class decision, equal to the 0.50 row here) | 0.50 | 0.465 | 0.029 |
+
+   Recorded only. **No threshold change without a client decision.**
+
 ---
 
 ## 3. Bundle 2 — Client scientific presentation
