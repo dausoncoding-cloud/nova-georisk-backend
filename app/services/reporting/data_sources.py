@@ -1,6 +1,8 @@
 """Shared descriptions and credits of FRRIS provider datasets (overview, map packages, reports)."""
 from __future__ import annotations
 
+from app.services.firris.hazard_sources import GLOFAS_ASSET, GLOFAS_ATTRIBUTION
+
 SOURCES = {
     "COPERNICUS/S1_GRD": ("SAR backscatter, target and baseline (model features and screening labels)", "10 m (IW GRD)", "copernicus"),
     "COPERNICUS/S2_SR_HARMONIZED": ("Optical surface reflectance (MNDWI) for the independent reference only", "10–20 m", "copernicus"),
@@ -9,6 +11,9 @@ SOURCES = {
     "JAXA/ALOS/AW3D30/V3_2": ("Elevation and slope", "1 arc-second (~30 m)", "ALOS World 3D-30m, JAXA"),
     "JRC/GSW1_4/GlobalSurfaceWater": ("Historical surface-water occurrence (permanent-water exclusion)", "30 m", "JRC Global Surface Water v1.4, EC JRC / Google"),
     "JRC/GSW1_4/Metadata": ("JRC observation footprint (valid_obs) bounding the never-water correction", "30 m", "JRC Global Surface Water v1.4, EC JRC / Google"),
+    # Depth & Exposure module (context only; never a model input). Credit text lives in firris.hazard_sources.
+    GLOFAS_ASSET: ("Modelled river-flood depth for return periods 10–500 years (context, not an observation)", "3 arc-seconds (~90 m)",
+                   GLOFAS_ATTRIBUTION),
 }
 
 
