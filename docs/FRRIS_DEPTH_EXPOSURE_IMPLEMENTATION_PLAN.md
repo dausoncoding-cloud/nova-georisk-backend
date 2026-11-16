@@ -134,6 +134,14 @@ Three JRC-side sources disagree:
 - **The JRC Data Catalogue entry is the deciding source,** and it could not be read from here (the fetch was rejected).
 - **Until it is checked, follow the strictest reading:** attribute in every output (CC BY), and treat the clipped GloFAS layers we deliver as an ODbL derived database. That means sharing them under ODbL, with the attribution and licence text in the GIS layer metadata.
 - **Action, owner:** open https://data.jrc.ec.europa.eu/dataset/jrc-floods-floodmapgl_rp50y-tif in a browser and record the licence, or ask the JRC contact. This does not block the build (the attribution text can change late), but it must be settled before the release.
+- **The single place to update** (branch `feat/frris-depth-exposure`): `app/services/firris/hazard_sources.py`, constants `GLOFAS_LICENCE_CONFIRMED`, `GLOFAS_LICENCE` and `GLOFAS_ATTRIBUTION`. These are read by:
+  - the report (section 12);
+  - the workbook sheet "Modelled hazard source";
+  - every GloFAS layer's metadata and GIS README;
+  - the dataset credits;
+  - the result record (`licence_confirmed`).
+
+  Change these constants and this section together.
 
 ### 2a.6 Open Buildings counts: run time and fallback
 
