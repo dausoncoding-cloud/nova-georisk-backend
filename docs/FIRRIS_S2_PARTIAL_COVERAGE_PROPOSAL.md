@@ -137,3 +137,15 @@ For persistently cloudy areas and seasons, the user may raise the cloud threshol
 - **Cost and latency.** One `reduceRegion` per candidate granule per window, in the preflight and the run. The what-if above needed 103 granule reductions for 5 runs (10 windows; up to 24 candidates in one Kilombero month); its run time was not measured. A large multi-tile AOI with month-long windows can have 20–40 candidates per window. This needs caching per granule and AOI, and a check against the preflight timeout (20 s) and Earth Engine quota.
 - **Science version and comparability.** Results before and after are not comparable for assessability. This needs the `firris-science-3` decision; best combined with option B so that one version change covers both.
 - **Overlap with option B.** The 70% clear minimum in (b) is option B's minimum. Building B first, or together, avoids doing the masking and disclosure twice.
+
+### 6.4 Effort (person-days, engineering only; no prices)
+
+| | Backend | Frontend | Science validation | Tests | Deploy | Total |
+|---|---|---|---|---|---|---|
+| C1(a) AOI SCL cloud | 3–4 | 0.5–1 | 2 | 1.5 | 1 | **8–9.5** |
+| C1(b) cloudy-area exception (requires C1(a)) | 3–4 | 2 | 1.5–2 | 1.5 | 1 | **9–10.5** |
+
+- **C1(a):** shared `scene_qa` function, preflight and run, provenance and report text, per-granule cache. Science validation re-runs the five cases above plus one cloudy multi-tile and one bright-surface AOI, with a visual SCL check.
+- **C1(b):** organization-level maximum (administration setting and audit), builder control and warnings, the clear-fraction gate, disclosure in report, provenance and Results.
+- **If option B is built first or together,** C1(b) backend drops by about 1.5 days, because the clear-fraction gate and disclosure exist already.
+- **Not included:** client meetings, writing the client-facing method note, and re-running existing client results.
