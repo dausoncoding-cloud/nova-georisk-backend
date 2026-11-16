@@ -1,6 +1,236 @@
 {
   "components": {
     "schemas": {
+      "AOICapacityCoarser": {
+        "properties": {
+          "capacity": {
+            "$ref": "#/components/schemas/AnalysisPreflightCapacity"
+          },
+          "scale_m": {
+            "title": "Scale M",
+            "type": "number"
+          }
+        },
+        "required": [
+          "scale_m",
+          "capacity"
+        ],
+        "title": "AOICapacityCoarser",
+        "type": "object"
+      },
+      "AOICapacityPart": {
+        "properties": {
+          "area_km2": {
+            "title": "Area Km2",
+            "type": "number"
+          },
+          "bbox": {
+            "description": "[west, south, east, north] in EPSG:4326",
+            "items": {
+              "type": "number"
+            },
+            "title": "Bbox",
+            "type": "array"
+          },
+          "capacity": {
+            "$ref": "#/components/schemas/AnalysisPreflightCapacity"
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/GeoJSONGeometry"
+          }
+        },
+        "required": [
+          "geometry",
+          "area_km2",
+          "bbox",
+          "capacity"
+        ],
+        "title": "AOICapacityPart",
+        "type": "object"
+      },
+      "AOICapacityRequest": {
+        "properties": {
+          "geometry": {
+            "$ref": "#/components/schemas/GeoJSONGeometry"
+          },
+          "scale_m": {
+            "default": 30.0,
+            "description": "Output resolution in metres (the analysis default is 30 m).",
+            "maximum": 1000.0,
+            "minimum": 10.0,
+            "title": "Scale M",
+            "type": "number"
+          },
+          "trim_center": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Centre [longitude, latitude] for the trimmed box; default: the centre of the area's bounding box.",
+            "title": "Trim Center"
+          }
+        },
+        "required": [
+          "geometry"
+        ],
+        "title": "AOICapacityRequest",
+        "type": "object"
+      },
+      "AOICapacityResponse": {
+        "properties": {
+          "area_km2": {
+            "title": "Area Km2",
+            "type": "number"
+          },
+          "bbox": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Bbox",
+            "type": "array"
+          },
+          "bbox_km2": {
+            "title": "Bbox Km2",
+            "type": "number"
+          },
+          "capacity": {
+            "$ref": "#/components/schemas/AnalysisPreflightCapacity"
+          },
+          "coarser": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AOICapacityCoarser"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "near_ratio": {
+            "description": "Share of the limit from which an area is reported as close to the limit.",
+            "title": "Near Ratio",
+            "type": "number"
+          },
+          "split": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AOICapacitySplit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "fits",
+              "near",
+              "over"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "trim": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AOICapacityTrim"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "message",
+          "area_km2",
+          "bbox",
+          "bbox_km2",
+          "capacity",
+          "near_ratio"
+        ],
+        "title": "AOICapacityResponse",
+        "type": "object"
+      },
+      "AOICapacitySplit": {
+        "properties": {
+          "cols": {
+            "title": "Cols",
+            "type": "integer"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/AOICapacityPart"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rows",
+          "cols",
+          "parts"
+        ],
+        "title": "AOICapacitySplit",
+        "type": "object"
+      },
+      "AOICapacityTrim": {
+        "properties": {
+          "area_km2": {
+            "title": "Area Km2",
+            "type": "number"
+          },
+          "bbox": {
+            "description": "[west, south, east, north] in EPSG:4326",
+            "items": {
+              "type": "number"
+            },
+            "title": "Bbox",
+            "type": "array"
+          },
+          "box": {
+            "description": "The largest box that fits, [west, south, east, north]; geometry is the area inside it.",
+            "items": {
+              "type": "number"
+            },
+            "title": "Box",
+            "type": "array"
+          },
+          "capacity": {
+            "$ref": "#/components/schemas/AnalysisPreflightCapacity"
+          },
+          "geometry": {
+            "$ref": "#/components/schemas/GeoJSONGeometry"
+          }
+        },
+        "required": [
+          "geometry",
+          "area_km2",
+          "bbox",
+          "capacity",
+          "box"
+        ],
+        "title": "AOICapacityTrim",
+        "type": "object"
+      },
       "AOICreateRequest": {
         "properties": {
           "crs": {
@@ -8905,6 +9135,98 @@
           }
         },
         "summary": "Update Aoi",
+        "tags": [
+          "AOI"
+        ]
+      }
+    },
+    "/api/v1/aois/capacity": {
+      "post": {
+        "description": "Whether an area fits one FRRIS analysis (the preflight's capacity rule), with trim / split / coarser options.",
+        "operationId": "check_area_capacity_api_v1_aois_capacity_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AOICapacityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AOICapacityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authorization failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Check Area Capacity",
         "tags": [
           "AOI"
         ]

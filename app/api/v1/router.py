@@ -6,6 +6,7 @@ from app.api.v1.endpoints import (
     external_data,
     analyses,
     aoi,
+    aoi_capacity,
     engines,
     firas,
     ingestion,
@@ -26,6 +27,7 @@ api_router.include_router(analyses.router)
 api_router.include_router(organizations.router)
 api_router.include_router(engines.router)
 api_router.include_router(aoi.router)
+api_router.include_router(aoi_capacity.router)
 api_router.include_router(tasks.router)
 api_router.include_router(firas.router)
 api_router.include_router(validation.router)

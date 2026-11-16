@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     firris_preflight_per_user_per_minute: int = 10
     firris_preflight_per_organization_per_minute: int = 30
     firris_preflight_timeout_seconds: float = 20.0
+    # Area playground capacity check (P6): pure geometry, called while the user edits, so higher limits.
+    aoi_capacity_per_user_per_minute: int = 60
+    aoi_capacity_per_organization_per_minute: int = 300
 
     # --- Google Earth Engine ---
     gee_service_account_email: str = ""

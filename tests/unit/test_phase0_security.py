@@ -371,3 +371,19 @@ def test_bff_refuses_anonymous_preflight_before_reaching_the_api(monkeypatch):
     with TestClient(bff_app) as client:
         response = client.post("/api/v1/analyses/preflight", json={})
     assert response.status_code == 401 and calls == []
+
+
+def test_bff_refuses_anonymous_area_capacity_before_reaching_the_api(monkeypatch):
+    """P6: the area playground's capacity check is only reachable through an authenticated BFF session."""
+    import app.bff.main as bff_module
+
+    calls = []
+
+    class NeverCalled:
+        def __init__(self, **_kwargs):
+            calls.append("constructed")
+
+    monkeypatch.setattr(bff_module.httpx, "AsyncClient", NeverCalled)
+    with TestClient(bff_app) as client:
+        response = client.post("/api/v1/aois/capacity", json={})
+    assert response.status_code == 401 and calls == []
