@@ -132,6 +132,14 @@ Each was a set with one member. Nothing else in production Redis was touched. No
 
   Both warn that no compliant Sentinel-2 scene exists in either window (independent accuracy would not be assessable).
 
+**Swap added (owner, via LISH, 2026-11-16 09:47 UTC).** This follows the build-memory finding in §7. The owner ran the commands and confirmed the host (hostname `localhost`, IP 172.236.139.113). Read-only check at 09:49 UTC:
+- **`swapon --show`:** `/dev/sdb` partition 496M (priority −2, unchanged) and **`/swapfile` file 2G** (priority −3), both active.
+- **`free -h`:** memory 1.9 GiB total, 813 MiB available; swap total **2.5 GiB**.
+- **`vm.swappiness`:** **10** (was 60), set persistently in `/etc/sysctl.d/`.
+- **`/swapfile`:** owned by root, mode 600, 2,147,483,648 bytes.
+- **`/etc/fstab`:** gains `/swapfile none swap sw 0 0`; the root and `/dev/sdb` lines are unchanged. The backup is `/etc/fstab.bak-20261116`. The owner reports `findmnt --verify` gave 0 errors (3 expected warnings) and ran `systemctl daemon-reload`.
+- **Services:** no reboot (uptime 19 days); app and API returned 200 throughout.
+
 ## 6. Owner browser tests
 
 Pending.
@@ -142,4 +150,4 @@ Pending.
 - **Item 16:** an orbit-aware split in the area playground.
 - **Item 17:** coverage-aware advice: "Trim the edge" at 95% coverage or more, "Split" below.
 - **Item 18:** a science decision for the client: allow runs with at least 99% Sentinel-1 coverage and report the uncovered part as no-data, instead of blocking.
-- **Build memory:** the frontend build's minimum MemAvailable fell to 335 MB (r5: 384 MB, r4: 678 MB) on the 1.9 GiB host. Production was unaffected; keep the sequential builds. Before the next release, consider building the frontend off-host or adding swap.
+- **Build memory:** the frontend build's minimum MemAvailable fell to 335 MB (r5: 384 MB, r4: 678 MB) on the 1.9 GiB host. Production was unaffected; keep the sequential builds. Before the next release, consider building the frontend off-host or adding swap. **Done:** a 2 GiB swap file was added after the release, with swappiness 10 (see §5, "After the release").
