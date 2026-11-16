@@ -167,3 +167,17 @@ def test_provider_failure_returns_a_plain_503(client, setup, monkeypatch):
         response = client.post(path, headers=setup.headers, json=payload)
         assert response.status_code == 503 and response.json()["detail"] == preflight.UNAVAILABLE_MESSAGE
         assert "secret-project" not in response.text and "EEException" not in response.text
+
+
+def test_empty_product_list_is_refused_with_422_on_submit_and_preflight(client, setup, monkeypatch):
+    """r5.1: a request without a product never reaches the provider or creates a task."""
+    _availability(monkeypatch, OK)
+    payload = {**_payload(setup.project, setup.aoi, ("2024-05-24", "2024-05-26"), ("2022-08-28", "2022-09-03")), "products": []}
+    before = setup.db.query(Task).count()
+    for path in ("/api/v1/analyses", "/api/v1/analyses/preflight"):
+        response = client.post(path, headers=setup.headers, json=payload)
+        assert response.status_code == 422, response.text
+        error = response.json()["error"]
+        assert error["code"] == "validation_error"
+        assert any(detail["loc"][-1] == "products" for detail in error["details"])
+    assert setup.db.query(Task).count() == before
