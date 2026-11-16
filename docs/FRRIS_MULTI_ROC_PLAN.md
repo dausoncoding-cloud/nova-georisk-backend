@@ -79,6 +79,16 @@ The holdout ROC stays a single curve, labelled "not independent" (r5.2). The rep
 
 The chart is replaced by "Multi-variable ROC not assessable: <reason>", using the reason already recorded.
 
+### (f) Individual ROC per variable (client addition, 2026-11-16)
+
+A second figure of small multiples: one panel per variable (RF vote fraction, `sar_change`, `sar_vv_target`, `elevation`, `slope`, `rainfall`).
+- **Each panel:** its own curve, the 1:1 random-classifier line, the AUC with its direction, and n.
+- **Operating point:** on the RF panel only.
+- **Not assessable:** a panel that is not assessable shows the reason instead of a curve.
+- **Same record:** the numbers are the same as the combined chart, drawn from the same record with no new computation.
+- **Where it appears:** report Appendix C, and the result package (PNG and SVG).
+- **The combined chart stays** in section 9.
+
 ### Results page
 
 One line under the independent ROC pointing to the per-variable curves in the report and workbook.
@@ -104,7 +114,8 @@ One line under the independent ROC pointing to the per-variable curves in the re
 | Check on real Rufiji data, full suites, review | 1.0 |
 | Release (Phase A/B, r5 procedure) and record | 1.0 |
 | Results-page line | 0.25 |
-| **Total** | **6.25 (range 5.25–7.25)** |
+| Small multiples, one panel per variable (§3(f)) | 0.25 |
+| **Total** | **6.5 (range 5.5–7.5)** |
 
 At the time of writing, only the four Rufiji results have an assessable Sentinel-2 comparison. Sunguvuni, Kilombero and the October runs would show the "not assessable" state.
 
