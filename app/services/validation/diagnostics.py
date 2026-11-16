@@ -1,11 +1,12 @@
 """Persistable diagnostics and standard ReportLab plots of supplied observations."""
+import textwrap
 from dataclasses import asdict
 from pathlib import Path
 from xml.sax.saxutils import escape
 
 import numpy as np
 import pandas as pd
-from reportlab.graphics.shapes import Drawing, String
+from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.graphics.charts.lineplots import LinePlot
 from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.graphics.widgets.markers import makeMarker
@@ -20,6 +21,7 @@ from app.services.reporting.fonts import embed_in_drawing, embed_in_styles, pdf_
 from app.services.reporting.complete_report import _spreadsheet_safe
 from app.services.source_data.bundle4 import clean
 from app.services.validation.regression_metrics import compute_regression_metrics
+from app.services.validation.auc_presentation import auc_view
 from app.services.validation.classification_metrics import compute_classification_metrics, classification_metrics_from_counts, ConfusionCounts
 
 LIMITATIONS = ['Metrics describe supplied paired observations only; no independent certification, calibration or forecast skill is inferred.',
@@ -95,7 +97,25 @@ def binary_diagnostics(observed, predicted, scores=None):
         'independent_calibration': {'available': False, 'reason': 'Requires independently reviewed observations and calibration evidence'}}})
 
 
-def line_plot(title, series, *, scatter=False, x_label='x', y_label='y'):
+def binary_auc_view(result, auc_scope=None, auc_interval=None):
+    """The AUC of a binary diagnostics result, labelled by its reference (r5.2, auc_presentation)."""
+    support = result['metrics'].get('class_support') or {}
+    roc = (result.get('curves') or {}).get('roc') or []
+    return auc_view(auc_scope, auc=result['metrics'].get('roc_auc'), positives=support.get('1', 0), negatives=support.get('0', 0),
+                    roc_points=[(p['false_positive_rate'], p['true_positive_rate']) for p in roc], interval=auc_interval)
+
+
+def note_plot(title, lines):
+    """A framed text panel in place of a plot that cannot be drawn honestly."""
+    drawing = Drawing(460, 280)
+    drawing.add(Rect(65, 45, 365, 190, strokeColor=colors.HexColor('#7a7a7a'), fillColor=None))
+    drawing.add(String(65, 255, title[:75], fontSize=12))
+    for index, line in enumerate(lines):
+        drawing.add(String(80, 200 - 16 * index, line[:70], fontSize=10))
+    return drawing
+
+
+def line_plot(title, series, *, scatter=False, x_label='x', y_label='y', note=None):
     drawing = Drawing(460, 280)
     plot = LinePlot()
     plot.x, plot.y, plot.width, plot.height = 65, 45, 365, 190
@@ -108,6 +128,8 @@ def line_plot(title, series, *, scatter=False, x_label='x', y_label='y'):
     drawing.add(String(65, 255, title[:75], fontSize=12))
     drawing.add(String(100, 12, x_label[:60], fontSize=9))
     drawing.add(String(2, 245, y_label[:60], fontSize=8))
+    if note:
+        drawing.add(String(425, 60, note[:60], fontSize=9, textAnchor='end'))
     return drawing
 
 
@@ -123,7 +145,8 @@ def bar_plot(title, labels, values):
     return drawing
 
 
-def write_diagnostic_artifacts(directory, observed, predicted, *, kind, units, scope, version, scores=None):
+def write_diagnostic_artifacts(directory, observed, predicted, *, kind, units, scope, version, scores=None,
+                               auc_scope=None, auc_interval=None):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     observed, predicted = paired(observed, predicted)
@@ -144,9 +167,16 @@ def write_diagnostic_artifacts(directory, observed, predicted, *, kind, units, s
         c = result['metrics']['confusion']
         drawings['confusion_counts'] = bar_plot('Binary confusion counts (supplied labels)', ['TP', 'TN', 'FP', 'FN'], [c[key] for key in ('tp', 'tn', 'fp', 'fn')])
         drawings['class_imbalance'] = bar_plot('Observed class support (codes 0 and 1)', ['0', '1'], [result['metrics']['class_support'][key] for key in ('0', '1')])
+        auc = binary_auc_view(result, auc_scope, auc_interval) if scores is not None else None
+        if auc is not None and not auc.assessable:
+            # r5.2: no misleading curve; the reason instead.
+            drawings['roc'] = note_plot(f'ROC — {auc.label}', ['AUC not assessable:', *textwrap.wrap(auc.reason, 60)])
         if result['curves']:
             roc, pr, sweep = (result['curves'][key] for key in ('roc', 'precision_recall', 'thresholds'))
-            drawings['roc'] = line_plot('ROC; supplied conditional scores', [( [p['false_positive_rate'] for p in roc], [p['true_positive_rate'] for p in roc])], x_label='False positive rate', y_label='True positive rate')
+            if auc is not None and auc.assessable:
+                drawings['roc'] = line_plot(f'ROC — {auc.label}', [( [p['false_positive_rate'] for p in roc], [p['true_positive_rate'] for p in roc])],
+                                            x_label='False positive rate', y_label='True positive rate',
+                                            note=f'AUC {auc.value_text()}')
             drawings['precision_recall'] = line_plot('Precision–recall; supplied conditional scores', [([p['recall'] for p in pr], [p['precision'] for p in pr])], x_label='Recall', y_label='Precision')
             valid = [p for p in sweep if p['f1_score'] is not None]
             if valid: drawings['threshold_f1'] = line_plot('Diagnostic thresholds; no policy selected', [([p['threshold'] for p in valid], [p['f1_score'] for p in valid])], x_label='Supplied score threshold', y_label='F1')
@@ -165,7 +195,11 @@ def write_diagnostic_artifacts(directory, observed, predicted, *, kind, units, s
     embed_in_styles(styles)  # embedded DejaVu Sans; SVG plots above keep their own fonts
     story = [Paragraph('FRRIS supplied-observation diagnostics', styles['Heading1']), Paragraph(escape(scope), styles['BodyText'])]
     for text in LIMITATIONS: story.append(Paragraph(escape(text), styles['BodyText']))
+    if kind != 'continuous' and scores is not None:
+        story.append(Paragraph(escape(binary_auc_view(result, auc_scope, auc_interval).sentence()), styles['BodyText']))
     for name, value in result['metrics'].items():
+        if name == 'roc_auc' and kind != 'continuous' and scores is not None:
+            continue  # shown above with its reference label
         if not isinstance(value, dict): story.append(Paragraph(escape(f'{name}: {value if value is not None else "undefined"}'), styles['BodyText']))
     for drawing in drawings.values():
         embed_in_drawing(drawing)
