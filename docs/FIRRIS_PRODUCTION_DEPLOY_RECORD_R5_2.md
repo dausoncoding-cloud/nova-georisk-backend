@@ -109,7 +109,14 @@ After the cutover, only `_kombu.binding.diag_noop_r52_20261116t095418z` (db 3, a
 
 ## 5. Owner browser tests
 
-Pending (the owner will send the r5.1 and r5.2 results together).
+On production on 2026-11-16, by the NOVAREX owner. Tests 1–5 (r5.1 changes) are in the r5.1 record.
+
+| Test | Result |
+|---|---|
+| 6. ugalla-river-north-bank-o101, 22 Apr 2024 / 19 Sep 2023, orbit 101 | Run completed: flood extent 19.93 km² (6.56% of valid), 99.56% valid. This was the first completed run on the trimmed orbit-101 AOI (see the r5.1 record, "After the release"). The report shows "AUC vs SAR-derived labels (holdout, not independent)" 1.000 with the near-perfect-agreement sentence, in both the table and the figure. **PASS** |
+| Extra: an older Rufiji result page | Shows "AUC vs Sentinel-2 reference (independent) 0.805" with "no sampling interval" (census). This confirms the new labels apply to existing results on the Results page. **PASS** |
+
+New findings: backlog §4.7 items 20 and 21.
 
 ## 6. Findings
 
