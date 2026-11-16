@@ -142,14 +142,14 @@ Each was a set with one member. Nothing else in production Redis was touched. No
 
 ## 6. Owner browser tests
 
-On production on 2026-11-16, by the NOVAREX owner, after r5.2 was deployed (r5.2 contains every r5.1 change). Tests 1–5 cover r5.1; test 6 and the extra check are in the r5.2 record.
+On production on 2026-11-16, by the NOVAREX owner, after r5.2 was deployed (r5.2 contains every r5.1 change). Tests 1–5 cover r5.1; test 6 and the extra check are in the r5.2 record. **All six browser tests pass.**
 
 | Test | Result |
 |---|---|
 | 1. No product selected | Run disabled, "Select at least one product (step 4)". **PASS** |
 | 2. ugalla-river-north-bank, 15 Apr 2024 / 12 Sep 2023 | Blocked before submit: "Cannot run with this area and these dates", 99% / 98.8% coverage. **PASS** |
 | 3. Rufiji 24–25 May 2024 / Sep 2023 | Ready, orbit 57, with the Sentinel-2 partial-coverage warning (11.4%). **PASS** |
-| 4. "Use nearest pass (…)" button with the new date style | **Result not reported:** the owner's form was sent with this field unfilled. Open until the owner gives PASS or FAIL |
+| 4. Rufiji, target 20–21 May 2024 (no pass) | Blocked with "No Sentinel-1 pass over this area between 20 and 21 May 2024"; the button reads "Use nearest pass (25 May 2024)" in the new date style. **PASS** (reported by the owner in a follow-up on the same day) |
 | 5. Area playground, Ugalla NP | The 120 m option says detail is strongly reduced and "Recommended: Split"; after Trim, "Box 482 km² (trimmed)". **PASS** |
 
 ## 7. Findings (backlog, plan §4.7)
