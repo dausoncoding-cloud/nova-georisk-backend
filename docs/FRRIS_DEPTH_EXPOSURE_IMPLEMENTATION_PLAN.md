@@ -187,6 +187,23 @@ Each figure is a single `getInfo` from the workstation: Open Buildings v3, count
 
 The planned run-time limit for an exposure step is 10 minutes. It is enforced by the worker task as for the existing analysis steps.
 
+## 2b. Item 2.7 result: Open Buildings spot-check (Rufiji, 2026-11-17)
+
+**Manual spot-check by the owner:** Google Earth Pro, recent imagery, 5 views across the Rufiji observed flood extent, about 100 building points inspected.
+- **Commission:** about 95% or more of the points sit on real structures (metal, thatch and mud roofs). A few fall on bare ground or under trees.
+- **Possible duplicates:** several small buildings carry 2–3 points (possibly split footprints or duplicates).
+- **Omission: not assessed.** The file holds only the buildings inside the observed flood extent, so buildings without a point there are expected; the check could not measure them.
+
+**Duplicate check (read-only, same extent):** Open Buildings centroids closer than 3 m to another centroid, on the observed extent as reported (5.33 km²).
+
+| Confidence | Points | Within 3 m of another | Counting each group once | Nearest pair |
+|---|---|---|---|---|
+| ≥ 0.65 (sensitivity) | 444 | 6 (3 pairs) | 441 (−3, −0.7%) | 1.47 m |
+| ≥ 0.75 (reported) | 337 | 0 | 337 (no change) | 5.43 m |
+
+- **Effect:** the near-duplicates are small, low-confidence detections (median footprint 7 m², against about 60 m² overall). The 0.75 threshold used for the reported counts already excludes them.
+- **Counting rule:** no change (centroid inside the extent, no merging). Any change needs an owner decision.
+
 ## 3. Work breakdown (person-days, engineering only)
 
 | # | Work item | Backend | Frontend | Science / QA | Tests | Release & docs | Total |
