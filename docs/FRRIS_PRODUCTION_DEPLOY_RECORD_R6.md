@@ -3,7 +3,7 @@
 **Date:** 2026-11-17 (UTC).
 **Host:** `deploy@172.236.139.113` (`app.novageorisk.com`, `api.novageorisk.com`).
 **Release:** r6 = r5.3 (per-variable ROC against Sentinel-2, report-ready ROC figures) + the Depth & Exposure module (modelled hazard from GloFAS v2.1; estimated exposure from WorldPop R2025A and Open Buildings v3) + backlog §4.7 items 20–22 (wording).
-**Result:** deployed at the first attempt, no rollback. API/BFF downtime **55.0 s** (r5.2: 45.8 s). Phase A and Phase B ran in one owner-authorised run; Phase B ran inside `tmux` on the server.
+**Result:** deployed at the first attempt, no rollback; owner browser tests PASS. API/BFF downtime **55.0 s** (r5.2: 45.8 s). Phase A and Phase B ran in one owner-authorised run; Phase B ran inside `tmux` on the server.
 
 Internal identifiers keep the old spelling (`FIRRIS_*` files, engine key `firris`, `firris-science-2`).
 
@@ -85,7 +85,13 @@ Only `_kombu.binding.diag_noop_r6_20261117t041352z` (db 3, a set with one member
 
 ## 5. Owner browser tests
 
-**Pending.** To test on production:
+**PASS** (owner, 2026-11-17): the owner reports that all r6 browser tests pass. The last one was the map viewer: both people layers (observed extent and 1-in-100-year zone) compare side by side with the AOI outline, the OSM basemap and the "people per ~100 m cell" legend.
+
+### Context: the observed-extent people cluster (owner, 2026-11-17)
+
+The map viewer shows that the cluster of people inside the observed flood candidates is the town of **Ikwiriri**. Ikwiriri South was among the areas affected by the April 2024 Rufiji floods. The floods began about 4 April 2024, and Cyclone Hidaya struck on 4 May 2024. The acceptance target date (24–25 May 2024) is weeks after the peak, so the flood candidates there stay ambiguous: they may be residual water or SAR commission error. The report keeps its current wording: GloFAS being dry there "supports, but does not prove" commission error. No code change.
+
+The original checklist (the record above covers all of it):
 1. **New analysis, Rufiji 24–25 May 2024 with both new options on:**
    - the run completes;
    - the result has the "Modelled hazard" and "Exposure" tabs;
