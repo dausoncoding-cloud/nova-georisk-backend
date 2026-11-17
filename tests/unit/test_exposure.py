@@ -267,3 +267,15 @@ def test_glofas_check_of_the_settled_cluster_and_the_report_sentence():
     assert "modelled as wet by GloFAS" in wet_sentence and "does not prove" not in wet_sentence
     assert observed_versus_glofas({"observed_cluster": {**cluster, "compact": False, "glofas": check}}) is None
     assert ex.cluster_glofas_check(cluster, None) is None
+
+
+def test_map_caveat_and_outline_snapping():
+    from app.services.firris.exposure_exports import map_caveat
+    from app.services.maps.map_furniture import SNAP_PX, _snap
+    assert map_caveat({"observed_extent_caveat": {"users_accuracy_flood_pct": 48.9}}) == (
+        "Flood candidates are model-classified: user's accuracy for flood 48.9% vs Sentinel-2. "
+        "Built-up areas may contain false positives.")
+    assert "not assessable (no Sentinel-2 reference)" in map_caveat({"observed_extent_caveat": {"users_accuracy_flood_pct": None}})
+    box = (100, 100, 1100, 900)
+    assert _snap(1100 - SNAP_PX + 1, 899, box) == (1100, 900)  # an AOI edge just inside the frame sits on the frame
+    assert _snap(500, 500, box) == (500, 500)

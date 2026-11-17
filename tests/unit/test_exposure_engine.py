@@ -137,6 +137,7 @@ def test_files_maps_workbook_and_package(run):
     assert layout["colour_scale"]["classes"][-1] == {"label": "Outside the extent", "color": "#FFFFFF"}
     assert layout["colour_scale"]["classes"][0]["color"] != "#FFFFFF"
     assert "WorldPop R2025A" in furniture["source"] and "Open Buildings v3" in furniture["source"]
+    assert furniture["caveat"].startswith("Flood candidates are model-classified: user's accuracy for flood")
     assert furniture["points_drawn"] >= 1 and furniture["north_arrow"] and furniture["scale_bar_km"] > 0 and furniture["aoi_outline"]
     observed_row = [line for line in (directory / files["flood_exposure_by_extent"]["path"]).read_text().splitlines()
                     if line.startswith("observed_extent")][0]

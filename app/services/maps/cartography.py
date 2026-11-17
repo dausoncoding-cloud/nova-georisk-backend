@@ -26,7 +26,7 @@ from reportlab.pdfgen import canvas
 from shapely.geometry import shape
 
 from app.platform.result_exports import artifact_entry
-from app.services.maps.map_furniture import BOTTOM_EXTRA, TOP_EXTRA, decorate, pdf_from_png, scale_bar_km
+from app.services.maps.map_furniture import BOTTOM_EXTRA, CAVEAT_EXTRA, TOP_EXTRA, decorate, pdf_from_png, scale_bar_km
 from app.services.reporting.fonts import font_path, register_fonts
 
 
@@ -438,7 +438,7 @@ def _render(output_directory: Path, key: str, entry: dict, provenance: dict, ver
     if notice:
         sheet_size = (sheet_size[0], sheet_size[1] + 70)
     if furniture:
-        sheet_size = (sheet_size[0], sheet_size[1] + BOTTOM_EXTRA)
+        sheet_size = (sheet_size[0], sheet_size[1] + BOTTOM_EXTRA + (CAVEAT_EXTRA if furniture.get("caveat") else 0))
     labels = _coordinate_labels(crs, bounds, box)
     created = datetime.now(timezone.utc).isoformat()
     layout = {"style": "simple framed map", "title": title,
@@ -455,7 +455,8 @@ def _render(output_directory: Path, key: str, entry: dict, provenance: dict, ver
     if furniture:
         furniture = {**furniture, "_legend_rows": len(scale.get("classes") or [])}
         sheet = decorate(sheet, box, bounds, crs, furniture, output_directory, legend_x=box[2] + _GAP)
-        layout["furniture"] = {k: v for k, v in furniture.items() if k in ("title", "subtitle", "source", "legend_title", "nodata_label")}
+        layout["furniture"] = {k: v for k, v in furniture.items()
+                               if k in ("title", "subtitle", "source", "caveat", "legend_title", "nodata_label")}
         bar_km = scale_bar_km(bounds, box, crs)[0]
         layout["furniture"].update({"scale_bar_km": bar_km, "scale_bar_labels": ["0", f"{bar_km / 2:g}", f"{bar_km:g} km"],
                                     "north_arrow": True,

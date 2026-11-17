@@ -22,6 +22,8 @@ from rasterio.crs import CRS
 
 TOP_EXTRA = 170      # room for the title and subtitle
 BOTTOM_EXTRA = 120   # room for the source line
+CAVEAT_EXTRA = 90    # room for a caveat line (for example the flood map's commission error)
+SNAP_PX = 15         # an AOI edge this close to the map frame is drawn on the frame (no double line)
 INK = "#1A1A1A"
 NICE_KM = (0.1, 0.2, 0.25, 0.5, 1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200, 500)
 
@@ -49,6 +51,21 @@ def _rings(geometry: dict):
             yield from polygon
 
 
+CAVEAT_INK = "#7F1D1D"
+
+
+def _snap(px: float, py: float, box) -> tuple[float, float]:
+    """Put an outline point that is within SNAP_PX of the map frame exactly on the frame."""
+    x0, y0, x1, y1 = box
+    for edge in (x0, x1):
+        if abs(px - edge) <= SNAP_PX:
+            px = edge
+    for edge in (y0, y1):
+        if abs(py - edge) <= SNAP_PX:
+            py = edge
+    return px, py
+
+
 def scale_bar_km(bounds, box, crs: CRS) -> tuple[float, float]:
     """(length in km, length in px) of a scale bar about a quarter of the map width."""
     west, south, east, north = bounds
@@ -69,7 +86,7 @@ def decorate(sheet: Image.Image, box, bounds, crs: CRS, furniture: dict[str, Any
     x0, y0, x1, y1 = box
     # AOI outline (drawn over the map, under the furniture).
     for ring in _rings(furniture.get("aoi_outline") or {}):
-        points = [_to_px(lon, lat, box, bounds, crs) for lon, lat in ring]
+        points = [_snap(*_to_px(lon, lat, box, bounds, crs), box) for lon, lat in ring]
         if len(points) > 1:
             draw.line(points + [points[0]], fill=INK, width=4, joint="curve")
     # Point overlay (for example buildings above a confidence threshold).
@@ -112,12 +129,16 @@ def decorate(sheet: Image.Image, box, bounds, crs: CRS, furniture: dict[str, Any
         ly = y0 + 70 * furniture.get("_legend_rows", 0) + 22
         draw.ellipse((legend_x + 20, ly - 10, legend_x + 40, ly + 10), fill=INK, outline="white", width=1)
         draw.text((legend_x + 80, ly), overlay["label"], font=_font(34), fill=INK, anchor="lm")
-    # Source / attribution line (bottom), wrapped to the sheet width.
-    if furniture.get("source"):
-        width_chars = max(60, int(sheet.size[0] / 15))
-        lines = textwrap.wrap(furniture["source"], width_chars)
-        for index, line in enumerate(lines):
-            draw.text((x0, sheet.size[1] - 30 - (len(lines) - 1 - index) * 34), line, font=_font(26), fill="#333333", anchor="ls")
+    # Source / attribution line (bottom) and, above it, the caveat line; both wrapped to the sheet width.
+    width_chars = max(60, int(sheet.size[0] / 15))
+    source_lines = textwrap.wrap(furniture.get("source") or "", width_chars)
+    for index, line in enumerate(source_lines):
+        draw.text((x0, sheet.size[1] - 30 - (len(source_lines) - 1 - index) * 34), line, font=_font(26), fill="#333333", anchor="ls")
+    if furniture.get("caveat"):
+        caveat_lines = textwrap.wrap(furniture["caveat"], max(50, int(sheet.size[0] / 17)))
+        base = sheet.size[1] - 30 - len(source_lines) * 34 - 18
+        for index, line in enumerate(caveat_lines):
+            draw.text((x0, base - (len(caveat_lines) - 1 - index) * 36), line, font=_font(28, bold=True), fill=CAVEAT_INK, anchor="ls")
     furniture["_drawn_points"] = drawn
     return sheet
 

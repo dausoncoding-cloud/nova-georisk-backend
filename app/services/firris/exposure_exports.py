@@ -25,6 +25,14 @@ PEOPLE_COLOURS = ("#FDD0A2", "#FDAE6B", "#F16913", "#A63603", "#4D1A04")  # firs
 PEOPLE_BINS = (1, 5, 20, 50)  # people per 100 m cell
 
 
+def map_caveat(record: dict[str, Any]) -> str:
+    """The flood map's commission error on the map itself (owner, 2026-11-17), computed per run."""
+    accuracy = (record.get("observed_extent_caveat") or {}).get("users_accuracy_flood_pct")
+    measured = (f"user's accuracy for flood {accuracy:.1f}% vs Sentinel-2" if accuracy is not None
+                else "user's accuracy for flood not assessable (no Sentinel-2 reference)")
+    return f"Flood candidates are model-classified: {measured}. Built-up areas may contain false positives."
+
+
 def people_legend() -> dict[str, Any]:
     edges = (0, *PEOPLE_BINS)
     entries = [{"label": f"{low:g}–{high:g}", "color": colour, "max": float(high)}
@@ -115,6 +123,7 @@ def exposure_exports(output_directory: Path, record: dict[str, Any], layers: dic
                          + "; an estimate, not people affected"),
             "source": (f"{WORLDPOP_SOURCE} {BUILDINGS_SOURCE} Flood candidates: this FRRIS run." if observed_map
                        else f"{GLOFAS_PRODUCED_WORK_NOTICE}. {WORLDPOP_SOURCE}"),
+            "caveat": map_caveat(record) if observed_map else None,
             "legend_title": "People per ~100 m cell", "nodata_label": "Outside the extent", "aoi_outline": aoi_geometry,
             "points": ({"path": "exposed_buildings_observed_extent.geojson", "min_confidence": 0.75,
                         "label": "Building (Open Buildings v3, confidence ≥ 0.75)"}
