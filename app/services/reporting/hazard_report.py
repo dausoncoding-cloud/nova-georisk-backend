@@ -11,7 +11,7 @@ from typing import Any
 from app.services.firris.hazard_sources import GLOFAS_METHOD_REFERENCES
 from app.services.reporting.hazard_figures import aep_figure, depth_return_period_figure
 
-SECTION = "12. Modelled flood hazard (GloFAS v2.1, context)"
+SECTION = "Modelled flood hazard (GloFAS v2.1, context)"
 MAP_KEYS = ("modelled_flood_depth_rp10", "modelled_flood_depth_rp100", "modelled_flood_depth_rp500")
 FIGURE_LABELS = {"modelled_hazard_depth_by_return_period": "Modelled flood hazard — depth by return period",
                  "modelled_hazard_aep": "Modelled flood hazard — AEP and probability of at least one occurrence"}
@@ -32,11 +32,11 @@ def is_hazard_map(key: str) -> bool:
 
 
 def hazard_section(writer, output_directory: Path, record: dict[str, Any] | None, map_entries: dict[str, dict],
-                   *, aoi: str | None = None) -> dict[str, tuple[Path, str]]:
-    """Write section 12 and return its figure files (for the downloads list and the package)."""
+                   *, aoi: str | None = None, number: int = 10) -> dict[str, tuple[Path, str]]:
+    """Write the hazard section and return its figure files (for the downloads list and the package)."""
     if not record:
         return {}
-    writer.heading(SECTION)
+    writer.heading(f"{number}. {SECTION}")
     note = (record.get("method") or {}).get("note")
     status = record.get("status")
     if status != "assessed":
@@ -93,9 +93,11 @@ def hazard_section(writer, output_directory: Path, record: dict[str, Any] | None
         if entry:
             period = key.rsplit("rp", 1)[1]
             writer.image(output_directory / entry["path"], 16, f"Modelled flood depth, 1-in-{period}-year river discharge "
-                         "(GloFAS v2.1, undefended, ~90 m). Permanent water is shown as no data.", max_height_cm=10)
+                         "(GloFAS v2.1, undefended, ~90 m). Permanent water (not flooding) is shown in grey.", max_height_cm=10)
     writer.para(f"Source: {record['citation']}. Method: " + "; ".join(GLOFAS_METHOD_REFERENCES) + ".")
-    writer.para(f"Attribution: {record['attribution']} Licence: {record['licence']}")
+    writer.para(f"{record.get('produced_work_notice') or record['attribution']}. Source: {record['citation']}. "
+                f"Licence: {record['licence']} The GloFAS-derived layers and tables in the result package are derivative "
+                "databases available under ODbL v1.0 (see README.txt in the package).")
     for name, paths in (("modelled_hazard_depth_by_return_period", depth), ("modelled_hazard_aep", aep)):
         figures[f"figure_{name}_png"] = (paths["png"], "image/png")
         figures[f"figure_{name}_svg"] = (paths["svg"], "image/svg+xml")

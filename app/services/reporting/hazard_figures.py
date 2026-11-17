@@ -16,6 +16,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
+from app.services.firris.hazard_sources import GLOFAS_PRODUCED_WORK_NOTICE  # noqa: E402
 from app.services.firris.modelled_hazard import probability_at_least_once  # noqa: E402
 
 matplotlib.rcParams["svg.fonttype"] = "none"
@@ -79,7 +80,8 @@ def depth_return_period_figure(record: dict[str, Any], stem: Path, *, title: str
         ax.patch.set_visible(False)
         handles = ax.get_legend_handles_labels()[0] + share.get_legend_handles_labels()[0]
         labels = ax.get_legend_handles_labels()[1] + share.get_legend_handles_labels()[1]
-        fig.legend(handles, labels, loc="outside lower center", ncol=3, frameon=False)
+        fig.legend(handles, labels, loc="outside lower center", ncol=3, frameon=False,
+                   title=GLOFAS_PRODUCED_WORK_NOTICE, title_fontsize=6.5)  # ODbL notice on this Produced Work
         return _save(fig, stem)
 
 

@@ -5,8 +5,10 @@
   extent (sub-cell sampling). The "cells touching the extent" count is kept for transparency only (it overstates).
 * Buildings: Open Buildings v3, centroid inside the extent, exact server-side counts at confidence ≥ 0.75 (≥ 0.65 as a
   sensitivity), tiling only on time-out, no sampling.
-* Extents: the run's observed flood-candidate extent and the GloFAS wet zone of each return period. GloFAS permanent
-  water is excluded from every extent, the same way as the hazard figures (it is not flooding).
+* Extents: the run's observed flood-candidate extent, reported unchanged as the flood map defines it (the map already
+  excludes JRC permanent water, occurrence >= 90 %, at 30 m), and the GloFAS wet zone of each return period, from which
+  GloFAS permanent water is excluded as in the hazard figures. The observed extent masked with the coarser GloFAS
+  permanent water is kept in the record as a sensitivity note only (owner decision, 2026-11-17).
 * Every figure is an estimate with its version, year, threshold and method; never "people affected".
 """
 from __future__ import annotations
@@ -20,7 +22,7 @@ from rasterio.transform import Affine
 from shapely.geometry import shape
 from shapely.ops import unary_union
 
-from app.services.firris.hazard_sources import MIN_DEPTH_M, RETURN_PERIODS
+from app.services.firris.hazard_sources import GLOFAS_DATABASE_NOTICE, MIN_DEPTH_M, RETURN_PERIODS
 from app.services.firris.modelled_hazard import cell_areas_km2
 from app.services.gee.open_buildings import (OPEN_BUILDINGS_ASSET, OPEN_BUILDINGS_CITATION, OPEN_BUILDINGS_LICENCE,
                                              OPEN_BUILDINGS_VERSION, THRESHOLDS, BuildingCountUnavailable)
@@ -28,6 +30,11 @@ from app.services.gee.worldpop import (WORLDPOP_ASSET, WORLDPOP_CITATION, WORLDP
                                        year_status)
 
 logger = logging.getLogger(__name__)
+WORLDPOP_ALPHA_CAVEAT = ("WorldPop R2025A is an alpha release: WorldPop states that it may change over the coming year as "
+                         "improvements are made, so these population figures may change.")
+BUILDINGS_LIMITATION = ("Open Buildings detection quality varies between areas; informal buildings and thatched or vegetated "
+                        "roofs may be missed, so building counts may be too low.")
+BUILDINGS_SPOT_CHECK = "pending: manual comparison with very-high-resolution imagery (owner)"
 EXPOSURE_WORDING = ("Estimated exposure: modelled people and detected buildings inside each extent. Not people affected, "
                     "not damage; the version, year, threshold and method are part of every figure.")
 MAP_EXTENTS = ("observed_extent", "rp100")
@@ -92,18 +99,19 @@ def exposure_rows(population, aoi_geometry: dict, *, observed: dict | None, haza
     permanent = []
     if hazard_layers:
         permanent = [(hazard_layers["permanent_water"], hazard_layers["transform"])]
-    # (key, label, reported mask, mask including permanent water or None, grid transform)
+    # (key, label, reported mask, alternative mask or None, grid transform). The alternative is the sensitivity:
+    # the observed extent masked with GloFAS permanent water; for a GloFAS zone, the zone with permanent water kept.
     extents: list[tuple[str, str, np.ndarray | None, np.ndarray | None, Affine | None]] = [
         ("whole_area", "Whole area (reference)", None, None, None)]
     if observed is not None and observed.get("extent") is not None:
-        obs_all, obs_t = observed["extent"], observed["transform"]
-        obs = obs_all
-        if permanent:  # the same exclusion as the hazard figures, on the extent's own grid
-            height, width = obs_all.shape
+        obs, obs_t = observed["extent"], observed["transform"]
+        masked = None
+        if permanent:  # sensitivity only: the coarser GloFAS permanent water on the extent's own grid
+            height, width = obs.shape
             cc, rr = np.meshgrid(np.arange(width) + 0.5, np.arange(height) + 0.5)
             xs, ys = obs_t * (cc, rr)
-            obs = obs_all & ~sample_mask(permanent[0][0], permanent[0][1], np.asarray(xs), np.asarray(ys))
-        extents.append(("observed_extent", "Observed flood candidates (this run)", obs, obs_all if permanent else None, obs_t))
+            masked = obs & ~sample_mask(permanent[0][0], permanent[0][1], np.asarray(xs), np.asarray(ys))
+        extents.append(("observed_extent", "Observed flood candidates (this run)", obs, masked, obs_t))
     if hazard_layers:
         for period in RETURN_PERIODS:
             depth = hazard_layers["depth"][period]
@@ -122,7 +130,9 @@ def exposure_rows(population, aoi_geometry: dict, *, observed: dict | None, haza
     for key, label, mask, mask_all, mask_t in extents:
         fraction, geometry, values = figures(mask, mask_t)
         row = {"extent": key, "label": label, **values}
-        if mask_all is not None:  # transparency, as in the hazard figures: the same extent with permanent water kept
+        if mask_all is not None and key == "observed_extent":
+            row["sensitivity_glofas_permanent_water_masked"] = figures(mask_all, mask_t)[2]
+        elif mask_all is not None:  # transparency, as in the hazard figures: the same zone with permanent water kept
             row["including_permanent_water"] = figures(mask_all, mask_t)[2]
         rows.append(row)
         if key in MAP_EXTENTS:
@@ -137,14 +147,19 @@ def exposure_record(population, rows: list[dict], *, points: dict | None = None)
         "population": {"asset": WORLDPOP_ASSET, "release": WORLDPOP_RELEASE, "year": population.year,
                        "requested_year": population.requested_year, "year_status": status_year,
                        "method": "area-weighted: people per 100 m cell × fraction of the cell inside the extent",
-                       "source": population.provenance(), "citation": WORLDPOP_CITATION, "licence": WORLDPOP_LICENCE},
+                       "source": population.provenance(), "citation": WORLDPOP_CITATION, "licence": WORLDPOP_LICENCE,
+                       "release_caveat": WORLDPOP_ALPHA_CAVEAT},
         "buildings": {"asset": OPEN_BUILDINGS_ASSET, "version": OPEN_BUILDINGS_VERSION, "primary_threshold": THRESHOLDS[0],
                       "sensitivity_threshold": THRESHOLDS[1],
                       "method": "centroid inside the extent; exact server-side count; tiles only after a time-out; no sampling",
                       "threshold_note": "No precision per confidence threshold is published; 0.75 is our stated choice.",
+                      "limitation": BUILDINGS_LIMITATION, "spot_check": BUILDINGS_SPOT_CHECK,
                       "citation": OPEN_BUILDINGS_CITATION, "licence": OPEN_BUILDINGS_LICENCE},
-        "permanent_water": "GloFAS permanent-water cells are excluded from every extent (not flooding), as in the hazard figures.",
+        "permanent_water": ("The observed flood candidates are reported as the flood map defines them (JRC permanent water, "
+                            "occurrence >= 90 %, already excluded at 30 m). GloFAS permanent-water cells are excluded from the "
+                            "modelled return-period zones only, as in the hazard figures."),
         "rows": rows,
+        "glofas_zone_notice": ("The return-period zones come from the GloFAS flood hazard maps: " + GLOFAS_DATABASE_NOTICE),
         "building_points": {k: v for k, v in (points or {}).items() if k != "features"} or None,
     }
 

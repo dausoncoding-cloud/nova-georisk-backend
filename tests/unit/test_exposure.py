@@ -168,7 +168,7 @@ def _count(geometry):
             "tiles": 1, "depth": 0, "seconds": 0.0, "method": "fake"}
 
 
-def test_rows_area_weight_people_and_exclude_permanent_water_like_the_hazard():
+def test_rows_area_weight_people_observed_unchanged_and_zones_without_permanent_water():
     aoi = _box(39.0, -8.0 - 4 * C, 39.0 + 4 * C, -8.0)
     population = _population(np.full((4, 4), 10.0))
     observed = {"extent": np.ones((4, 4), bool), "transform": Affine(C, 0, 39.0, 0, -C, -8.0)}
@@ -176,8 +176,10 @@ def test_rows_area_weight_people_and_exclude_permanent_water_like_the_hazard():
     by = {r["extent"]: r for r in rows}
     assert list(by) == ["whole_area", "observed_extent", "rp10", "rp20", "rp50", "rp75", "rp100", "rp200", "rp500"]
     assert by["whole_area"]["people"] == pytest.approx(160)
-    assert by["observed_extent"]["people"] == pytest.approx(120)  # 4 of 16 cells are permanent water
-    assert by["observed_extent"]["including_permanent_water"]["people"] == pytest.approx(160)
+    # Owner decision 2026-11-17: the observed extent as the flood map defines it; GloFAS-masked only as a sensitivity.
+    assert by["observed_extent"]["people"] == pytest.approx(160)
+    assert by["observed_extent"]["sensitivity_glofas_permanent_water_masked"]["people"] == pytest.approx(120)
+    assert "including_permanent_water" not in by["observed_extent"]
     assert by["rp100"]["people"] == pytest.approx(40) and by["rp100"]["including_permanent_water"]["people"] == pytest.approx(80)
     assert by["rp100"]["buildings"]["0.75"]["count"] == 4 and by["rp100"]["buildings"]["status"] == "counted"
     assert all(r["people_cells_touching"] >= r["people"] - 1e-6 for r in rows)
@@ -198,6 +200,11 @@ def test_record_states_year_method_threshold_and_never_affected():
     assert "area-weighted" in record["population"]["method"] and record["buildings"]["primary_threshold"] == 0.75
     assert "Not people affected" in record["wording"] and "doi:10.5258/SOTON/WP00839" in record["population"]["citation"]
     assert "arXiv:2107.12283" in record["buildings"]["citation"]
+    assert "alpha release" in record["population"]["release_caveat"] and "may change" in record["population"]["release_caveat"]
+    assert "informal buildings and thatched" in record["buildings"]["limitation"]
+    assert record["buildings"]["spot_check"].startswith("pending")
+    assert "ODbL" in record["glofas_zone_notice"]
+    assert "modelled return-period zones only" in record["permanent_water"]
 
 
 def test_run_exposure_reports_unavailable_states():

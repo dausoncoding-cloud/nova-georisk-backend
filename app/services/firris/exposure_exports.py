@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from app.platform.result_exports import artifact_entry
+from app.services.firris.hazard_sources import GLOFAS_DATABASE_NOTICE, GLOFAS_PRODUCED_WORK_NOTICE
 from app.services.maps.export import RasterSpec, write_cog
 from app.services.reporting.report_builder import export_csv
 
@@ -45,12 +46,13 @@ def exposure_table_rows(record: dict[str, Any]) -> list[dict[str, Any]]:
                 "buildings_conf_0_75": (b.get("0.75") or {}).get("count"), "footprint_m2_conf_0_75": (b.get("0.75") or {}).get("area_m2"),
                 "buildings_conf_0_65": (b.get("0.65") or {}).get("count"), "footprint_m2_conf_0_65": (b.get("0.65") or {}).get("area_m2"),
                 "building_method": b.get("method") or b.get("reason"), "building_tiles": b.get("tiles")}
-        including = row.get("including_permanent_water")
-        if including:
-            ib = including.get("buildings") or {}
-            line.update({"area_km2_including_permanent_water": including["area_km2"],
-                         "people_including_permanent_water": including["people"],
-                         "buildings_conf_0_75_including_permanent_water": (ib.get("0.75") or {}).get("count")})
+        for field, suffix in (("including_permanent_water", "including_permanent_water"),
+                              ("sensitivity_glofas_permanent_water_masked", "sensitivity_glofas_permanent_water_masked")):
+            extra = row.get(field)
+            if extra:
+                eb = extra.get("buildings") or {}
+                line.update({f"area_km2_{suffix}": extra["area_km2"], f"people_{suffix}": extra["people"],
+                             f"buildings_conf_0_75_{suffix}": (eb.get("0.75") or {}).get("count")})
         rows.append(line)
     return rows
 
@@ -88,9 +90,14 @@ def exposure_exports(output_directory: Path, record: dict[str, Any], layers: dic
         label = f"{MAP_LABELS[extent]} (WorldPop {population.get('year')}, area-weighted)"
         semantics = (f"Estimated people (WorldPop R2025A, {population.get('year')}: {(population.get('year_status') or {}).get('text')}); "
                      "area-weighted share of each 100 m cell inside the extent. An estimate, not people affected.")
+        licence = f"People: WorldPop R2025A, {population.get('licence')}."
+        notice = None
+        if extent.startswith("rp"):  # the zone comes from GloFAS: an ODbL derivative database and Produced Work
+            licence += f" Zone: {GLOFAS_DATABASE_NOTICE}"
+            notice = f"{GLOFAS_PRODUCED_WORK_NOTICE}; WorldPop R2025A, CC BY 4.0"
         gis = {"crs": "EPSG:4326", "bounding_box": bounds, "spatial_resolution": resolution, "product_key": key, "display_label": label,
                "units": "people per cell", "nodata": NODATA, "legend": people_legend(), "producer": producer, "static_product": True,
-               "semantics": semantics, "licence": population.get("licence"), "attribution": population.get("citation")}
+               "semantics": semantics, "licence": licence, "attribution": population.get("citation"), "map_notice": notice}
         layer = {"layer_type": "raster", "crs": "EPSG:4326", "bounding_box": bounds, "spatial_resolution": resolution,
                  "units": "people per cell", "nodata": NODATA, "legend": people_legend(), "renderable": True, "rendering_reason": None,
                  "available_delivery_types": ["cog"], "planned_delivery_types": [], "product_key": key}

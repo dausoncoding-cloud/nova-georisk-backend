@@ -1,9 +1,9 @@
 """Files of the modelled flood hazard (Depth & Exposure module, plan items 1.5 and 1.6).
 
-* One COG of modelled depth per return period on the GloFAS grid (m; 0 = dry inside the AOI; no data outside the AOI,
-  on permanent water and on flagged cells). RP10, RP100 and RP500 are map-renderable, so each gets a framed map,
+* One COG of modelled depth per return period on the GloFAS grid (m; 0 = dry inside the AOI; -1 = permanent water,
+  not flooding, shown as its own grey class; no data outside the AOI and on flagged cells). RP10, RP100 and RP500 are map-renderable, so each gets a framed map,
   a GIS-ready layer and its README through the existing cartography; the others are delivered as COGs only.
-* One COG of permanent water (1) inside the AOI: reported separately, it is not flooding.
+* One COG of permanent water (1; no data elsewhere) inside the AOI, viewable on its own: it is not flooding.
 * The record (JSON) and two tables (CSV): statistics per return period, and AEP with the probability of at least one
   occurrence in n years.
 Attribution, licence and the method note travel in every layer's metadata (from ``hazard_sources``).
@@ -18,14 +18,17 @@ import numpy as np
 import pandas as pd
 
 from app.platform.result_exports import artifact_entry
-from app.services.firris.hazard_sources import (DEPTH_BINS, GLOFAS_ATTRIBUTION, GLOFAS_LICENCE, GLOFAS_METHOD_NOTE,
-                                                GLOFAS_VERSION, MIN_DEPTH_M, RETURN_PERIODS)
+from app.services.firris.hazard_sources import (DEPTH_BINS, GLOFAS_ATTRIBUTION, GLOFAS_DATABASE_NOTICE, GLOFAS_METHOD_NOTE,
+                                                GLOFAS_PRODUCED_WORK_NOTICE, GLOFAS_VERSION, MIN_DEPTH_M, RETURN_PERIODS)
 from app.services.maps.export import RasterSpec, write_cog
 from app.services.reporting.report_builder import export_csv
 
 NODATA = -9999.0
 MAP_PERIODS = (10, 100, 500)
 DEPTH_COLOURS = ("#EDEDED", "#C6DBEF", "#9ECAE1", "#6BAED6", "#3182BD", "#08519C")
+PERMANENT_WATER_VALUE = -1.0
+PERMANENT_WATER_COLOUR = "#8C8C8C"
+PERMANENT_WATER_LABEL = "Permanent water (not flooding)"
 
 
 def depth_key(period: int) -> str:
@@ -35,12 +38,13 @@ def depth_key(period: int) -> str:
 def depth_legend() -> dict[str, Any]:
     """Our depth bins. Class maxima sit half a millimetre below each bin edge so that a depth exactly on an edge
     (the data have millimetre precision) falls in the bin that starts there, as in the statistics: [low, high)."""
-    entries = [{"label": f"Dry (< {MIN_DEPTH_M:g} m)", "color": DEPTH_COLOURS[0], "max": MIN_DEPTH_M / 2}]
+    entries = [{"label": PERMANENT_WATER_LABEL, "color": PERMANENT_WATER_COLOUR, "max": PERMANENT_WATER_VALUE / 2},
+               {"label": f"Dry (< {MIN_DEPTH_M:g} m)", "color": DEPTH_COLOURS[0], "max": MIN_DEPTH_M / 2}]
     for (low, high), colour in zip(DEPTH_BINS, DEPTH_COLOURS[1:]):
         label = f"> {low:g} m" if high is None else f"{low:g}–{high:g} m"
         entries.append({"label": label, "color": colour, "max": None if high is None else high - 0.0005})
-    return {"title": "Modelled flood depth (m)", "entries": entries,
-            "nodata_label": "Outside the area, permanent water (separate layer) or flagged cells"}
+    return {"title": "Modelled flood depth (m)", "entries": entries, "nodata_label": "Outside the area or flagged cells",
+            "value_codes": {str(PERMANENT_WATER_VALUE): PERMANENT_WATER_LABEL}}
 
 
 def _bounds(transform, shape) -> dict[str, float]:
@@ -58,7 +62,8 @@ def _layer_metadata(key: str, label: str, transform, shape, *, renderable: bool,
            "display_label": label, "units": "m" if period else "class", "nodata": NODATA, "legend": legend,
            "producer": producer, "static_product": True, "source_dataset": f"GloFAS flood hazard maps {GLOFAS_VERSION}",
            "return_period_years": period, "aep": (1 / period) if period else None, "semantics": GLOFAS_METHOD_NOTE,
-           "attribution": GLOFAS_ATTRIBUTION, "licence": GLOFAS_LICENCE, "context_not_accuracy": True}
+           "attribution": GLOFAS_ATTRIBUTION, "licence": GLOFAS_DATABASE_NOTICE, "map_notice": GLOFAS_PRODUCED_WORK_NOTICE,
+           "context_not_accuracy": True}
     layer = {"layer_type": "raster", "crs": "EPSG:4326", "bounding_box": bounds, "spatial_resolution": resolution,
              "units": gis["units"], "nodata": NODATA, "legend": legend, "renderable": renderable,
              "rendering_reason": None if renderable else "Delivered as a GIS layer; the report maps show RP10, RP100 and RP500.",
@@ -99,7 +104,8 @@ def hazard_exports(output_directory: Path, record: dict[str, Any], layers: dict[
     for period in RETURN_PERIODS:
         depth = layers["depth"][period]
         values = np.where(np.isfinite(depth) & (depth >= MIN_DEPTH_M), depth, 0.0)
-        values = np.where(inside & ~permanent & ~spurious, values, NODATA).astype(np.float32)
+        values = np.where(permanent, PERMANENT_WATER_VALUE, values)  # its own grey class, not a depth
+        values = np.where(inside & ~spurious, values, NODATA).astype(np.float32)
         if not (values != NODATA).any():  # e.g. an AOI that is all permanent water: nothing to map
             continue
         key = depth_key(period)
@@ -111,14 +117,17 @@ def hazard_exports(output_directory: Path, record: dict[str, Any], layers: dict[
         entries[key] = artifact_entry(path, label=f"{label} COG", media_type="image/tiff", artifact_type="raster",
                                       result_version=result_version, role="product", product_key=key, delivery_type="cog",
                                       format_name="cog", gis_metadata=gis, layer=layer)
-    path = output_directory / "modelled_permanent_water.cog.tif"
-    write_cog(str(path), np.where(inside, permanent.astype(np.float32), NODATA).astype(np.float32), spec, nodata=NODATA)
-    gis, layer = _layer_metadata("modelled_permanent_water", "Permanent water used by the GloFAS maps (not flooding)", transform,
-                                 shape, renderable=False, legend=None, producer=producer, period=None)
-    entries["modelled_permanent_water"] = artifact_entry(
-        path, label="Permanent water in the GloFAS maps (1 = permanent water; not flooding) COG", media_type="image/tiff",
-        artifact_type="raster", result_version=result_version, role="export", product_key="modelled_permanent_water",
-        delivery_type="cog", format_name="cog", gis_metadata=gis, layer=layer)
+    if (inside & permanent).any():  # a layer with no valid cell cannot be displayed or summarised
+        path = output_directory / "modelled_permanent_water.cog.tif"
+        write_cog(str(path), np.where(inside & permanent, 1.0, NODATA).astype(np.float32), spec, nodata=NODATA)
+        legend = {"title": "Permanent water in the GloFAS maps", "entries": [{"label": PERMANENT_WATER_LABEL, "color": PERMANENT_WATER_COLOUR,
+                                                                            "max": None}], "nodata_label": "Not permanent water"}
+        gis, layer = _layer_metadata("modelled_permanent_water", "Permanent water used by the GloFAS maps (not flooding)", transform,
+                                     shape, renderable=True, legend=legend, producer=producer, period=None)
+        entries["modelled_permanent_water"] = artifact_entry(
+            path, label="Permanent water in the GloFAS maps (1 = permanent water; not flooding) COG", media_type="image/tiff",
+            artifact_type="raster", result_version=result_version, role="product", product_key="modelled_permanent_water",
+            delivery_type="cog", format_name="cog", gis_metadata=gis, layer=layer)
     return entries
 
 

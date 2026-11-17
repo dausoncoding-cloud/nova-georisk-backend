@@ -154,7 +154,9 @@ def _hazard_sheets(record: dict[str, Any] | None) -> dict[str, pd.DataFrame]:
     about = [{"item": "Status", "value": record.get("status")}, {"item": "Reason", "value": record.get("reason")},
              {"item": "Method", "value": (record.get("method") or {}).get("note")},
              {"item": "Citation", "value": record.get("citation")}, {"item": "Attribution", "value": record.get("attribution")},
-             {"item": "Licence", "value": record.get("licence")}]
+             {"item": "Licence", "value": record.get("licence")},
+             {"item": "Licence notice (maps, graphs, report)", "value": record.get("produced_work_notice")},
+             {"item": "Licence notice (these tables and the GIS layers)", "value": record.get("database_notice")}]
     return {"Modelled hazard by RP": pd.DataFrame(rows), "Hazard occurrence": pd.DataFrame(occurrence),
             "Modelled hazard source": pd.DataFrame(about)}
 
@@ -172,9 +174,12 @@ def _exposure_sheets(record: dict[str, Any] | None) -> dict[str, pd.DataFrame]:
              {"item": "Population citation", "value": population.get("citation")}, {"item": "Population licence", "value": population.get("licence")},
              {"item": "Buildings", "value": f"{buildings.get('asset')} {buildings.get('version')}; confidence >= {buildings.get('primary_threshold')} "
                                              f"(sensitivity >= {buildings.get('sensitivity_threshold')})"},
+             {"item": "Population release caveat", "value": population.get("release_caveat")},
              {"item": "Building method", "value": buildings.get("method")}, {"item": "Threshold note", "value": buildings.get("threshold_note")},
+             {"item": "Building limitation", "value": buildings.get("limitation")}, {"item": "Building spot-check", "value": buildings.get("spot_check")},
              {"item": "Buildings citation", "value": buildings.get("citation")}, {"item": "Buildings licence", "value": buildings.get("licence")},
-             {"item": "Permanent water", "value": record.get("permanent_water")}]
+             {"item": "Permanent water", "value": record.get("permanent_water")},
+             {"item": "Return-period zones (licence notice)", "value": record.get("glofas_zone_notice")}]
     rows = exposure_table_rows(record) or [{"status": record.get("status"), "reason": record.get("reason")}]
     return {"Exposure by extent": pd.DataFrame(rows), "Exposure source": pd.DataFrame(about)}
 

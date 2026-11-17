@@ -95,7 +95,8 @@ def test_summary_rows_year_and_provenance(run):
     whole = record["rows"][0]
     assert whole["people"] == pytest.approx(3600, rel=1e-3)  # 60 × 60 cells × 1 person
     observed = record["rows"][1]
-    assert observed["people"] <= observed["including_permanent_water"]["people"]
+    assert observed["sensitivity_glofas_permanent_water_masked"]["people"] <= observed["people"]
+    assert record["rows"][-1]["people"] <= record["rows"][-1]["including_permanent_water"]["people"]
     assert all(r["buildings"]["status"] == "counted" for r in record["rows"])
     assert {"WorldPop/GP/100m/R2025A/v1/pop", "GOOGLE/Research/open-buildings/v3/polygons"} <= set(result.provenance["datasets"])
     assert result.provenance["flood_exposure"]["status"] == "assessed"
@@ -117,20 +118,34 @@ def test_files_maps_workbook_and_package(run):
     for name in ("flood-exposure.json", "flood-exposure-by-extent.csv", "exposed_population_rp100.cog.tif",
                  "exposed_population_observed_extent-map.png", "exposed_buildings_observed_extent.geojson"):
         assert name in names, name
+    with zipfile.ZipFile(directory / files["report_package"]["path"]) as package:
+        readme = package.read("README.txt").decode()
+    note = readme[readme.index("Licence note: GloFAS-derived data"):]
+    assert "exposed_population_rp100.cog.tif" in note and "flood-exposure-by-extent.csv" in note
+    assert "exposed_population_observed_extent.cog.tif" not in note  # the observed extent uses no GloFAS data
+    rp100 = files["exposed_population_rp100"]["gis_metadata"]
+    assert "ODbL" in rp100["licence"] and rp100["map_notice"].startswith("Contains data from GloFAS flood hazard maps (JRC/CEMS), ODbL v1.0")
+    assert files["exposed_population_observed_extent"]["gis_metadata"]["map_notice"] is None
+    assert files["exposed_population_rp100"]["layer"]["renderable"] is True  # shown in the map viewer
 
 
 def test_report_section_13(run):
     _, _, text = run
-    section = text[text.index("13. Estimated exposure (WorldPop, Open Buildings)"):text.index("Appendix A: ")]
+    assert text.index("10. Modelled flood hazard") < text.index("11. Estimated exposure") < text.index("12. Limitations")
+    section = text[text.index("11. Estimated exposure (WorldPop, Open Buildings)"):text.index("12. Limitations")]
     for part in ("Not people affected", "WorldPop R2025A, 2024", "a projection 2 years after the last census (2022)",
                  "UN World Population Prospects 2024", "area-weighted", "centroid lies inside the extent",
-                 "≥ 0.75", "≥ 0.65 is shown as a sensitivity", "Exact counts, no sampling", "permanent-water cells are excluded from every extent",
+                 "≥ 0.75", "≥ 0.65 is shown as a sensitivity", "Exact counts, no sampling",
+                 "excluded from the modelled return-period zones only", "reported as the flood map defines them",
+                 "Sensitivity only: masking the observed flood candidates", "alpha release", "may change",
+                 "informal buildings and thatched", "spot-check against very-high-resolution imagery is pending",
+                 "Contains data from GloFAS flood hazard maps (JRC/CEMS), ODbL v1.0",
                  "Observed flood candidates (this run)", "Modelled 1-in-100-year zone", "overstates exposure",
                  "doi:10.5258/SOTON/WP00839", "arXiv:2107.12283", "CC BY 4.0"):
         assert part in section, part
     main_maps = text[text.index("7. Main maps"):text.index("8. Area statistics")]
     assert "Estimated people" not in main_maps
-    limitations = text[text.index("10. Limitations"):text.index("11. Provenance")]
+    limitations = text[text.index("12. Limitations"):text.index("13. Provenance")]
     assert "not of people affected or damage" in limitations
 
 

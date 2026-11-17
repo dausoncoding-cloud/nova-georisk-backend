@@ -20,7 +20,8 @@ from rasterio.features import rasterize
 from rasterio.transform import Affine
 
 from app.services.firris.hazard_sources import (DEPTH_BINS, GLOFAS_ATTRIBUTION, GLOFAS_CATEGORY_CODES, GLOFAS_CITATION,
-                                                GLOFAS_LICENCE, GLOFAS_LICENCE_CONFIRMED, GLOFAS_METHOD_NOTE,
+                                                GLOFAS_DATABASE_NOTICE, GLOFAS_LICENCE, GLOFAS_LICENCE_CONFIRMED,
+                                                GLOFAS_METHOD_NOTE, GLOFAS_PRODUCED_WORK_NOTICE,
                                                 GLOFAS_METHOD_REFERENCES, METHOD_VERSION, MIN_DEPTH_M, OCCURRENCE_YEARS,
                                                 RETURN_PERIODS)
 
@@ -182,6 +183,7 @@ def hazard_record(stack, aoi_geometry: dict, *, observed: dict | None = None) ->
         "source": stack.provenance(),
         "citation": GLOFAS_CITATION, "method_references": list(GLOFAS_METHOD_REFERENCES),
         "attribution": GLOFAS_ATTRIBUTION, "licence": GLOFAS_LICENCE, "licence_confirmed": GLOFAS_LICENCE_CONFIRMED,
+        "produced_work_notice": GLOFAS_PRODUCED_WORK_NOTICE, "database_notice": GLOFAS_DATABASE_NOTICE,
     }
 
 
@@ -189,7 +191,8 @@ def unavailable_record(reason: str) -> dict[str, Any]:
     return {"status": "not_available", "reason": reason, "method_version": METHOD_VERSION, "return_periods": [],
             "occurrence": {"years": list(OCCURRENCE_YEARS), "rows": occurrence_table()},
             "citation": GLOFAS_CITATION, "attribution": GLOFAS_ATTRIBUTION, "licence": GLOFAS_LICENCE,
-            "licence_confirmed": GLOFAS_LICENCE_CONFIRMED}
+            "licence_confirmed": GLOFAS_LICENCE_CONFIRMED, "produced_work_notice": GLOFAS_PRODUCED_WORK_NOTICE,
+            "database_notice": GLOFAS_DATABASE_NOTICE}
 
 
 def run_modelled_hazard(aoi_geometry: dict, *, extent: np.ndarray | None = None, extent_transform: Affine | None = None,

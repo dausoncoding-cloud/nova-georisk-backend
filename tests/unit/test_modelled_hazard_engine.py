@@ -88,7 +88,7 @@ def test_summary_record_and_provenance(run):
     areas = [r["wet_area_km2"] for r in record["return_periods"]]
     assert areas == sorted(areas) and record["permanent_water_km2"] > 0
     assert all(r["observed_extent"]["pixels"] > 0 for r in record["return_periods"])
-    assert record["licence_confirmed"] is False and record["citation"] == src.GLOFAS_CITATION
+    assert record["licence_confirmed"] is True and record["citation"] == src.GLOFAS_CITATION
     assert result.provenance["modelled_flood_hazard"]["status"] == "assessed"
     assert src.GLOFAS_ASSET in result.provenance["datasets"]
 
@@ -100,20 +100,33 @@ def test_depth_layers_maps_tables_and_package(run):
         entry = files[f"modelled_flood_depth_rp{period}"]
         assert entry["role"] == "product" and entry["format"] == "cog"
         assert entry["layer"]["renderable"] is (period in (10, 100, 500))
-        assert entry["gis_metadata"]["licence"] == src.GLOFAS_LICENCE and entry["gis_metadata"]["attribution"] == src.GLOFAS_ATTRIBUTION
+        assert entry["gis_metadata"]["licence"] == src.GLOFAS_DATABASE_NOTICE and entry["gis_metadata"]["attribution"] == src.GLOFAS_ATTRIBUTION
+        assert entry["gis_metadata"]["map_notice"] == src.GLOFAS_PRODUCED_WORK_NOTICE
         with rasterio.open(directory / entry["path"]) as raster:
             values = raster.read(1)
             assert raster.crs.to_string() == "EPSG:4326" and raster.nodata == -9999.0
-            assert (values[values != -9999.0] >= 0).all() and (values == 0).any() and (values >= 0.1).any()
-            assert (values[55:, :10] == -9999.0).all()  # permanent water is not in the depth layer
+            shown = values[values != -9999.0]
+            assert ((shown >= 0) | (shown == -1.0)).all() and (values == 0).any() and (values >= 0.1).any()
+            assert (values[55:, :10] == -1.0).all()  # permanent water: its own grey class (-1), not a depth
     for period in (10, 100, 500):
         assert f"modelled_flood_depth_rp{period}_map_png" in files and f"modelled_flood_depth_rp{period}_gis_layer" in files
     assert "modelled_flood_depth_rp20_map_png" not in files
     with zipfile.ZipFile(directory / files["modelled_flood_depth_rp100_gis_layer"]["path"]) as layer:
         readme = layer.read("README.txt").decode()
-    assert "Licence: " + src.GLOFAS_LICENCE in readme and "Flood defences are not modelled" in readme
+    # Derivative database: the ODbL notice and the licence note in README.txt, with no added restrictions.
+    assert "Licence: " + src.GLOFAS_DATABASE_NOTICE in readme and "Flood defences are not modelled" in readme
+    assert "available under the Open Data Commons Open Database License (ODbL) v1.0" in readme
+    # Produced Work: the framed map carries the notice (drawn, and recorded in the map metadata) and a grey class.
+    from PIL import Image
+    with Image.open(directory / files["modelled_flood_depth_rp100_map_png"]["path"]) as image:
+        layout = json.loads(image.text["NOVA_GIS_METADATA"])["cartography"]
+    assert layout["notice"] == "Contains data from GloFAS flood hazard maps (JRC/CEMS), ODbL v1.0"
+    assert layout["colour_scale"]["classes"][0]["label"] == "Permanent water (not flooding)"
+    assert layout["colour_scale"]["classes"][0]["color"] == "#8C8C8C"
     assert "Target period" not in readme and "GloFAS" in readme
-    assert files["modelled_permanent_water"]["role"] == "export"
+    assert files["modelled_permanent_water"]["role"] == "product" and files["modelled_permanent_water"]["layer"]["renderable"]
+    for key in ("modelled_flood_depth_rp10", "modelled_flood_depth_rp100", "modelled_flood_depth_rp500", "modelled_permanent_water"):
+        assert files[key]["layer"]["renderable"] is True and files[key]["layer"]["legend"]  # shown in the map viewer
     table = (directory / files["modelled_flood_hazard_by_return_period"]["path"]).read_text()
     assert "wet_pct_of_aoi_including_permanent_water" in table and table.count("\n") == 8
     occurrence = (directory / files["modelled_flood_hazard_occurrence"]["path"]).read_text().splitlines()
@@ -125,25 +138,39 @@ def test_depth_layers_maps_tables_and_package(run):
     for name in ("modelled_flood_depth_rp500.cog.tif", "modelled-flood-hazard.json", "figure-modelled_hazard-aep.png",
                  "figure-modelled_hazard-depth_by_return_period.svg", "modelled_flood_depth_rp100-map.png"):
         assert name in names, name
+    with zipfile.ZipFile(directory / files["report_package"]["path"]) as package:
+        readme = package.read("README.txt").decode()
+    note = readme[readme.index("Licence note: GloFAS-derived data"):]
+    assert src.GLOFAS_DATABASE_NOTICE in note and "These files are available under ODbL v1.0:" in note
+    for name in ("modelled_flood_depth_rp10.cog.tif", "modelled-flood-hazard.json", "modelled-flood-hazard-by-return-period.csv"):
+        assert name in note, name
+    sheet = load_workbook(directory / files["firris_excel_report"]["path"])["Modelled hazard source"]
+    values = [row[1] for row in sheet.iter_rows(values_only=True)]
+    assert src.GLOFAS_PRODUCED_WORK_NOTICE in values and src.GLOFAS_DATABASE_NOTICE in values
+    assert src.GLOFAS_PRODUCED_WORK_NOTICE in (directory / "figure-modelled_hazard-depth_by_return_period.svg").read_text()
 
 
 def test_report_section_12(run):
     result, directory, text = run
-    assert "12. Modelled flood hazard (GloFAS v2.1, context)" in text
-    section = text[text.index("12. Modelled flood hazard"):text.index("Appendix A: ")]
+    # Owner decision 2026-11-17: after the accuracy assessment, before the limitations.
+    assert "10. Modelled flood hazard (GloFAS v2.1, context)" in text
+    assert text.index("9. Accuracy assessment") < text.index("10. Modelled flood hazard") < text.index("11. Limitations")
+    section = text[text.index("10. Modelled flood hazard"):text.index("11. Limitations")]
     for part in ("Gumbel distribution was fitted to annual maximum river discharge", "Flood defences are not modelled",
                  "Permanent water", "excluded from the figures below", "AEP = 1/T", "P = 1 − (1 − 1/T)",
                  "context, not accuracy", "Baugh, C.", "jrc-floods-floodmapgl_rp50y-tif", "doi:10.1002/hyp.9947",
-                 "doi:10.5194/nhess-17-1111-2017", "Licence under confirmation", "26.0%"):
+                 "doi:10.5194/nhess-17-1111-2017", "doi:10.2905/JRC.VD32YWG", "Open Data Commons Open Database License (ODbL) v1.0",
+                 "Contains data from GloFAS flood hazard maps (JRC/CEMS), ODbL v1.0", "derivative databases available under ODbL v1.0",
+                 "shown in grey", "26.0%"):
         assert part in section, part
     assert "10.1016/j.advwatres.2016.05.002" not in text
     main_maps = text[text.index("7. Main maps"):text.index("8. Area statistics")]
     assert "Modelled flood depth" not in main_maps  # the hazard maps live in section 12
-    limitations = text[text.index("10. Limitations"):text.index("11. Provenance")]
-    assert "modelled river-flood hazard in section 12" in limitations
+    limitations = text[text.index("11. Limitations"):text.index("12. Provenance")]
+    assert "modelled river-flood hazard in section 10" in limitations
     assert "Depth, velocity, hazard, return period, exposure, vulnerability and risk are not produced" not in limitations
     docx = " ".join(p.text for p in Document(directory / result.output_files["scientific_report_word"]["path"]).paragraphs)
-    assert "12. Modelled flood hazard (GloFAS v2.1, context)" in docx
+    assert "10. Modelled flood hazard (GloFAS v2.1, context)" in docx
     for key in ("figure_modelled_hazard_depth_by_return_period_png", "figure_modelled_hazard_aep_png"):
         assert key in result.output_files
 
@@ -175,7 +202,7 @@ def test_without_the_option_nothing_changes(tmp_path, monkeypatch, run):
     assert "modelled_flood_hazard" not in result.summary
     assert not [key for key in result.output_files if "modelled" in key]
     text = _text(tmp_path / result.output_files["scientific_report_pdf"]["path"])
-    assert "12. Modelled flood hazard" not in text
+    assert "Modelled flood hazard (GloFAS" not in text and "10. Limitations" in text and "11. Provenance summary" in text
     assert "Depth, velocity, hazard, return period, exposure, vulnerability and risk are not produced" in text
     # The flood map, its metrics and the independent accuracy are identical with and without the hazard option.
     with_hazard, hazard_dir, _ = run

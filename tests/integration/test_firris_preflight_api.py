@@ -90,7 +90,7 @@ def test_no_imagery_cases_are_refused_at_submit_with_a_clear_message(client, set
     if case == "no_s1_pass":
         # P6: inclusive wording; the API window 2024-05-21 → 2024-05-23 (exclusive) covers 21 and 22 May.
         assert response.json()["detail"] == ("No Sentinel-1 pass over this area between 21 and 22 May 2024. "
-                                             "Nearest usable passes: before 13 May 2024, after 25 May 2024.")
+                                             "Nearest usable passes: 13 May 2024 (before the window) and 25 May 2024 (after).")
     assert setup.db.query(Task).count() == before
 
 

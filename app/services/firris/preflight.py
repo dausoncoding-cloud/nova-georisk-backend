@@ -181,9 +181,12 @@ def _orbit_issues(periods: dict[str, AnalysisPreflightPeriod]) -> list[AnalysisP
     issues = []
     for name, period in periods.items():
         if not period.sentinel1_pass_dates:
-            nearest = [f"{label} {day_text(day)}" for label, day in (("before", period.nearest_pass_before),
-                                                                     ("after", period.nearest_pass_after)) if day]
-            hint = (f" Nearest usable passes: {', '.join(nearest)}." if nearest
+            # Backlog §4.7 item 22: the dates are the nearest passes themselves, not limits ("before 13 May").
+            nearest = [f"{day_text(day)} ({label})" for label, day in (("before the window", period.nearest_pass_before),
+                                                                       ("after the window", period.nearest_pass_after)) if day]
+            if len(nearest) == 2:
+                nearest[1] = nearest[1].replace("(after the window)", "(after)")
+            hint = (f" Nearest usable pass{'es' if len(nearest) == 2 else ''}: {' and '.join(nearest)}." if nearest
                     else f" No usable pass within {NEAREST_SEARCH_DAYS} days either side.")
             issues.append(_issue("no_sentinel1_pass",
                                  f"No Sentinel-1 pass over this area {between_text(period.start, period.end)}.{hint}", name))

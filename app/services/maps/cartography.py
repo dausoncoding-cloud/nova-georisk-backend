@@ -265,7 +265,7 @@ def _scale(bands, continuous, value_range, units, has_nodata, title: str | None 
     return {"kind": "class_key", "classes": classes}
 
 
-def _draw_png(map_rgba: Image.Image, box, sheet_size, labels, scale) -> Image.Image:
+def _draw_png(map_rgba: Image.Image, box, sheet_size, labels, scale, notice: str | None = None) -> Image.Image:
     sheet = Image.new("RGB", sheet_size, "white")
     sheet.paste(map_rgba, (box[0], box[1]), map_rgba)
     draw = ImageDraw.Draw(sheet)
@@ -294,10 +294,12 @@ def _draw_png(map_rgba: Image.Image, box, sheet_size, labels, scale) -> Image.Im
             y = box[1] + index * 70
             draw.rectangle((panel_x, y, panel_x + 60, y + 44), fill=item["color"], outline="black", width=2)
             draw.text((panel_x + 80, y + 22), item["label"], font=font, fill="black", anchor="lm")
+    if notice:  # a data licence notice required on Produced Works (for example ODbL for GloFAS-derived maps)
+        draw.text((box[0], sheet.size[1] - 28), notice, font=_font(30), fill="#333333", anchor="ls")
     return sheet
 
 
-def _draw_pdf(path: Path, map_rgba: Image.Image, box, sheet_size, labels, scale, title: str):
+def _draw_pdf(path: Path, map_rgba: Image.Image, box, sheet_size, labels, scale, title: str, notice: str | None = None):
     pt = 72 / _DPI
     width, height = sheet_size
     flip = lambda y: (height - y) * pt  # noqa: E731
@@ -338,6 +340,9 @@ def _draw_pdf(path: Path, map_rgba: Image.Image, box, sheet_size, labels, scale,
             pdf.rect(panel_x, flip(y + 44), 60 * pt, 44 * pt, stroke=1, fill=1)
             pdf.setFillColorRGB(0, 0, 0)
             pdf.drawString(panel_x + 80 * pt, flip(y + 30), item["label"])
+    if notice:
+        pdf.setFont(register_fonts(), 7)
+        pdf.drawString(box[0] * pt, flip(height - 28), notice)
     pdf.showPage()
     pdf.save()
 
@@ -420,20 +425,23 @@ def _render(output_directory: Path, key: str, entry: dict, provenance: dict, ver
     panel_width = swatch + max(int(math.ceil(font.getlength(text))) for text in texts) + 40
     panel_height = min(map_size[1], 900) if scale["kind"] == "gradient" else 70 * len(scale["classes"])
     sheet_size = (box[2] + _GAP + panel_width, max(box[3], box[1] + panel_height) + _MARGIN_BOTTOM)
+    notice = meta.get("map_notice")
+    if notice:
+        sheet_size = (sheet_size[0], sheet_size[1] + 70)
     labels = _coordinate_labels(crs, bounds, box)
     created = datetime.now(timezone.utc).isoformat()
     layout = {"style": "simple framed map", "title": title,
               "elements": ["map", "neatline", "coordinate_labels", "colour_scale"],
               "map_box_px": list(box), "sheet_px": list(sheet_size), "dpi": _DPI, "crs": crs.to_string(), "bounds": list(bounds),
               "coordinate_labels": [{k: v for k, v in label.items() if k != "position_px"} for label in labels],
-              "colour_scale": scale, "created_at": created, "source_artifact_sha256": entry["checksum_sha256"],
+              "colour_scale": scale, "notice": notice, "created_at": created, "source_artifact_sha256": entry["checksum_sha256"],
               "provenance_sha256": hashlib.sha256(json.dumps(provenance, sort_keys=True, default=str).encode()).hexdigest()}
     png = output_directory / f"{key}-map.png"
     pdf = output_directory / f"{key}-map.pdf"
     info = PngImagePlugin.PngInfo()
     info.add_text("NOVA_GIS_METADATA", json.dumps({"source": meta, "cartography": layout}, sort_keys=True, default=str))
-    _draw_png(map_image, box, sheet_size, labels, scale).save(png, pnginfo=info, dpi=(_DPI, _DPI), optimize=True)
-    _draw_pdf(pdf, map_image, box, sheet_size, labels, scale, title)
+    _draw_png(map_image, box, sheet_size, labels, scale, notice).save(png, pnginfo=info, dpi=(_DPI, _DPI), optimize=True)
+    _draw_pdf(pdf, map_image, box, sheet_size, labels, scale, title, notice)
     carto_meta = {**meta, "cartography": layout}
     entries[f"{key}_map_png"] = artifact_entry(png, label=f"{title} map PNG (framed, 300 dpi)", media_type="image/png",
         artifact_type="report", result_version=version, role="export", product_key=key, delivery_type="map_png", format_name="png", gis_metadata=carto_meta)

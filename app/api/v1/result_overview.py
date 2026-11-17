@@ -14,6 +14,7 @@ from app.services.reporting.data_sources import SOURCES, credit, datasets_with_c
 
 DEFAULT_MINIMUM_COVERAGE_PCT = 70.0  # pipeline default when a result did not record its gate value
 DEFAULT_MAX_CLOUD_PCT = 20.0
+NO_SCENE_TEXT = "no compliant scene"
 INDEPENDENT_THRESHOLD = "compliant Sentinel-2 at both dates; ≥ 50 eligible pixels per class"
 OPTICAL_BANDS = {"source_mndwi_target", "source_mndwi_baseline", "optical_reference"}
 SCENE_COLLECTIONS = {
@@ -85,17 +86,25 @@ def _quality_gates(summary: dict, quality: dict, provenance: dict) -> list[dict[
     gates.append(_gate("Valid pixel coverage", f"≥ {minimum:g}%", None if coverage is None else f"{coverage:.2f}%",
                        "not_recorded" if coverage is None else ("pass" if coverage >= minimum else "fail")))
     optical = _scenes(quality, "sentinel_2_target", "sentinel_2_baseline")
+    # Backlog §4.7 item 20: the run recorded zero compliant Sentinel-2 scenes, so there is nothing to measure. Results
+    # without scene counts (older runs) keep "not recorded".
+    counts = quality.get("scene_counts") or {}
+    no_scene = (not optical and "sentinel_2_target" in counts
+                and not counts.get("sentinel_2_target") and not counts.get("sentinel_2_baseline"))
+    missing = "not_applicable" if no_scene else "not_recorded"
+    missing_text = NO_SCENE_TEXT if no_scene else None
     max_cloud = quality.get("max_cloud_pct", DEFAULT_MAX_CLOUD_PCT)
     clouds = [scene["cloud_pct"] for scene in optical if isinstance(scene.get("cloud_pct"), (int, float))]
     gates.append(_gate("Sentinel-2 cloud cover", f"≤ {max_cloud:g}% per scene",
-                       f"max {max(clouds):.1f}% over {len(clouds)} scenes" if clouds else None,
-                       ("pass" if max(clouds) <= max_cloud else "fail") if clouds else "not_recorded"))
+                       f"max {max(clouds):.1f}% over {len(clouds)} scenes" if clouds else missing_text,
+                       ("pass" if max(clouds) <= max_cloud else "fail") if clouds else missing))
     degraded = [scene["degraded_msi_pct"] for scene in optical if isinstance(scene.get("degraded_msi_pct"), (int, float))]
     # Runs since client decision D6 record their scene threshold; earlier results ran at 0%.
     degraded_limit = float(quality.get("degraded_msi_max_pct", 0.0))
     degraded_threshold = f"≤ {degraded_limit:g}% per scene" if degraded_limit else "= 0%"
-    gates.append(_gate("Sentinel-2 degraded MSI", degraded_threshold, f"max {max(degraded):.2f}% over {len(degraded)} scenes" if degraded else None,
-                       ("pass" if max(degraded) <= degraded_limit else "fail") if degraded else "not_recorded"))
+    gates.append(_gate("Sentinel-2 degraded MSI", degraded_threshold,
+                       f"max {max(degraded):.2f}% over {len(degraded)} scenes" if degraded else missing_text,
+                       ("pass" if max(degraded) <= degraded_limit else "fail") if degraded else missing))
     orbits = [sorted({scene["relative_orbit"] for scene in _scenes(quality, key) if "relative_orbit" in scene})
               for key in ("sentinel_1_target", "sentinel_1_baseline")]
     if all(orbits):

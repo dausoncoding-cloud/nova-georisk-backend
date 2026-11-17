@@ -148,11 +148,15 @@ def test_observed_extent_share_is_context_and_counts_permanent_water_separately(
     assert share["pixels"] == 64
 
 
-def test_record_carries_citation_attribution_and_the_open_licence_from_one_place():
+def test_record_carries_citation_attribution_and_the_licence_from_one_place():
     record = mh.hazard_record(_stack(np.full((4, 4), 1.0)), AOI_4x4)
     assert record["citation"] == src.GLOFAS_CITATION and "jrc-floods-floodmapgl_rp50y-tif" in record["citation"]
     assert "10.1016/j.advwatres.2016.05.002" not in record["citation"]
-    assert record["licence"] == src.GLOFAS_LICENCE and record["licence_confirmed"] is False
+    assert record["licence"] == src.GLOFAS_LICENCE and record["licence_confirmed"] is True and "(ODbL) v1.0" in record["licence"]
+    assert "doi:10.2905/JRC.VD32YWG" in record["citation"]
+    assert record["produced_work_notice"] == "Contains data from GloFAS flood hazard maps (JRC/CEMS), ODbL v1.0"
+    assert "available under the Open Data Commons Open Database License (ODbL) v1.0" in record["database_notice"]
+    assert "no further restrictions are added" in record["database_notice"]
     assert record["method_references"] == list(src.GLOFAS_METHOD_REFERENCES)
     assert "Flood defences are not modelled" in record["method"]["note"] and "AEP = 1/T" in record["method"]["aep"]
     unavailable = mh.unavailable_record("outside")

@@ -328,11 +328,22 @@ def _accuracy_scope(writer: _Writer, scope: dict, figures: dict[str, dict[str, P
 
 APPENDIX_GROUPS = [("client_deliverable", "Client deliverables"), ("gis_data", "GIS data"),
                    ("figures", "Figures and accuracy tables"), ("audit", "Audit and provenance")]
+def _gate_row(gate: dict, independent_status: str) -> list[str]:
+    """A quality-gate row; backlog §4.7 items 20 and 21 (no repeated reason text, 'not applicable' when no scene)."""
+    from app.api.v1.result_overview import NO_SCENE_TEXT
+    observed, status = gate["observed"] or "—", GATE_STATUS.get(gate["status"], gate["status"])
+    if gate["status"] == "not_applicable" and gate["observed"] == NO_SCENE_TEXT:
+        observed, status = "—", "Not applicable (no compliant scene)"
+    elif gate["name"] == "Independent reference" and independent_status != "assessed":
+        observed = f"{STATUS.get(independent_status, independent_status)} (reason in section 9)"
+    return [gate["name"], gate["threshold"], observed, status]
+
+
 NOT_PRODUCED_WITH_HAZARD = ("Observed flood depth, velocity, exposure, vulnerability and risk are not produced. The modelled "
-                            "river-flood hazard in section 12 (GloFAS) is undefended model context, not an observation of this event.")
+                            "river-flood hazard in section {hazard} (GloFAS) is undefended model context, not an observation of this event.")
 NOT_PRODUCED_WITH_EXPOSURE = ("Observed flood depth, velocity, vulnerability and risk are not produced. The modelled river-flood "
-                              "hazard (section 12) is undefended model context, and the exposure (section 13) is an estimate of "
-                              "people and buildings inside each extent, not of people affected or damage.")
+                              "hazard (section {hazard}) is undefended model context, and the exposure (section {exposure}) is an "
+                              "estimate of people and buildings inside each extent, not of people affected or damage.")
 FIGURE_KINDS = {"modelled_hazard_depth_by_return_period": "Modelled flood hazard — depth by return period",
                 "modelled_hazard_aep": "Modelled flood hazard — AEP and probability of at least one occurrence",
                 "roc_by_variable_panels": "ROC by variable, one panel per variable", "roc_by_variable": "ROC by variable",
@@ -440,6 +451,12 @@ def package_readme(files: list[tuple[str, str, dict]]) -> str:
         lines += [title, "-" * len(title)]
         lines += [f"{by_key[key]}  —  {label}" for key, _, label in rows]
         lines.append("")
+    from app.services.firris.hazard_sources import GLOFAS_DATABASE_NOTICE, GLOFAS_DERIVED_KEYS, GLOFAS_PRODUCED_WORK_NOTICE
+    derived = sorted(arcname for arcname, key, _ in files if key.startswith(GLOFAS_DERIVED_KEYS))
+    if derived:  # ODbL v1.0: derivative databases say so, with no added restrictions; Produced Works carry the notice
+        lines += ["Licence note: GloFAS-derived data", "-" * 33, GLOFAS_DATABASE_NOTICE,
+                  "These files are available under ODbL v1.0:"] + [f"  {name}" for name in derived] + [
+                  f"Maps, graphs and the report made from them carry the notice: \"{GLOFAS_PRODUCED_WORK_NOTICE}\".", ""]
     return "\n".join(lines)
 
 
@@ -529,7 +546,8 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
         for line in _independent_summary(independent):
             writer.para(line)
     else:
-        writer.para(f"Independent accuracy: {STATUS.get(status, status)}." + (f" {reason}" if reason else ""))
+        # Backlog §4.7 item 21: the full reason is given once, in section 9.
+        writer.para(f"Independent accuracy: {STATUS.get(status, status)}" + ("; the reason is given in section 9." if reason else "."))
     writer.heading("Scope of this report: not included in this version", 2)
     for name in NOT_INCLUDED:
         writer.para(f"• {name}")
@@ -566,14 +584,14 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
 
     writer.heading("6. Quality gates")
     writer.table(["Gate", "Threshold", "Observed", "Status"],
-                 [[g["name"], g["threshold"], g["observed"] or "—", GATE_STATUS.get(g["status"], g["status"])] for g in overview["quality_gates"]])
+                 [_gate_row(g, status) for g in overview["quality_gates"]])
 
     start = len(writer.story)
     writer.heading("7. Main maps")
     from app.services.reporting.exposure_report import exposure_section, is_exposure_map
     from app.services.reporting.hazard_report import hazard_section, is_hazard_map
     for key, entry in sorted(map_entries.items()):
-        # Modelled hazard maps: section 12; exposure maps: section 13.
+        # Modelled hazard and exposure maps go in their own sections after the accuracy assessment.
         if entry.get("delivery_type") == "map_png" and not is_hazard_map(key) and not is_exposure_map(key):
             title = (entry.get("gis_metadata") or {}).get("cartography", {}).get("title", key)
             # Two maps share one A4 page: each image is at most 10 cm tall.
@@ -610,20 +628,35 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
             internal_scopes.append((scope, figures))
             writer.para(internal_agreement_sentence(scope))
 
-    writer.heading("10. Limitations and what is not claimed")
+    # Depth & Exposure module: sections after the accuracy assessment, before the limitations (owner, 2026-11-17).
+    # Numbered from the run, so a report without them keeps "10. Limitations" and "11. Provenance summary".
+    number = 10
+    sections = {}
+    if summary.get("modelled_flood_hazard"):
+        sections["hazard"] = number
+        figure_files.update(hazard_section(writer, output_directory, summary.get("modelled_flood_hazard"), map_entries, aoi=aoi,
+                                           number=number))
+        number += 1
+    if summary.get("flood_exposure"):
+        sections["exposure"] = number
+        exposure_section(writer, output_directory, summary.get("flood_exposure"), map_entries, number=number)
+        number += 1
+    writer.heading(f"{number}. Limitations and what is not claimed")
     # The paired-observation disclaimer is generic to the diagnostics tool, not about this map.
-    general = [text for text in overview["limitations"] if text != DIAGNOSTIC_LIMITATIONS[0]]
+    general = [(f"Independent accuracy: {STATUS.get(status, status)} (reason in section 9)."
+                if text.startswith("Independent accuracy:") and status != "assessed" else text)
+               for text in overview["limitations"] if text != DIAGNOSTIC_LIMITATIONS[0]]
     gap = baseline_gap_text(gis_metadata.get("target_period"), gis_metadata.get("baseline_period"))
     for text in general + ([gap] if gap else []) + score_limitations(summary, assessment) + ["Flood candidates are a model classification, not confirmed flood observations.",
                                            "No result is field-verified.",
-                                           NOT_PRODUCED_WITH_EXPOSURE if (summary.get("flood_exposure") or {}).get("status") == "assessed" else
-                                           NOT_PRODUCED_WITH_HAZARD if (summary.get("modelled_flood_hazard") or {}).get("status") == "assessed" else
+                                           NOT_PRODUCED_WITH_EXPOSURE.format(**sections) if (summary.get("flood_exposure") or {}).get("status") == "assessed" else
+                                           NOT_PRODUCED_WITH_HAZARD.format(**sections) if (summary.get("modelled_flood_hazard") or {}).get("status") == "assessed" else
                                            "Depth, velocity, hazard, return period, exposure, vulnerability and risk are not produced: they require institutional data "
                                            "(for example surveyed river cross-sections, gauge records and asset registers) that this analysis does not have, "
                                            "and no proxy versions are made."]:
         writer.para(f"• {text}")
 
-    writer.heading("11. Provenance summary")
+    writer.heading(f"{number + 1}. Provenance summary")
     writer.table(["Item", "Value"], [
         ["Science version", str(provenance.get("science_version", "not recorded"))],
         ["Workflow version", str(provenance.get("workflow_version", "not recorded"))],
@@ -631,9 +664,6 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
         ["Sentinel-2 degraded-MSI scene threshold", f"{(summary.get('quality') or {}).get('degraded_msi_max_pct', 0)}%"],
         ["Datasets", ", ".join(provenance.get("datasets") or []) or "not recorded"],
         ["Full provenance", "provenance.json in the result package"]])
-
-    figure_files.update(hazard_section(writer, output_directory, summary.get("modelled_flood_hazard"), map_entries, aoi=aoi))
-    exposure_section(writer, output_directory, summary.get("flood_exposure"), map_entries)
 
     for scope, figures in internal_scopes:
         writer.heading("Appendix A: " + scope["title"], 1)
