@@ -235,12 +235,13 @@ def run_preflight(*, aoi_geometry: dict, source: SatelliteSourceConfig, today: d
             found = period.sentinel2_summary
             if found and period.sentinel2_tiles:
                 found = found[:-1] + ": " + ", ".join(period.sentinel2_tiles) + ")"
-            detail = (f"cover only {coverage:g}% of the area: {found}" if found
+            detail = (f"have footprints that cover only {coverage:g}% of the area: {found}" if found
                       else "do not pass the quality checks used by the analysis")
             warnings.append(_issue("sentinel2_partial_coverage",
                                    f"The compliant Sentinel-2 scenes in the {name} window {detail}. The analysis can run, "
                                    "but its independent accuracy will not be assessable: the reference must cover the whole "
-                                   "area. Widen the window to include a clear date over every tile, or continue.", name))
+                                   "area. Widen the window to include a clear date over every tile, or continue. Clouds and "
+                                   "shadow inside the area are checked after the run.", name))
         if period.sentinel2_compliant_scenes == 0:
             reason = (f" Sentinel-2 surface reflectance is only available from {SENTINEL2_SR_START.isoformat()}."
                       if period.start < SENTINEL2_SR_START else "")

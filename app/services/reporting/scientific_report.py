@@ -610,6 +610,9 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     writer.heading("9. Accuracy assessment")
     variable_record = (summary.get("independent_accuracy") or {}).get("variable_roc") or {}
     roc_context = {"aoi": aoi, "area_km2": area.get("aoi_area_km2_estimate"), "target": target_text, "baseline": baseline_text}
+    coverage = (summary.get("independent_accuracy") or {}).get("reference_coverage_text")
+    if coverage:  # r6.1: always reported
+        writer.para(coverage)
     if status != "assessed":
         writer.para(f"Independent accuracy: {STATUS.get(status, status)}." + (f" {reason}" if reason else ""))
         if variable_record:

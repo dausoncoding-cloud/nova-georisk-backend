@@ -5,6 +5,7 @@ from geoalchemy2.shape import to_shape
 from shapely.geometry import mapping
 
 from app.api.v1.result_overview import build_result_overview
+from app.services.firris.reference_accuracy import summary_view
 from app.models.aoi import AOI
 from app.models.result import Result
 from app.models.task import Task
@@ -191,6 +192,8 @@ def serialize_result(result: Result) -> ResultResponse:
         )
         for item in layer_groups.values()
     ]
+    # The reference-coverage rule applies to stored results too (view only; stored files are never rewritten).
+    summary = summary_view(result.summary)
     return ResultResponse(
         id=result.id,
         task_id=result.task_id,
@@ -199,13 +202,13 @@ def serialize_result(result: Result) -> ResultResponse:
         engine_key=result.engine_key,
         result_type=result.result_type,
         version=result.version,
-        summary=result.summary,
-        analytics=(result.summary or {}).get("delivery"),
-        interpretation=(result.summary or {}).get("interpretation"),
-        validation_dashboard=(result.summary or {}).get("validation_dashboard"),
+        summary=summary,
+        analytics=(summary or {}).get("delivery"),
+        interpretation=(summary or {}).get("interpretation"),
+        validation_dashboard=(summary or {}).get("validation_dashboard"),
         interpretation_notice=legacy_interpretation_notice(result),
         overview=build_result_overview(result),
-        decision_support=(result.summary or {}).get("decision_support"),
+        decision_support=(summary or {}).get("decision_support"),
         provenance=result.provenance,
         products=products,
         layers=layers,

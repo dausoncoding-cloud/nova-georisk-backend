@@ -108,7 +108,7 @@ def test_failing_and_not_assessable_gates_are_reported_as_such():
     summary["independent_accuracy"] = {"status": "not_assessable", "reason": "Sentinel-2 baseline: No compliant optical scene"}
     gates = {gate["name"]: gate for gate in build_result_overview(_result(summary))["quality_gates"]}
     assert gates["Valid pixel coverage"]["status"] == "fail"
-    assert gates["Independent reference"] == {"name": "Independent reference", "threshold": "compliant Sentinel-2 at both dates; ≥ 50 eligible pixels per class",
+    assert gates["Independent reference"] == {"name": "Independent reference", "threshold": "compliant Sentinel-2 at both dates; eligible reference ≥ 70% of the analysed area; ≥ 50 eligible pixels per class",
                                               "observed": "not assessable: Sentinel-2 baseline: No compliant optical scene", "status": "not_applicable"}
 
 

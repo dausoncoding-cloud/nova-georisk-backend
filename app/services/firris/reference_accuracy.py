@@ -23,6 +23,10 @@ from app.services.validation.classification_metrics import compute_classificatio
 
 REFERENCE_SAMPLE_SIZE = 500  # audit sample only
 REFERENCE_MIN_PER_CLASS = 50
+# Interim rule (owner, 2026-11-17) until the client decides D7: the eligible Sentinel-2 reference must cover at least this
+# share of the valid analysed area, the same 70% as the valid-coverage gate. THE one place to change it.
+REFERENCE_MIN_COVERAGE_PCT = 70.0
+UNREPRESENTATIVE_LABEL = "not representative"
 REFERENCE_RANDOM_SEED = 2025
 REFERENCE_WORDING = ("Accuracy assessment against an independent Sentinel-2 optical reference: census of n = {n} "
                      "eligible pixels not used for training. Not field-verified.")
@@ -101,6 +105,53 @@ def weighted_estimates(points: pd.DataFrame) -> dict[str, Any]:
     return estimates
 
 
+def _pct_text(pct: float) -> str:
+    return f"{pct:.2f}" if pct < 1 else f"{pct:.1f}"
+
+
+def coverage_text(pct: float) -> str:
+    return f"Eligible reference pixels cover {_pct_text(pct)}% of the analysed area."
+
+
+def coverage_reason(pct: float) -> str:
+    return (f"the Sentinel-2 reference covers only {_pct_text(pct)}% of the area (at least {REFERENCE_MIN_COVERAGE_PCT:g}% "
+            "of the valid analysed area is required)")
+
+
+def coverage_fields(eligible_fraction: float) -> dict[str, Any]:
+    pct = float(eligible_fraction) * 100
+    return {"reference_coverage_pct": pct, "reference_min_coverage_pct": REFERENCE_MIN_COVERAGE_PCT,
+            "reference_coverage_text": coverage_text(pct)}
+
+
+def not_representative(record: dict[str, Any], raw_metrics: dict[str, Any] | None,
+                       raw_variable_roc: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """The coverage rule: not assessable; raw figures kept only in a labelled block, never headlined."""
+    pct = record["reference_coverage_pct"]
+    reason = coverage_reason(pct)
+    return {**{k: v for k, v in record.items() if k not in ("metrics", "audit_sample", "wording", "variable_roc")},
+            "status": "not_assessable", "reason": reason[0].upper() + reason[1:] + ".", "coverage_rule": "failed",
+            "unrepresentative_metrics": {
+                "label": UNREPRESENTATIVE_LABEL,
+                "note": (f"Not representative: computed on the eligible reference pixels only ({_pct_text(pct)}% of the analysed "
+                         "area). Kept for the record; not map accuracy and not to be quoted."),
+                "metrics": raw_metrics, "variable_roc_auc": raw_variable_roc}}
+
+
+def apply_coverage_rule(record: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Apply the rule to a STORED record (results made before it): add the coverage fields and, if an 'assessed'
+    record is below the threshold, return its not-assessable view. Records are never rewritten on disk."""
+    if not isinstance(record, dict) or record.get("reference_eligible_fraction") is None:
+        return record
+    view = {**record, **coverage_fields(record["reference_eligible_fraction"])}
+    if view.get("status") == "assessed" and view["reference_coverage_pct"] < REFERENCE_MIN_COVERAGE_PCT:
+        from app.services.validation.multi_roc import record_summary_rows
+        roc = record.get("variable_roc") or {}
+        return not_representative(view, record.get("metrics"),
+                                  record_summary_rows(roc) if roc.get("status") == "assessed" else None)
+    return view
+
+
 def census_candidates(reference: np.ndarray, valid_mask: np.ndarray, train_rows, train_cols) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Eligible pixels (admitted, optical valid at both dates), and those of them not used for training."""
     valid = np.asarray(valid_mask, dtype=bool)
@@ -127,6 +178,13 @@ def assess_independent_accuracy(*, provider: str, optical_status: dict | None, r
               "admitted_cells": int(valid.sum()), "excluded_training_cells": int((eligible & training).sum()),
               "reference_eligible_fraction": float(eligible.sum() / valid.sum()) if valid.any() else 0.0,
               "census_per_class": per_class, "min_per_class": REFERENCE_MIN_PER_CLASS}
+    record.update(coverage_fields(record["reference_eligible_fraction"]))
+    # The coverage rule comes before the per-class rule: a tiny, unrepresentative reference is not assessable even when
+    # each class has 50 pixels (Bundle 5, 2026-11-17: 0.42% of the area, n = 454).
+    if record["reference_coverage_pct"] < REFERENCE_MIN_COVERAGE_PCT:
+        raw = (census_metrics(labels[candidates], predicted_class[candidates].astype(int), probability[candidates].astype(float))
+               if all(count > 0 for count in per_class.values()) else None)
+        return not_representative(record, raw), None
     if any(count < REFERENCE_MIN_PER_CLASS for count in per_class.values()):
         return {"status": "insufficient_reference_samples",
                 "reason": (f"Fewer than {REFERENCE_MIN_PER_CLASS} eligible non-training reference pixels in a class "
@@ -138,3 +196,39 @@ def assess_independent_accuracy(*, provider: str, optical_status: dict | None, r
     audit["weighted_estimates"] = weighted_estimates(points)
     return {"status": "assessed", "reason": None, "wording": REFERENCE_WORDING.format(n=metrics["n"]),
             "metrics": metrics, "audit_sample": audit, **record}, points
+
+
+def summary_view(summary: Any) -> Any:
+    """A result summary as the Results page and the API show it, with the coverage rule applied to a stored record.
+
+    Results made before the rule keep their stored files (report, workbook, package); only this view changes: the
+    coverage sentence is added, and an 'assessed' record below REFERENCE_MIN_COVERAGE_PCT reads as not assessable,
+    without headline metrics, the independent scope, the per-variable ROC or a quoted user's accuracy.
+    """
+    if not isinstance(summary, dict) or not isinstance(summary.get("independent_accuracy"), dict):
+        return summary
+    stored = summary["independent_accuracy"]
+    view = apply_coverage_rule(stored)
+    out = {**summary, "independent_accuracy": view}
+    if not (stored.get("status") == "assessed" and view.get("coverage_rule") == "failed"):
+        return out
+    from app.services.firris.exposure import observed_extent_caveat
+    from app.services.firris.variable_roc import not_assessable_record
+    reason = view["reason"]
+    view["variable_roc"] = not_assessable_record(reason)
+    validation = summary.get("validation")
+    if isinstance(validation, dict):
+        out["validation"] = {**validation, "independent_validation": "not_assessable", "independent_accuracy": view}
+    dashboard = summary.get("validation_dashboard")
+    if isinstance(dashboard, dict):
+        dashboard = {**dashboard, "independent_validation": "not_assessable"}
+        assessment = dashboard.get("accuracy_assessment")
+        if isinstance(assessment, dict):
+            dashboard["accuracy_assessment"] = {
+                **assessment, "independent_status": "not_assessable", "independent_reason": reason, "independent_wording": None,
+                "scopes": [s for s in assessment.get("scopes") or [] if s.get("scope") != "independent_optical"]}
+        out["validation_dashboard"] = dashboard
+    exposure = summary.get("flood_exposure")
+    if isinstance(exposure, dict) and exposure.get("observed_extent_caveat"):
+        out["flood_exposure"] = {**exposure, "observed_extent_caveat": observed_extent_caveat(None, reason)}
+    return out

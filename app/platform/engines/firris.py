@@ -142,6 +142,15 @@ def _actual_raster_metadata(workflow: FIRRISWorkflowOutput, client_metadata: dic
     }
 
 
+def _reference_coverage_row(record: dict | None) -> dict:
+    record = record or {}
+    return {"status": record.get("status", "not_performed"), "reason": record.get("reason"),
+            "reference_coverage_pct": record.get("reference_coverage_pct"),
+            "minimum_coverage_pct": record.get("reference_min_coverage_pct"),
+            "eligible_reference_pixels": record.get("eligible_cells"), "valid_analysed_pixels": record.get("admitted_cells"),
+            "coverage": record.get("reference_coverage_text")}
+
+
 def _hazard_sheets(record: dict[str, Any] | None) -> dict[str, pd.DataFrame]:
     """Workbook sheets of the modelled flood hazard (Depth & Exposure module), only when it was requested."""
     if record is None:
@@ -559,6 +568,8 @@ class FIRRISEngineAdapter(EngineAdapter):
                 "Area Statistics": pd.DataFrame([{"product": key, **{field: item for field, item in value["area_statistics"].items() if field != "class_areas"}} for key, value in summaries.items() if "area_statistics" in value]),
                 "Class Areas": pd.DataFrame([{"product": key, **class_area} for key, value in summaries.items() for class_area in value.get("area_statistics", {}).get("class_areas", [])]),
                 "Validation Metrics": pd.DataFrame([{"metric": key, "value": json.dumps(value) if isinstance(value, dict) else value} for key, value in workflow.validation_metrics.items()]),
+                # r6.1: the reference coverage is always reported; raw figures of an unrepresentative reference are not.
+                "Independent reference": pd.DataFrame([_reference_coverage_row(workflow.independent_accuracy)]),
                 # r5.2: every AUC with the reference it is measured against; holdout values are never independent.
                 "AUC by reference": pd.DataFrame([{"scope": scope["scope"], **scope_auc(scope).record()}
                                                   for scope in (workflow.accuracy_assessment or {}).get("scopes", [])]

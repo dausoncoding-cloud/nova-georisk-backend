@@ -15,7 +15,10 @@ from app.services.reporting.data_sources import SOURCES, credit, datasets_with_c
 DEFAULT_MINIMUM_COVERAGE_PCT = 70.0  # pipeline default when a result did not record its gate value
 DEFAULT_MAX_CLOUD_PCT = 20.0
 NO_SCENE_TEXT = "no compliant scene"
-INDEPENDENT_THRESHOLD = "compliant Sentinel-2 at both dates; ≥ 50 eligible pixels per class"
+from app.services.firris.reference_accuracy import REFERENCE_MIN_COVERAGE_PCT, summary_view
+
+INDEPENDENT_THRESHOLD = (f"compliant Sentinel-2 at both dates; eligible reference ≥ {REFERENCE_MIN_COVERAGE_PCT:g}% of the "
+                         "analysed area; ≥ 50 eligible pixels per class")
 OPTICAL_BANDS = {"source_mndwi_target", "source_mndwi_baseline", "optical_reference"}
 SCENE_COLLECTIONS = {
     "COPERNICUS/S1_GRD": ("sentinel_1_target", "sentinel_1_baseline"),
@@ -134,7 +137,9 @@ def _quality_gates(summary: dict, quality: dict, provenance: dict) -> list[dict[
     if not independent:
         gates.append(_gate("Independent reference", INDEPENDENT_THRESHOLD, None, "not_recorded"))
     elif independent.get("status") == "assessed":
-        gates.append(_gate("Independent reference", INDEPENDENT_THRESHOLD, "assessed (census of eligible pixels)", "pass"))
+        cover = independent.get("reference_coverage_text")
+        gates.append(_gate("Independent reference", INDEPENDENT_THRESHOLD,
+                           "assessed (census of eligible pixels)" + (f"; {cover[0].lower()}{cover[1:].rstrip('.')}" if cover else ""), "pass"))
     else:
         text = STATUS_TEXT.get(independent.get("status"), str(independent.get("status")))
         reason = f": {independent['reason']}" if independent.get("reason") else ""
@@ -163,7 +168,7 @@ def _limitations(summary: dict) -> list[str]:
 
 
 def build_result_overview(result) -> dict[str, Any] | None:
-    summary = result.summary if isinstance(result.summary, dict) else {}
+    summary = summary_view(result.summary) if isinstance(result.summary, dict) else {}
     provenance = result.provenance if isinstance(result.provenance, dict) else {}
     products = summary.get("products")
     extent = products.get("flood_extent") if isinstance(products, dict) else None

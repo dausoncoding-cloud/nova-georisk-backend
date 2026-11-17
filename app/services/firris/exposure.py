@@ -147,7 +147,7 @@ def exposure_rows(population, aoi_geometry: dict, *, observed: dict | None, haza
 
 
 def exposure_record(population, rows: list[dict], *, points: dict | None = None, users_accuracy_flood_pct: float | None = None,
-                    cluster: dict | None = None) -> dict[str, Any]:
+                    cluster: dict | None = None, accuracy_reason: str | None = None) -> dict[str, Any]:
     status_year = year_status(population.countries, population.year)
     return {
         "status": "assessed", "reason": None, "wording": EXPOSURE_WORDING,
@@ -166,7 +166,7 @@ def exposure_record(population, rows: list[dict], *, points: dict | None = None,
                             "occurrence >= 90 %, already excluded at 30 m). GloFAS permanent-water cells are excluded from the "
                             "modelled return-period zones only, as in the hazard figures."),
         "rows": rows,
-        "observed_extent_caveat": observed_extent_caveat(users_accuracy_flood_pct) if any(
+        "observed_extent_caveat": observed_extent_caveat(users_accuracy_flood_pct, accuracy_reason) if any(
             r["extent"] == "observed_extent" for r in rows) else None,
         "observed_cluster": cluster,
         "glofas_zone_notice": ("The return-period zones come from the GloFAS flood hazard maps: " + GLOFAS_DATABASE_NOTICE),
@@ -174,12 +174,19 @@ def exposure_record(population, rows: list[dict], *, points: dict | None = None,
     }
 
 
-def observed_extent_caveat(users_accuracy_flood_pct: float | None) -> dict[str, Any]:
-    """The observed extent inherits the flood map's commission error (owner, 2026-11-17)."""
+def observed_extent_caveat(users_accuracy_flood_pct: float | None, reason: str | None = None) -> dict[str, Any]:
+    """The observed extent inherits the flood map's commission error (owner, 2026-11-17).
+
+    ``reason`` (for example "The Sentinel-2 reference covers only 0.42% of the area …") replaces the default
+    "no independent Sentinel-2 comparison" when the comparison exists but is not representative.
+    """
     if users_accuracy_flood_pct is None:
-        text = ("These figures inherit the flood map's commission error, which is not assessable for this run (no independent "
-                "Sentinel-2 comparison), so some of these people and buildings may lie outside the real flood.")
-        return {"status": "not_assessable", "users_accuracy_flood_pct": None, "text": text, "built_up_note": BUILT_UP_NOTE}
+        why = (reason[0].lower() + reason[1:]).rstrip(".") if reason else "no independent Sentinel-2 comparison"
+        short = why.split(" (")[0]
+        text = (f"These figures inherit the flood map's commission error, which is not assessable for this run ({short}), "
+                "so some of these people and buildings may lie outside the real flood.")
+        return {"status": "not_assessable", "users_accuracy_flood_pct": None, "text": text, "built_up_note": BUILT_UP_NOTE,
+                "reason_short": short if reason else None}
     text = (f"These figures inherit the flood map's commission error: against the independent Sentinel-2 reference, "
             f"{users_accuracy_flood_pct:.1f}% of the pixels mapped as flood candidates were flooded (user's accuracy for flood), "
             "so part of these people and buildings may lie outside the real flood.")
@@ -247,7 +254,8 @@ def unavailable_exposure(reason: str) -> dict[str, Any]:
 
 def run_exposure(aoi_geometry: dict, *, event_year: int | None, extent: np.ndarray | None, extent_transform: Affine | None,
                  extent_crs: str, hazard_layers: dict | None, acquire=None, count=None, points=None,
-                 users_accuracy_flood_pct: float | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+                 users_accuracy_flood_pct: float | None = None,
+                 accuracy_reason: str | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Population and buildings for every extent; on failure, a 'not available' record (the flood map is unaffected)."""
     from app.services.gee.open_buildings import building_points, count_buildings
     from app.services.gee.worldpop import PopulationUnavailable, acquire_worldpop
@@ -277,6 +285,6 @@ def run_exposure(aoi_geometry: dict, *, event_year: int | None, extent: np.ndarr
     if cluster is not None:
         cluster["glofas"] = cluster_glofas_check(cluster, hazard_layers)
     record = exposure_record(population, rows, points=building_layer, users_accuracy_flood_pct=users_accuracy_flood_pct,
-                             cluster=cluster)
+                             cluster=cluster, accuracy_reason=accuracy_reason)
     layers = {"population_transform": population.transform, "arrays": arrays, "building_points": building_layer}
     return record, layers

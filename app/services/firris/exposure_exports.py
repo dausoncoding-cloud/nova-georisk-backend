@@ -27,9 +27,10 @@ PEOPLE_BINS = (1, 5, 20, 50)  # people per 100 m cell
 
 def map_caveat(record: dict[str, Any]) -> str:
     """The flood map's commission error on the map itself (owner, 2026-11-17), computed per run."""
-    accuracy = (record.get("observed_extent_caveat") or {}).get("users_accuracy_flood_pct")
+    caveat = record.get("observed_extent_caveat") or {}
+    accuracy = caveat.get("users_accuracy_flood_pct")
     measured = (f"user's accuracy for flood {accuracy:.1f}% vs Sentinel-2" if accuracy is not None
-                else "user's accuracy for flood not assessable (no Sentinel-2 reference)")
+                else f"user's accuracy for flood not assessable ({caveat.get('reason_short') or 'no Sentinel-2 reference'})")
     return f"Flood candidates are model-classified: {measured}. Built-up areas may contain false positives."
 
 

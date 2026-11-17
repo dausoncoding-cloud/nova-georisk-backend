@@ -358,6 +358,16 @@ def run_satellite_workflow(
         independent_accuracy=independent_accuracy, candidates=census, reference=optical_reference,
         probability=probability, predicted_class=predicted_class, feature_layers=feature_layers,
         feature_names=trained.feature_names, algorithm=algorithm)
+    raw_block = independent_accuracy.get("unrepresentative_metrics")
+    if raw_block and raw_block.get("metrics") and optical_reference is not None:
+        # The per-variable AUCs of the unrepresentative sample: in the labelled raw block only, never headlined.
+        from app.services.validation.multi_roc import record_summary_rows
+        raw_roc = variable_roc(
+            independent_accuracy={"status": "assessed"}, candidates=census_candidates(
+                optical_reference, valid_mask, split.train.rows, split.train.cols)[2], reference=optical_reference,
+            probability=probability, predicted_class=predicted_class, feature_layers=feature_layers,
+            feature_names=trained.feature_names, algorithm=algorithm)
+        raw_block["variable_roc_auc"] = record_summary_rows(raw_roc) if raw_roc.get("status") == "assessed" else None
     if reference_points is not None:
         xs_ref, ys_ref = raster_xy(raster_spec.transform, reference_points["pixel_row"].to_numpy(),
                                    reference_points["pixel_col"].to_numpy(), offset="center")
@@ -487,6 +497,10 @@ def run_satellite_workflow(
         if modelled_hazard.get("status") != "not_available":
             provenance["datasets"] = [*(provenance.get("datasets") or []), GLOFAS_ASSET]
     flood_exposure, flood_exposure_layers = None, None
+    if provider == "gee" and "reference_coverage_pct" in independent_accuracy:
+        provenance["independent_reference_coverage"] = {
+            k: independent_accuracy.get(k) for k in ("status", "reference_coverage_pct", "reference_min_coverage_pct",
+                                                     "reference_coverage_text", "eligible_cells", "admitted_cells", "coverage_rule")}
     if provider == "gee" and (workflow.get("context") or {}).get("flood_exposure"):
         from app.services.firris.exposure import run_exposure
         from app.services.gee.open_buildings import OPEN_BUILDINGS_ASSET
@@ -498,7 +512,8 @@ def run_satellite_workflow(
             extent_transform=raster_spec.transform, extent_crs=f"EPSG:{raster_spec.crs_epsg}",
             hazard_layers=modelled_hazard_layers,
             users_accuracy_flood_pct=(((independent_accuracy.get("metrics") or {}).get("per_class") or {}).get("1") or {}).get(
-                "users_accuracy_pct") if independent_accuracy.get("status") == "assessed" else None)
+                "users_accuracy_pct") if independent_accuracy.get("status") == "assessed" else None,
+            accuracy_reason=independent_accuracy.get("reason") if independent_accuracy.get("coverage_rule") == "failed" else None)
         provenance["flood_exposure"] = {"status": flood_exposure.get("status"), "reason": flood_exposure.get("reason"),
                                         "population": (flood_exposure.get("population") or {}).get("source"),
                                         "buildings": {k: v for k, v in (flood_exposure.get("buildings") or {}).items()
