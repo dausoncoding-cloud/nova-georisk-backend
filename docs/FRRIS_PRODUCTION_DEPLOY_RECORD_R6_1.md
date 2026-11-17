@@ -69,8 +69,8 @@ Why it got through:
 
 | Check | Result |
 |---|---|
-| Backend suites | **Unit:** 1,255 pass and 1 fails on `9f3b187` minus its last test edit. The failure was a stale assertion of the old gate threshold text (`tests/unit/test_result_overview.py`), which r6.1 changes on purpose. After updating it, that file and the related files pass (66 tests); the app code is identical. **Integration:** 191 pass. **Packaging:** PACKAGING REGRESSION PASS. **New tests:** 12 in `tests/unit/test_reference_coverage.py` |
-| Frontend suites (on `1d0e588`) | 257 tests, `typecheck`, `api:check` and `build` pass. **Pre-existing flake** (it also fails on unchanged `main`): `ResultPages.test.tsx` › Overview › "shows key figures…" sometimes misses its 1 s lookup when 4 workers run on 4 cores. With `--maxWorkers=2` it passes 257/257. The test was not changed in this release |
+| Backend suites | **Unit, on the deployed commit `9f3b187` (re-run 2026-11-17, owner follow-up): 1,256 passed, 0 failed** (20 min 23 s, in a clean worktree detached at `9f3b187`). Before deploy: 1,255 passed and 1 failed on the commit minus its last test edit; the failure was a stale assertion of the old gate threshold text (`tests/unit/test_result_overview.py`), which r6.1 changes on purpose. **Integration:** 191 pass. **Packaging:** PACKAGING REGRESSION PASS. **New tests:** 12 in `tests/unit/test_reference_coverage.py` |
+| Frontend suites (on `1d0e588`) | 257 tests, `typecheck`, `api:check` and `build` pass. **Pre-existing flake** (it also fails on unchanged `main`): `ResultPages.test.tsx` › Overview › "shows key figures…" sometimes misses its 1 s lookup when 4 workers run on 4 cores. With `--maxWorkers=2` it passes 257/257. The test was not changed in this release; backlog §4.7 item 24 |
 | Source transfer | tar SHA-256 equal on workstation and server (backend `394ad212…`, frontend `b52c153a…`) |
 | Server builds (sequential, production up, with swap) | Backend 7 s (minimum MemAvailable 686 MB). Frontend 70 s: minimum MemAvailable **461 MB**; swap in use 202 → **427 MB** at the peak. App and API 200 |
 | Image gates | Backend packaging: 0 findings (44 reviewed). Frontend: the same 2 reviewed public-CA symlinks as before. MPL `Agg` with a writable `MPLCONFIGDIR`. `pip freeze` identical to r5 |
@@ -132,7 +132,7 @@ How `0c53d331` now reads:
 ### Housekeeping
 
 - **Redis:** only `_kombu.binding.diag_noop_r61_20261117t094917z` (db 3, a set with one member, left by this release's one-off worker) was deleted, after its name was shown. Nothing else in production Redis was touched; no `diag_noop` key remains in databases 0–5.
-- **Stray file:** the first, failed attempt at the read-only API check copied its script to `/tmp/v.py` in the BFF container. It was removed (as root inside the container) right after; the check was then run through stdin.
+- **Stray file:** the first, failed attempt at the read-only API check copied its script to `/tmp/v.py` in the BFF container. It was removed (as root inside the container) right after; the check was then run through stdin. Runbook rule added (backlog §4.7 item 25; `docs/FIRRIS_PRODUCTION_DEPLOY_PLAN.md` §5): production read-only checks run from outside the service containers; no files are copied into them.
 
 ## 7. Owner browser tests
 

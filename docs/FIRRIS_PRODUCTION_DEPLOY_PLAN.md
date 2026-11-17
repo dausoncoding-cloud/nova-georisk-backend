@@ -189,6 +189,8 @@ Downtime ends when api, bff and worker report healthy.
 
 ## 5. Post-deploy checks
 
+**Rule (owner, 2026-11-17; backlog §4.7 item 25):** every production check here is read-only and runs **from outside the service containers**. Never copy files into a running service container: no `docker cp`, no new bind mounts, no writes to its `/tmp`. Feed a check script through stdin (`docker exec -i <container> python - < check.py`), or run it in a throwaway `docker run --rm` container of the same image with read-only mounts (`:ro`). Database checks run inside `begin read only; … commit`.
+
 1. **Images:** `docker inspect --format '{{.Name}} {{.Image}} {{.State.Health.Status}}'` on the four containers. The three backend containers show the `nova-georisk-backend:$REL` ID, the gateway shows the `nova-georisk-frontend:$REL` ID, and all are healthy.
 2. **Revision labels:** the backend image label is `1ece5d1f…` and the frontend label is `4c441161…`.
 3. **Environment parity at runtime:** compare the sorted env name+value sets of old (rollback set) and new containers inside a Python check that prints only `identical`/`differs`, as `cutover.py` did.
