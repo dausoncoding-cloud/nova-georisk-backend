@@ -154,6 +154,9 @@ class FIRRISContextConfig(BaseModel):
     modelled_flood_hazard: bool = Field(default=False, description=(
         "Add the GloFAS v2.1 modelled river-flood hazard (depth for return periods 10-500 years) as context. "
         "Earth Engine source only."))
+    flood_exposure: bool = Field(default=False, description=(
+        "Add the estimated exposure (WorldPop R2025A people, Open Buildings v3 buildings) inside the observed flood "
+        "extent and inside each modelled return-period zone. Needs the modelled flood hazard."))
 
 
 class FIRRISSatelliteWorkflowConfig(BaseModel):
@@ -173,6 +176,8 @@ class FIRRISSatelliteWorkflowConfig(BaseModel):
     def context_needs_earth_engine(self):
         if self.context.modelled_flood_hazard and self.source.provider != "gee":
             raise ValueError("The modelled flood hazard (GloFAS) needs the Earth Engine source")
+        if self.context.flood_exposure and not self.context.modelled_flood_hazard:
+            raise ValueError("The exposure estimate uses the modelled hazard zones: switch on the modelled flood hazard too")
         return self
 
 

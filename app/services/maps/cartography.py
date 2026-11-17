@@ -37,6 +37,7 @@ MAP_KEYS = frozenset({
     "flood_hazard_zonation",
     # Depth & Exposure module: modelled (GloFAS) depth maps for three return periods; context, not observations.
     "modelled_flood_depth_rp10", "modelled_flood_depth_rp100", "modelled_flood_depth_rp500",
+    "exposed_population_observed_extent", "exposed_population_rp100",
 })
 _NAVY = "#102A43"
 

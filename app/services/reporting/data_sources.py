@@ -14,6 +14,10 @@ SOURCES = {
     # Depth & Exposure module (context only; never a model input). Credit text lives in firris.hazard_sources.
     GLOFAS_ASSET: ("Modelled river-flood depth for return periods 10–500 years (context, not an observation)", "3 arc-seconds (~90 m)",
                    GLOFAS_ATTRIBUTION),
+    "WorldPop/GP/100m/R2025A/v1/pop": ("Modelled population for the exposure estimate (not a census count)", "3 arc-seconds (~100 m)",
+                                       "WorldPop R2025A v1 (www.worldpop.org), CC BY 4.0, doi:10.5258/SOTON/WP00839"),
+    "GOOGLE/Research/open-buildings/v3/polygons": ("Detected building footprints for the exposure estimate", "building polygons",
+                                                   "Google Open Buildings v3, CC BY 4.0 (Sirko et al. 2021, arXiv:2107.12283)"),
 }
 
 

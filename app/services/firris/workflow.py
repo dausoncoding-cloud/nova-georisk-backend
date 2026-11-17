@@ -62,6 +62,8 @@ class FIRRISWorkflowOutput:
     # Depth & Exposure module (context, opt-in): the record for the summary and the layers for the GIS outputs.
     modelled_hazard: dict[str, Any] | None = None
     modelled_hazard_layers: dict[str, Any] | None = None
+    flood_exposure: dict[str, Any] | None = None
+    flood_exposure_layers: dict[str, Any] | None = None
 
 
 def _epsg_code(crs: str) -> int:
@@ -484,9 +486,28 @@ def run_satellite_workflow(
                                                                                       "citation", "licence", "licence_confirmed")}
         if modelled_hazard.get("status") != "not_available":
             provenance["datasets"] = [*(provenance.get("datasets") or []), GLOFAS_ASSET]
+    flood_exposure, flood_exposure_layers = None, None
+    if provider == "gee" and (workflow.get("context") or {}).get("flood_exposure"):
+        from app.services.firris.exposure import run_exposure
+        from app.services.gee.open_buildings import OPEN_BUILDINGS_ASSET
+        from app.services.gee.worldpop import WORLDPOP_ASSET
+        start = str(((workflow.get("source") or {}).get("target_period") or {}).get("start") or "")
+        event_year = int(start[:4]) if start[:4].isdigit() else None
+        flood_exposure, flood_exposure_layers = run_exposure(
+            aoi_geometry, event_year=event_year, extent=(predicted_class == 1) & valid_mask,
+            extent_transform=raster_spec.transform, extent_crs=f"EPSG:{raster_spec.crs_epsg}",
+            hazard_layers=modelled_hazard_layers)
+        provenance["flood_exposure"] = {"status": flood_exposure.get("status"), "reason": flood_exposure.get("reason"),
+                                        "population": (flood_exposure.get("population") or {}).get("source"),
+                                        "buildings": {k: v for k, v in (flood_exposure.get("buildings") or {}).items()
+                                                      if k in ("asset", "version", "primary_threshold", "sensitivity_threshold")}}
+        if flood_exposure.get("status") == "assessed":
+            provenance["datasets"] = [*(provenance.get("datasets") or []), WORLDPOP_ASSET, OPEN_BUILDINGS_ASSET]
     return FIRRISWorkflowOutput(
         modelled_hazard=modelled_hazard,
         modelled_hazard_layers=modelled_hazard_layers,
+        flood_exposure=flood_exposure,
+        flood_exposure_layers=flood_exposure_layers,
         accuracy_assessment=accuracy_assessment,
         product_arrays={"flood_probability": probability, "flood_extent": predicted_class},
         validation_arrays=validation_rasters(label_layer, predicted_class, valid_mask),

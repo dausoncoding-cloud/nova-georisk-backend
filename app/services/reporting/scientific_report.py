@@ -330,6 +330,9 @@ APPENDIX_GROUPS = [("client_deliverable", "Client deliverables"), ("gis_data", "
                    ("figures", "Figures and accuracy tables"), ("audit", "Audit and provenance")]
 NOT_PRODUCED_WITH_HAZARD = ("Observed flood depth, velocity, exposure, vulnerability and risk are not produced. The modelled "
                             "river-flood hazard in section 12 (GloFAS) is undefended model context, not an observation of this event.")
+NOT_PRODUCED_WITH_EXPOSURE = ("Observed flood depth, velocity, vulnerability and risk are not produced. The modelled river-flood "
+                              "hazard (section 12) is undefended model context, and the exposure (section 13) is an estimate of "
+                              "people and buildings inside each extent, not of people affected or damage.")
 FIGURE_KINDS = {"modelled_hazard_depth_by_return_period": "Modelled flood hazard — depth by return period",
                 "modelled_hazard_aep": "Modelled flood hazard — AEP and probability of at least one occurrence",
                 "roc_by_variable_panels": "ROC by variable, one panel per variable", "roc_by_variable": "ROC by variable",
@@ -567,9 +570,11 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
 
     start = len(writer.story)
     writer.heading("7. Main maps")
+    from app.services.reporting.exposure_report import exposure_section, is_exposure_map
     from app.services.reporting.hazard_report import hazard_section, is_hazard_map
     for key, entry in sorted(map_entries.items()):
-        if entry.get("delivery_type") == "map_png" and not is_hazard_map(key):  # modelled maps: section 12
+        # Modelled hazard maps: section 12; exposure maps: section 13.
+        if entry.get("delivery_type") == "map_png" and not is_hazard_map(key) and not is_exposure_map(key):
             title = (entry.get("gis_metadata") or {}).get("cartography", {}).get("title", key)
             # Two maps share one A4 page: each image is at most 10 cm tall.
             writer.image(output_directory / entry["path"], 16, f"{title}. Target {target_text}; baseline {baseline_text}.",
@@ -611,6 +616,7 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     gap = baseline_gap_text(gis_metadata.get("target_period"), gis_metadata.get("baseline_period"))
     for text in general + ([gap] if gap else []) + score_limitations(summary, assessment) + ["Flood candidates are a model classification, not confirmed flood observations.",
                                            "No result is field-verified.",
+                                           NOT_PRODUCED_WITH_EXPOSURE if (summary.get("flood_exposure") or {}).get("status") == "assessed" else
                                            NOT_PRODUCED_WITH_HAZARD if (summary.get("modelled_flood_hazard") or {}).get("status") == "assessed" else
                                            "Depth, velocity, hazard, return period, exposure, vulnerability and risk are not produced: they require institutional data "
                                            "(for example surveyed river cross-sections, gauge records and asset registers) that this analysis does not have, "
@@ -627,6 +633,7 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
         ["Full provenance", "provenance.json in the result package"]])
 
     figure_files.update(hazard_section(writer, output_directory, summary.get("modelled_flood_hazard"), map_entries, aoi=aoi))
+    exposure_section(writer, output_directory, summary.get("flood_exposure"), map_entries)
 
     for scope, figures in internal_scopes:
         writer.heading("Appendix A: " + scope["title"], 1)

@@ -159,6 +159,26 @@ def _hazard_sheets(record: dict[str, Any] | None) -> dict[str, pd.DataFrame]:
             "Modelled hazard source": pd.DataFrame(about)}
 
 
+def _exposure_sheets(record: dict[str, Any] | None) -> dict[str, pd.DataFrame]:
+    """Workbook sheets of the estimated exposure (Depth & Exposure module), only when it was requested."""
+    if record is None:
+        return {}
+    from app.services.firris.exposure_exports import exposure_table_rows
+    population, buildings = record.get("population") or {}, record.get("buildings") or {}
+    about = [{"item": "Status", "value": record.get("status")}, {"item": "Reason", "value": record.get("reason")},
+             {"item": "Wording", "value": record.get("wording")},
+             {"item": "Population", "value": f"{population.get('asset')} {population.get('year')}: {(population.get('year_status') or {}).get('text')}"},
+             {"item": "Population method", "value": population.get("method")},
+             {"item": "Population citation", "value": population.get("citation")}, {"item": "Population licence", "value": population.get("licence")},
+             {"item": "Buildings", "value": f"{buildings.get('asset')} {buildings.get('version')}; confidence >= {buildings.get('primary_threshold')} "
+                                             f"(sensitivity >= {buildings.get('sensitivity_threshold')})"},
+             {"item": "Building method", "value": buildings.get("method")}, {"item": "Threshold note", "value": buildings.get("threshold_note")},
+             {"item": "Buildings citation", "value": buildings.get("citation")}, {"item": "Buildings licence", "value": buildings.get("licence")},
+             {"item": "Permanent water", "value": record.get("permanent_water")}]
+    rows = exposure_table_rows(record) or [{"status": record.get("status"), "reason": record.get("reason")}]
+    return {"Exposure by extent": pd.DataFrame(rows), "Exposure source": pd.DataFrame(about)}
+
+
 def _layer_metadata(
     context: EngineExecutionContext,
     *,
@@ -541,6 +561,7 @@ class FIRRISEngineAdapter(EngineAdapter):
                 "ROC thresholds by variable": pd.DataFrame(record_table_rows(variable_record)
                                                            or [{"status": "not_assessable", "reason": variable_record.get("reason")}]),
                 **_hazard_sheets(workflow.modelled_hazard),
+                **_exposure_sheets(workflow.flood_exposure),
                 "Samples": workflow.samples,
             }, str(xlsx_path),
         )
@@ -672,6 +693,13 @@ class FIRRISEngineAdapter(EngineAdapter):
                 for key, entry in hazard_exports(context.output_directory, workflow.modelled_hazard, workflow.modelled_hazard_layers,
                                                  result_version=context.result_version,
                                                  producer=context.gis_metadata.get("producer")).items():
+                    (outputs if entry.get("role") == "product" else reports)[key] = entry
+            if workflow.flood_exposure is not None:  # Depth & Exposure module: estimated exposure (opt-in)
+                from app.services.firris.exposure_exports import exposure_exports
+                summary["flood_exposure"] = workflow.flood_exposure
+                for key, entry in exposure_exports(context.output_directory, workflow.flood_exposure, workflow.flood_exposure_layers,
+                                                   result_version=context.result_version,
+                                                   producer=context.gis_metadata.get("producer")).items():
                     (outputs if entry.get("role") == "product" else reports)[key] = entry
         provenance = {
             "producer": context.gis_metadata["producer"], "engine_key": self.key, "engine_version": self.version,
