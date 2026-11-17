@@ -244,3 +244,26 @@ def test_observed_cluster_finds_the_settlement_holding_half_the_people():
     assert ex.observed_cluster(np.zeros((6, 6)), Affine(C, 0, 39.0, 0, -C, -8.0)) is None
     spread = np.ones((1200, 1200))  # people everywhere over 1° : half of them are not in a compact place
     assert ex.observed_cluster(spread, Affine(C, 0, 39.0, 0, -C, -8.0))["text"] is None
+
+
+def test_glofas_check_of_the_settled_cluster_and_the_report_sentence():
+    from app.services.reporting.hazard_report import observed_versus_glofas
+    t = Affine(C, 0, 39.0, 0, -C, -8.0)
+    depth = np.full((12, 12), np.nan, np.float32)
+    depth[8:, :] = 1.0  # the south is wet; the cluster in the north is dry
+    layers = {"transform": t, "inside": np.ones((12, 12), bool), "permanent_water": np.zeros((12, 12), bool),
+              "spurious": np.zeros((12, 12), bool), "depth": {500: depth}}
+    cluster = {"compact": True, "place": "39.000–39.005°E, 8.000–8.005°S",
+               "bounds": {"west": 39.0, "east": 39.0 + 6 * C, "north": -8.0, "south": -8.0 - 6 * C}}
+    check = ex.cluster_glofas_check(cluster, layers)
+    assert check == {"return_period_years": 500, "cells": 36, "wet_pct": 0.0, "permanent_water_pct": 0.0}
+    sentence = observed_versus_glofas({"observed_cluster": {**cluster, "glofas": check}})
+    assert "is dry in GloFAS even at 1-in-500 years" in sentence and "supports, but does not prove" in sentence
+    assert "SAR commission errors" in sentence and "does not model local (pluvial) flooding" in sentence
+    wet = {**cluster, "bounds": {"west": 39.0, "east": 39.0 + 6 * C, "north": -8.0 - 6 * C, "south": -8.0 - 12 * C}}
+    wet_check = ex.cluster_glofas_check(wet, layers)
+    assert wet_check["wet_pct"] > 1
+    wet_sentence = observed_versus_glofas({"observed_cluster": {**wet, "glofas": wet_check}})
+    assert "modelled as wet by GloFAS" in wet_sentence and "does not prove" not in wet_sentence
+    assert observed_versus_glofas({"observed_cluster": {**cluster, "compact": False, "glofas": check}}) is None
+    assert ex.cluster_glofas_check(cluster, None) is None

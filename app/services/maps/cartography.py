@@ -456,7 +456,9 @@ def _render(output_directory: Path, key: str, entry: dict, provenance: dict, ver
         furniture = {**furniture, "_legend_rows": len(scale.get("classes") or [])}
         sheet = decorate(sheet, box, bounds, crs, furniture, output_directory, legend_x=box[2] + _GAP)
         layout["furniture"] = {k: v for k, v in furniture.items() if k in ("title", "subtitle", "source", "legend_title", "nodata_label")}
-        layout["furniture"].update({"scale_bar_km": scale_bar_km(bounds, box, crs)[0], "north_arrow": True,
+        bar_km = scale_bar_km(bounds, box, crs)[0]
+        layout["furniture"].update({"scale_bar_km": bar_km, "scale_bar_labels": ["0", f"{bar_km / 2:g}", f"{bar_km:g} km"],
+                                    "north_arrow": True,
                                     "aoi_outline": bool(furniture.get("aoi_outline")), "points_drawn": furniture.get("_drawn_points", 0)})
         info = PngImagePlugin.PngInfo()
         info.add_text("NOVA_GIS_METADATA", json.dumps({"source": meta, "cartography": layout}, sort_keys=True, default=str))

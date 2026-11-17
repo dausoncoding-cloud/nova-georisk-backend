@@ -31,8 +31,27 @@ def is_hazard_map(key: str) -> bool:
     return key.startswith("modelled_flood_depth_")
 
 
+DRY_WET_PCT = 1.0  # at or below this, the settled cluster counts as dry in GloFAS
+
+
+def observed_versus_glofas(exposure: dict[str, Any] | None) -> str | None:
+    """One sentence comparing where the observed flood candidates hold people with GloFAS (owner, 2026-11-17)."""
+    cluster = (exposure or {}).get("observed_cluster") or {}
+    check = cluster.get("glofas")
+    if not cluster.get("compact") or not check:
+        return None
+    where = (f"The settled area around {cluster['place']}, which holds about half of the people inside this run's flood "
+             "candidates,")
+    if check["wet_pct"] <= DRY_WET_PCT:
+        return (f"{where} is dry in GloFAS even at 1-in-{check['return_period_years']} years. This supports, but does not "
+                "prove, that observed flood candidates there may be SAR commission errors; GloFAS does not model local "
+                "(pluvial) flooding, so flooding from local rainfall there is not excluded.")
+    return (f"{where} is modelled as wet by GloFAS on {check['wet_pct']:.0f}% of its cells at 1-in-{check['return_period_years']} "
+            "years. GloFAS does not model local (pluvial) flooding.")
+
+
 def hazard_section(writer, output_directory: Path, record: dict[str, Any] | None, map_entries: dict[str, dict],
-                   *, aoi: str | None = None, number: int = 10) -> dict[str, tuple[Path, str]]:
+                   *, aoi: str | None = None, number: int = 10, exposure: dict[str, Any] | None = None) -> dict[str, tuple[Path, str]]:
     """Write the hazard section and return its figure files (for the downloads list and the package)."""
     if not record:
         return {}
@@ -68,9 +87,10 @@ def hazard_section(writer, output_directory: Path, record: dict[str, Any] | None
     writer.table(header, table, caption="Modelled river-flood hazard by return period (wet cells: depth ≥ 0.1 m; area-weighted; "
                                        "permanent water excluded).")
     if has_observed:
+        comparison = observed_versus_glofas(exposure)
         writer.para("The last column is the share of this run's observed flood-candidate pixels that fall inside each modelled "
                     "zone. It is context, not accuracy: the GloFAS maps are an undefended model of river floods of a given "
-                    "return period, while the flood map is an observation of one date.")
+                    "return period, while the flood map is an observation of one date." + (f" {comparison}" if comparison else ""))
     figures: dict[str, tuple[Path, str]] = {}
     depth = depth_return_period_figure(record, output_directory / "figure-modelled_hazard-depth_by_return_period",
                                        title="Modelled flood depth by return period (GloFAS v2.1, context)")

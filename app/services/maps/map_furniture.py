@@ -99,6 +99,7 @@ def decorate(sheet: Image.Image, box, bounds, crs: CRS, furniture: dict[str, Any
     draw.rectangle((sx + half, sy - 10, sx + px, sy + 10), fill="white", outline=INK, width=2)
     label = f"{km:g} km"
     draw.text((sx, sy - 18), "0", font=_font(28), fill=INK, anchor="mb")
+    draw.text((sx + half, sy - 18), f"{km / 2:g}", font=_font(28), fill=INK, anchor="mb")
     draw.text((sx + px, sy - 18), label, font=_font(28), fill=INK, anchor="mb")
     # Title and subtitle (above the map).
     draw.text((x0, 20), furniture.get("title") or "", font=_font(44, bold=True), fill=INK, anchor="la")

@@ -214,10 +214,31 @@ def observed_cluster(people: np.ndarray, transform: Affine, *, block: int = CLUS
     def lat(v):
         return f"{abs(v):.3f}°{'N' if v >= 0 else 'S'}"
     lats = sorted((south, north), key=abs)
-    text = (f"About half of these people ({share:.0f}%) are in a settled area around {lon(west)[:-2]}–{lon(east)}, "
-            f"{lat(lats[0])[:-2]}–{lat(lats[1])}, where SAR change can be unrelated to flooding." if compact else None)
+    place = f"{lon(west)[:-2]}–{lon(east)}, {lat(lats[0])[:-2]}–{lat(lats[1])}"
+    text = (f"About half of these people ({share:.0f}%) are in a settled area around {place}, where SAR change can be "
+            "unrelated to flooding." if compact else None)
     return {"share_pct": share, "blocks": len(chosen), "bounds": {"west": west, "south": south, "east": east, "north": north},
-            "compact": compact, "text": text}
+            "place": place, "compact": compact, "text": text}
+
+
+def cluster_glofas_check(cluster: dict | None, hazard_layers: dict | None, period: int = 500) -> dict[str, Any] | None:
+    """How much of the settled cluster GloFAS models as wet at the longest return period (context for the report)."""
+    if not cluster or not cluster.get("compact") or not hazard_layers:
+        return None
+    t = hazard_layers["transform"]
+    height, width = hazard_layers["permanent_water"].shape
+    cc, rr = np.meshgrid(np.arange(width) + 0.5, np.arange(height) + 0.5)
+    xs, ys = t * (cc, rr)
+    b = cluster["bounds"]
+    inside = ((np.asarray(xs) >= b["west"]) & (np.asarray(xs) <= b["east"]) & (np.asarray(ys) >= b["south"])
+              & (np.asarray(ys) <= b["north"]) & hazard_layers["inside"])
+    cells = int(inside.sum())
+    if not cells:
+        return None
+    depth = hazard_layers["depth"][period]
+    wet = np.isfinite(depth) & (depth >= MIN_DEPTH_M) & ~hazard_layers["permanent_water"] & ~hazard_layers["spurious"]
+    return {"return_period_years": period, "cells": cells, "wet_pct": float((wet & inside).sum() / cells * 100),
+            "permanent_water_pct": float((hazard_layers["permanent_water"] & inside).sum() / cells * 100)}
 
 
 def unavailable_exposure(reason: str) -> dict[str, Any]:
@@ -253,6 +274,8 @@ def run_exposure(aoi_geometry: dict, *, event_year: int | None, extent: np.ndarr
         except Exception as exc:  # noqa: BLE001 - the layer is optional; counts stay exact
             building_layer = {"status": "not_delivered", "reason": f"The building layer could not be read: {exc}", "features": []}
     cluster = observed_cluster(arrays["observed_extent"]["people"], population.transform) if "observed_extent" in arrays else None
+    if cluster is not None:
+        cluster["glofas"] = cluster_glofas_check(cluster, hazard_layers)
     record = exposure_record(population, rows, points=building_layer, users_accuracy_flood_pct=users_accuracy_flood_pct,
                              cluster=cluster)
     layers = {"population_transform": population.transform, "arrays": arrays, "building_points": building_layer}

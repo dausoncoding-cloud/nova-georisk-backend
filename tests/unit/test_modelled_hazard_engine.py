@@ -125,6 +125,7 @@ def test_depth_layers_maps_tables_and_package(run):
     assert furniture["title"] == "Modelled flood depth, 1-in-100-year river discharge — Ikwiriri floodplain"
     assert furniture["legend_title"] == "Modelled flood depth (m)" and furniture["north_arrow"] and furniture["aoi_outline"]
     assert furniture["scale_bar_km"] > 0
+    assert furniture["scale_bar_labels"] == ["0", f"{furniture['scale_bar_km'] / 2:g}", f"{furniture['scale_bar_km']:g} km"]
     classes = {c["label"]: c["color"] for c in layout["colour_scale"]["classes"]}
     assert classes["Permanent water (GloFAS)"] == "#8C8C8C" and classes["Outside the area"] == "#FFFFFF"
     assert classes["Dry (< 0.1 m)"] not in ("#FFFFFF", "#8C8C8C") and classes["2–3 m"] != classes["> 3 m"]

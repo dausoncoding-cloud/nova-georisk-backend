@@ -635,7 +635,7 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     if summary.get("modelled_flood_hazard"):
         sections["hazard"] = number
         figure_files.update(hazard_section(writer, output_directory, summary.get("modelled_flood_hazard"), map_entries, aoi=aoi,
-                                           number=number))
+                                           number=number, exposure=summary.get("flood_exposure")))
         number += 1
     if summary.get("flood_exposure"):
         sections["exposure"] = number
