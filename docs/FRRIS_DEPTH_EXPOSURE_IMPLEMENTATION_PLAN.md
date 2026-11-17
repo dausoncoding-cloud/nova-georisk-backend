@@ -2,7 +2,7 @@
 
 **Status:** plan only, not implemented. Work starts the day the client pays (expected before Sun 22 Nov 2026).
 - **Phase 0 research:** done on 2026-11-17 (docs and read-only Earth Engine checks only). The findings are in §2a.
-- **Licence:** one question is still open (§2a.5).
+- **Licence:** resolved 2026-11-17 (§2a.5): GloFAS is ODbL v1.0.
 **Target:** done by about **Fri 18 Dec 2026**, handover about **Mon 21 Dec 2026**.
 **Basis:**
 - `docs/FIRRIS_DEPTH_RISK_DATA_FEASIBILITY.md`, the read-only spike of 2026-11-16, which gives the data facts and the Rufiji reference values;
@@ -121,7 +121,7 @@ Sources were read on 2026-11-17. Earth Engine checks used the dev service accoun
   - Dottori, F. et al. (2017), *NHESS* 17: 1111–1126, doi:10.5194/nhess-17-1111-2017.
 - **Report citation:** the dataset citation with its PID, plus "Method: CEMS-Flood (Alfieri et al. 2014; Dottori et al. 2017)".
 
-### 2a.5 GloFAS licence: open question
+### 2a.5 GloFAS licence: resolved 2026-11-17
 
 Three JRC-side sources disagree:
 
@@ -131,9 +131,21 @@ Three JRC-side sources disagree:
 | JRC README (field A02) | "Open Data Commons Open Database License v1.0" |
 | JRC `CEMS-GLOFAS/copyright.txt` | © European Union; reuse under Commission Decision 2011/833/EU; CC BY 4.0, "provided appropriate credit is given and any changes are indicated" |
 
-- **The JRC Data Catalogue entry is the deciding source,** and it could not be read from here (the fetch was rejected).
-- **Until it is checked, follow the strictest reading:** attribute in every output (CC BY), and treat the clipped GloFAS layers we deliver as an ODbL derived database. That means sharing them under ODbL, with the attribution and licence text in the GIS layer metadata.
-- **Action, owner:** open https://data.jrc.ec.europa.eu/dataset/jrc-floods-floodmapgl_rp50y-tif in a browser and record the licence, or ask the JRC contact. This does not block the build (the attribution text can change late), but it must be settled before the release.
+**Resolution (owner, from the JRC Data Catalogue page, 2026-11-17):**
+- **Licence:** Open Data Commons Open Database License (**ODbL) v1.0**.
+- **Access conditions:** "No limitations".
+- **Dataset DOI:** **10.2905/JRC.VD32YWG** (PID http://data.europa.eu/89h/jrc-floods-floodmapgl_rp50y-tif).
+
+The catalogue entry decides; the three earlier statements above are superseded.
+
+**How the outputs comply:**
+- **Produced Works** (maps, graphs, the report): they carry the notice "Contains data from GloFAS flood hazard maps (JRC/CEMS), ODbL v1.0".
+- **Derivative databases** (the GloFAS-derived GIS layers and tables in the result package):
+  - they carry the ODbL notice;
+  - a licence note in README.txt (the GIS-layer README and the package README) says these layers are available under ODbL v1.0;
+  - no restrictive terms are added to them.
+- **Citation:** Baugh et al. (2024) with the DOI above. The method references stay Alfieri et al. 2014 and Dottori et al. 2017.
+
 - **The single place to update** (branch `feat/frris-depth-exposure`): `app/services/firris/hazard_sources.py`, constants `GLOFAS_LICENCE_CONFIRMED`, `GLOFAS_LICENCE` and `GLOFAS_ATTRIBUTION`. These are read by:
   - the report (section 12);
   - the workbook sheet "Modelled hazard source";
@@ -309,7 +321,7 @@ Person A's path is the critical path, with 1–5 days of slack. At the upper end
 
 | Dataset | Licence | Citation / attribution (to be checked against the source pages in Phase 0) |
 |---|---|---|
-| GloFAS flood hazard v2.1 (`JRC/CEMS_GLOFAS/FloodHazard/v2_1`) | **Open (§2a.5):** Earth Engine "no restriction"; JRC README ODbL v1.0; JRC copyright file CC BY 4.0. Strictest reading applied until it is checked | Baugh, C.; Colonese, J.; D'Angelo, C.; Dottori, F.; Neal, J.; Prudhomme, C.; Salamon, P. (2024): *Global river flood hazard maps*. European Commission, Joint Research Centre (JRC) [Dataset]. PID http://data.europa.eu/89h/jrc-floods-floodmapgl_rp50y-tif. Method: Alfieri et al. 2014 (doi:10.1002/hyp.9947); Dottori et al. 2017 (doi:10.5194/nhess-17-1111-2017). **Not** doi:10.1016/j.advwatres.2016.05.002, which is the earlier maps' method paper (§2a.4) |
+| GloFAS flood hazard v2.1 (`JRC/CEMS_GLOFAS/FloodHazard/v2_1`) | **ODbL v1.0**, access conditions "No limitations" (JRC Data Catalogue; resolved §2a.5). Produced Works carry "Contains data from GloFAS flood hazard maps (JRC/CEMS), ODbL v1.0"; derivative databases carry the ODbL notice and a README licence note, with no added restrictions | Baugh, C.; Colonese, J.; D'Angelo, C.; Dottori, F.; Neal, J.; Prudhomme, C.; Salamon, P. (2024): *Global river flood hazard maps*. European Commission, Joint Research Centre (JRC) [Dataset]. doi:10.2905/JRC.VD32YWG; PID http://data.europa.eu/89h/jrc-floods-floodmapgl_rp50y-tif. Method: Alfieri et al. 2014 (doi:10.1002/hyp.9947); Dottori et al. 2017 (doi:10.5194/nhess-17-1111-2017). **Not** doi:10.1016/j.advwatres.2016.05.002, which is the earlier maps' method paper (§2a.4) |
 | WorldPop R2025A (`WorldPop/GP/100m/R2025A/v1/pop`, constrained) | CC BY 4.0 | Bondarenko M. et al. (2025), *Constrained estimates of 2015-2030 total number of people per grid square … R2025A version v1*, WorldPop, University of Southampton, **doi:10.5258/SOTON/WP00839** (§2a.3) |
 | Google Open Buildings v3 (`GOOGLE/Research/open-buildings/v3/polygons`) | CC BY 4.0 | Sirko et al. (2021), "Continental-scale building detection from high resolution satellite imagery", arXiv:2107.12283 |
 | Earth Engine (processing) | platform terms of service | "Processed with Google Earth Engine" |
@@ -335,7 +347,7 @@ The attribution text goes into the report, the workbook, every GIS layer's metad
 | **Payment or start later than Mon 23 Nov** | Every day of delay moves the end by a day | **Two people plus Claude Code (§4a):** the latest start is Tue 1 Dec. **Human-only:** Tue 24 Nov (two people); one person cannot make 18 Dec. After that, move the handover into January or cut scope (graphs for RP10/100/500 only; one exposure map) |
 | **Only one person available** | 24–30 person-days does not fit 19 working days | Two people from day 1 (§4). Otherwise agree a Phase 1 handover on 21 Dec and Phase 2 in January |
 | ~~Facts not yet verified~~ | — | **Resolved in Phase 0 (§2a.1–2a.4)**, except the GloFAS licence (next row) |
-| **GloFAS licence unclear** (Earth Engine "no restriction", README ODbL, copyright file CC BY 4.0) | Wrong licence text on delivered layers | Strictest reading until the JRC catalogue entry is checked (§2a.5); settle before the release |
+| ~~GloFAS licence unclear~~ | — | **Resolved 2026-11-17:** ODbL v1.0 (§2a.5) |
 | **Earth Engine limits** for Open Buildings in dense areas (measured: a 3,918 km² Dar es Salaam box times out in one call; 16 tiles take 519 s in sequence) | Run time-outs in dense urban AOIs | Adaptive tiling, run in parallel (§2a.6); "not available" with the reason past the budget. Rufiji and Ugalla run in under 10 s |
 | **No GloFAS coverage** for small rivers (basins under 500 km²) and some AOIs (for example reservoirs) | Client expects figures and gets "not available" | A clear "not available" state with the reason; the coverage is checked for the client's main AOIs in Phase 0 |
 | **The r5.3 release in the same window** (after payment) | About 1 day of release work and a cutover | Release r5.3 in week 1, before the module work needs production |
