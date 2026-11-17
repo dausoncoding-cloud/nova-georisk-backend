@@ -26,6 +26,7 @@ from reportlab.pdfgen import canvas
 from shapely.geometry import shape
 
 from app.platform.result_exports import artifact_entry
+from app.services.maps.map_furniture import BOTTOM_EXTRA, TOP_EXTRA, decorate, pdf_from_png, scale_bar_km
 from app.services.reporting.fonts import font_path, register_fonts
 
 
@@ -254,14 +255,14 @@ def _coordinate_labels(crs: CRS, bounds, box) -> list[dict]:
 SCALE_TITLES = {"flood_probability": "Model confidence (0–1)"}
 
 
-def _scale(bands, continuous, value_range, units, has_nodata, title: str | None = None) -> dict:
+def _scale(bands, continuous, value_range, units, has_nodata, title: str | None = None, nodata_label: str | None = None) -> dict:
     if continuous:
         low, high = value_range
         return {"kind": "gradient", "min": low, "max": high, "unit": units, "title": title or units,
                 "stops": [band["color"] for band in bands], "labels": [f"{high:.2f}", f"{low:.2f}", title or units]}
     classes = [{"label": band["label"], "color": band["color"]} for band in bands]
     if has_nodata:
-        classes.append({"label": "No data", "color": "#FFFFFF"})
+        classes.append({"label": nodata_label or "No data", "color": "#FFFFFF"})
     return {"kind": "class_key", "classes": classes}
 
 
@@ -417,17 +418,27 @@ def _render(output_directory: Path, key: str, entry: dict, provenance: dict, ver
         map_image = native.resize(map_size, Image.Resampling.NEAREST)
     else:
         map_image, _, _ = _paint_vector(source, meta, bands, key, map_size)
-    box = (_MARGIN_LEFT, _MARGIN_TOP, _MARGIN_LEFT + map_size[0], _MARGIN_TOP + map_size[1])
-    scale = _scale(bands, continuous, value_range, str(meta.get("units", "")), has_nodata, SCALE_TITLES.get(key))
+    # Report-ready furniture (title, scale bar, north arrow, AOI outline, source line) is opt-in per layer.
+    furniture = meta.get("furniture") or None
+    top = _MARGIN_TOP + (TOP_EXTRA if furniture else 0)
+    box = (_MARGIN_LEFT, top, _MARGIN_LEFT + map_size[0], top + map_size[1])
+    scale = _scale(bands, continuous, value_range, str(meta.get("units", "")), has_nodata, SCALE_TITLES.get(key),
+                   nodata_label=(furniture or {}).get("nodata_label"))
     font = _font(34)
     texts = scale["labels"] if scale["kind"] == "gradient" else [item["label"] for item in scale["classes"]]
     swatch = 90 if scale["kind"] == "gradient" else 80
     panel_width = swatch + max(int(math.ceil(font.getlength(text))) for text in texts) + 40
-    panel_height = min(map_size[1], 900) if scale["kind"] == "gradient" else 70 * len(scale["classes"])
+    point_rows = 1 if ((furniture or {}).get("points") or {}).get("label") else 0
+    panel_height = min(map_size[1], 900) if scale["kind"] == "gradient" else 70 * (len(scale["classes"]) + point_rows)
+    if point_rows:
+        texts = [*texts, furniture["points"]["label"]]
+        panel_width = swatch + max(int(math.ceil(font.getlength(text))) for text in texts) + 40
     sheet_size = (box[2] + _GAP + panel_width, max(box[3], box[1] + panel_height) + _MARGIN_BOTTOM)
-    notice = meta.get("map_notice")
+    notice = None if furniture else meta.get("map_notice")  # with furniture, the notice is part of the source line
     if notice:
         sheet_size = (sheet_size[0], sheet_size[1] + 70)
+    if furniture:
+        sheet_size = (sheet_size[0], sheet_size[1] + BOTTOM_EXTRA)
     labels = _coordinate_labels(crs, bounds, box)
     created = datetime.now(timezone.utc).isoformat()
     layout = {"style": "simple framed map", "title": title,
@@ -440,8 +451,20 @@ def _render(output_directory: Path, key: str, entry: dict, provenance: dict, ver
     pdf = output_directory / f"{key}-map.pdf"
     info = PngImagePlugin.PngInfo()
     info.add_text("NOVA_GIS_METADATA", json.dumps({"source": meta, "cartography": layout}, sort_keys=True, default=str))
-    _draw_png(map_image, box, sheet_size, labels, scale, notice).save(png, pnginfo=info, dpi=(_DPI, _DPI), optimize=True)
-    _draw_pdf(pdf, map_image, box, sheet_size, labels, scale, title, notice)
+    sheet = _draw_png(map_image, box, sheet_size, labels, scale, notice)
+    if furniture:
+        furniture = {**furniture, "_legend_rows": len(scale.get("classes") or [])}
+        sheet = decorate(sheet, box, bounds, crs, furniture, output_directory, legend_x=box[2] + _GAP)
+        layout["furniture"] = {k: v for k, v in furniture.items() if k in ("title", "subtitle", "source", "legend_title", "nodata_label")}
+        layout["furniture"].update({"scale_bar_km": scale_bar_km(bounds, box, crs)[0], "north_arrow": True,
+                                    "aoi_outline": bool(furniture.get("aoi_outline")), "points_drawn": furniture.get("_drawn_points", 0)})
+        info = PngImagePlugin.PngInfo()
+        info.add_text("NOVA_GIS_METADATA", json.dumps({"source": meta, "cartography": layout}, sort_keys=True, default=str))
+    sheet.save(png, pnginfo=info, dpi=(_DPI, _DPI), optimize=True)
+    if furniture:
+        pdf_from_png(pdf, sheet, title)
+    else:
+        _draw_pdf(pdf, map_image, box, sheet_size, labels, scale, title, notice)
     carto_meta = {**meta, "cartography": layout}
     entries[f"{key}_map_png"] = artifact_entry(png, label=f"{title} map PNG (framed, 300 dpi)", media_type="image/png",
         artifact_type="report", result_version=version, role="export", product_key=key, delivery_type="map_png", format_name="png", gis_metadata=carto_meta)

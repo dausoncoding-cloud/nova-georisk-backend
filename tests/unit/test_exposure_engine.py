@@ -127,6 +127,23 @@ def test_files_maps_workbook_and_package(run):
     assert "ODbL" in rp100["licence"] and rp100["map_notice"].startswith("Contains data from GloFAS flood hazard maps (JRC/CEMS), ODbL v1.0")
     assert files["exposed_population_observed_extent"]["gis_metadata"]["map_notice"] is None
     assert files["exposed_population_rp100"]["layer"]["renderable"] is True  # shown in the map viewer
+    # Report-ready furniture on the observed-extent map: title, buildings overlay, legend semantics, sources.
+    from PIL import Image
+    with Image.open(directory / files["exposed_population_observed_extent_map_png"]["path"]) as image:
+        layout = json.loads(image.text["NOVA_GIS_METADATA"])["cartography"]
+    furniture = layout["furniture"]
+    assert furniture["title"] == "Estimated people inside the observed flood candidates — Ikwiriri floodplain"
+    assert furniture["legend_title"] == "People per ~100 m cell" and furniture["nodata_label"] == "Outside the extent"
+    assert layout["colour_scale"]["classes"][-1] == {"label": "Outside the extent", "color": "#FFFFFF"}
+    assert layout["colour_scale"]["classes"][0]["color"] != "#FFFFFF"
+    assert "WorldPop R2025A" in furniture["source"] and "Open Buildings v3" in furniture["source"]
+    assert furniture["points_drawn"] >= 1 and furniture["north_arrow"] and furniture["scale_bar_km"] > 0 and furniture["aoi_outline"]
+    observed_row = [line for line in (directory / files["flood_exposure_by_extent"]["path"]).read_text().splitlines()
+                    if line.startswith("observed_extent")][0]
+    assert "commission error" in observed_row
+    source = load_workbook(directory / files["firris_excel_report"]["path"])["Exposure source"]
+    caveat = [row[1] for row in source.iter_rows(values_only=True) if row[0] == "Observed extent caveat"][0]
+    assert "commission error" in caveat and "SAR backscatter change" in caveat
 
 
 def test_report_section_13(run):
@@ -138,7 +155,8 @@ def test_report_section_13(run):
                  "≥ 0.75", "≥ 0.65 is shown as a sensitivity", "Exact counts, no sampling",
                  "excluded from the modelled return-period zones only", "reported as the flood map defines them",
                  "Sensitivity only: masking the observed flood candidates", "alpha release", "may change",
-                 "informal buildings and thatched", "spot-check against very-high-resolution imagery is pending",
+                 "informal buildings and thatched", "Spot-check: done 2026-11-17 by the owner",
+                 "inherit the flood map's commission error", "SAR backscatter change unrelated to flooding",
                  "Contains data from GloFAS flood hazard maps (JRC/CEMS), ODbL v1.0",
                  "Observed flood candidates (this run)", "Modelled 1-in-100-year zone", "overstates exposure",
                  "doi:10.5258/SOTON/WP00839", "arXiv:2107.12283", "CC BY 4.0"):

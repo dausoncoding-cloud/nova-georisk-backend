@@ -218,6 +218,6 @@ def run_modelled_hazard(aoi_geometry: dict, *, extent: np.ndarray | None = None,
                 if extent is not None and extent_transform is not None else None)
     record = hazard_record(stack, aoi_geometry, observed=observed)
     inside = cell_fractions(aoi_geometry, stack.transform, stack.covered.shape) > 0
-    layers = {"transform": stack.transform, "crs": stack.crs, "inside": inside & stack.covered, "depth": stack.depth,
-              "permanent_water": stack.permanent_water, "spurious": stack.spurious}
+    layers = {"transform": stack.transform, "crs": stack.crs, "inside": inside & stack.covered, "aoi": inside,
+              "depth": stack.depth, "permanent_water": stack.permanent_water, "spurious": stack.spurious}
     return record, layers

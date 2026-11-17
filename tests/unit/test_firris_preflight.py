@@ -80,7 +80,7 @@ def test_empty_period_is_blocked_with_nearest_passes(availability):
     message = result.blocking[0].message
     # P6: inclusive wording; the API window 2024-05-21 → 2024-05-23 (exclusive) covers 21 and 22 May.
     assert message.startswith("No Sentinel-1 pass over this area between 21 and 22 May 2024.")
-    assert "Nearest usable passes: before 13 May 2024, after 25 May 2024." in message and "exclusive" not in message
+    assert "Nearest usable passes: 13 May 2024 (before the window) and 25 May 2024 (after)." in message and "exclusive" not in message
     assert result.target.nearest_pass_before == date(2024, 5, 13) and result.target.nearest_pass_after == date(2024, 5, 25)
 
 

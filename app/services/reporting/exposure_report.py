@@ -46,7 +46,7 @@ def exposure_section(writer, output_directory: Path, record: dict[str, Any] | No
     writer.para(f"Buildings: Google Open Buildings {buildings['version']}, counted when the building's centroid lies inside the "
                 f"extent, at detection confidence ≥ {buildings['primary_threshold']:.2f} ({buildings['threshold_note']}); the count at "
                 f"≥ {buildings['sensitivity_threshold']:.2f} is shown as a sensitivity. Exact counts, no sampling. "
-                f"{buildings['limitation']} A manual spot-check against very-high-resolution imagery is pending.")
+                f"{buildings['limitation']} Spot-check: {buildings['spot_check']}.")
     writer.para(record["permanent_water"])
     rows = record["rows"]
     table = []
@@ -60,6 +60,10 @@ def exposure_section(writer, output_directory: Path, record: dict[str, Any] | No
                  table, caption=f"Estimated exposure by extent: WorldPop R2025A {year} ({status['status']}), area-weighted; Open Buildings "
                                 f"{buildings['version']}, centroid inside the extent; GloFAS permanent water excluded from the modelled zones only.")
     observed = next((r for r in rows if r["extent"] == "observed_extent"), None)
+    caveat, cluster = record.get("observed_extent_caveat"), record.get("observed_cluster") or {}
+    if observed and caveat:  # beside the observed-extent figures (owner, 2026-11-17)
+        writer.para(f"Observed flood candidates: {caveat['text']} {caveat['built_up_note']}"
+                    + (f" {cluster['text']}" if cluster.get("text") else ""))
     if observed:
         masked = observed.get("sensitivity_glofas_permanent_water_masked")
         writer.para((f"Sensitivity only: masking the observed flood candidates with the coarser GloFAS permanent water (~90 m) "
@@ -69,9 +73,11 @@ def exposure_section(writer, output_directory: Path, record: dict[str, Any] | No
     for key in MAP_KEYS:
         entry = map_entries.get(f"{key}_map_png")
         if entry:
-            what = "the observed flood candidates of this run" if key.endswith("observed_extent") else "the modelled 1-in-100-year zone"
-            writer.image(output_directory / entry["path"], 16, f"Estimated people per 100 m cell inside {what} (WorldPop R2025A {year}, "
-                         "area-weighted; an estimate, not people affected).", max_height_cm=10)
+            observed_map = key.endswith("observed_extent")
+            what = "the observed flood candidates of this run" if observed_map else "the modelled 1-in-100-year zone"
+            writer.image(output_directory / entry["path"], 16, f"Estimated people per ~100 m cell inside {what} (WorldPop R2025A {year}, "
+                         "area-weighted; an estimate, not people affected)."
+                         + (f" {caveat['text']}" if observed_map and caveat else ""), max_height_cm=10)
     points = record.get("building_points") or {}
     if points.get("status") == "not_delivered":
         writer.para(f"Building layer: not delivered. {points.get('reason')}")

@@ -239,3 +239,36 @@ def test_acquisition_outside_glofas_raises_a_readable_reason(monkeypatch):
     monkeypatch.setattr(auth, "initialize_gee", lambda *a, **k: None)
     with pytest.raises(gh.HazardUnavailable, match="outside the GloFAS flood hazard maps"):
         gh.acquire_glofas(AOI_4x4)
+
+
+def test_no_coverage_inside_the_area_is_its_own_class_only_when_present(tmp_path):
+    import rasterio
+    from app.services.firris.hazard_exports import NO_COVERAGE_LABEL, depth_legend, hazard_exports
+    depth = np.full((4, 4), 1.0)
+    covered = np.ones((4, 4), bool)
+    covered[3, :] = False
+    stack = _stack(depth, covered=covered)
+    layers = {"transform": stack.transform, "inside": covered, "aoi": np.ones((4, 4), bool), "permanent_water": stack.permanent_water,
+              "spurious": stack.spurious, "depth": {p: np.where(covered, d, np.nan) for p, d in stack.depth.items()}}
+    record = mh.hazard_record(stack, AOI_4x4)
+    entries = hazard_exports(tmp_path, record, layers, result_version=1, aoi_name="Test area", aoi_geometry=AOI_4x4)
+    entry = entries["modelled_flood_depth_rp100"]
+    labels = [e["label"] for e in entry["gis_metadata"]["legend"]["entries"]]
+    assert labels[0] == NO_COVERAGE_LABEL and entry["gis_metadata"]["legend"]["value_codes"]["-2.0"] == NO_COVERAGE_LABEL
+    with rasterio.open(tmp_path / entry["path"]) as raster:
+        values = raster.read(1)
+    assert (values[3, :] == -2.0).all() and (values[:3, :] > 0).all()
+    assert NO_COVERAGE_LABEL not in [e["label"] for e in depth_legend()["entries"]]
+    assert entry["gis_metadata"]["furniture"]["title"] == "Modelled flood depth, 1-in-100-year river discharge — Test area"
+
+
+def test_aep_graph_keeps_the_last_label_off_the_axis_edge(tmp_path, monkeypatch):
+    from app.services.reporting import hazard_figures
+    seen = []
+    original = hazard_figures._save
+    monkeypatch.setattr(hazard_figures, "_save", lambda fig, stem: (seen.append(fig), original(fig, stem))[1])
+    hazard_figures.aep_figure({"occurrence": {"rows": mh.occurrence_table()}}, tmp_path / "aep", title="t")
+    left = seen[-1].axes[0]
+    last = [t for t in left.texts if t.get_text() == "0.2%"][0]
+    assert last.get_horizontalalignment() == "right"
+    assert all(t.get_horizontalalignment() == "left" for t in left.texts if t.get_text() != "0.2%")

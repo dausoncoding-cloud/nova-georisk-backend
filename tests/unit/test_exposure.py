@@ -202,7 +202,7 @@ def test_record_states_year_method_threshold_and_never_affected():
     assert "arXiv:2107.12283" in record["buildings"]["citation"]
     assert "alpha release" in record["population"]["release_caveat"] and "may change" in record["population"]["release_caveat"]
     assert "informal buildings and thatched" in record["buildings"]["limitation"]
-    assert record["buildings"]["spot_check"].startswith("pending")
+    assert record["buildings"]["spot_check"].startswith("done 2026-11-17") and "95%" in record["buildings"]["spot_check"]
     assert "ODbL" in record["glofas_zone_notice"]
     assert "modelled return-period zones only" in record["permanent_water"]
 
@@ -221,3 +221,26 @@ def test_run_exposure_reports_unavailable_states():
                                           hazard_layers=None)[0]["reason"]
     assert "target period" in ex.run_exposure(aoi, event_year=None, extent=None, extent_transform=None, extent_crs="EPSG:4326",
                                               hazard_layers=None)[0]["reason"]
+
+
+# --- commission-error caveat and the "where are the exposed people" sentence (owner, 2026-11-17) --------------------
+
+def test_observed_extent_caveat_with_and_without_an_independent_accuracy():
+    assessed = ex.observed_extent_caveat(48.9)
+    assert assessed["status"] == "assessed" and "48.9% of the pixels mapped as flood candidates were flooded" in assessed["text"]
+    assert "user's accuracy for flood" in assessed["text"] and "commission error" in assessed["text"]
+    assert "SAR backscatter change unrelated to flooding" in assessed["built_up_note"]
+    missing = ex.observed_extent_caveat(None)
+    assert missing["status"] == "not_assessable" and "not assessable for this run" in missing["text"]
+
+
+def test_observed_cluster_finds_the_settlement_holding_half_the_people():
+    people = np.zeros((60, 60))
+    people[6:12, 30:36] = 10.0  # one dense ~550 m block: 360 people
+    people[40:, :] = 0.05       # thin spread: 60 people
+    cluster = ex.observed_cluster(people, Affine(C, 0, 39.0, 0, -C, -8.0))
+    assert cluster["blocks"] == 1 and cluster["share_pct"] == pytest.approx(360 / 420 * 100)
+    assert cluster["compact"] and cluster["text"].startswith("About half of these people (86%) are in a settled area around 39.025–39.030°E")
+    assert ex.observed_cluster(np.zeros((6, 6)), Affine(C, 0, 39.0, 0, -C, -8.0)) is None
+    spread = np.ones((1200, 1200))  # people everywhere over 1° : half of them are not in a compact place
+    assert ex.observed_cluster(spread, Affine(C, 0, 39.0, 0, -C, -8.0))["text"] is None

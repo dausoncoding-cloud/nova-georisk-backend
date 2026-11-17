@@ -179,7 +179,10 @@ def _exposure_sheets(record: dict[str, Any] | None) -> dict[str, pd.DataFrame]:
              {"item": "Building limitation", "value": buildings.get("limitation")}, {"item": "Building spot-check", "value": buildings.get("spot_check")},
              {"item": "Buildings citation", "value": buildings.get("citation")}, {"item": "Buildings licence", "value": buildings.get("licence")},
              {"item": "Permanent water", "value": record.get("permanent_water")},
-             {"item": "Return-period zones (licence notice)", "value": record.get("glofas_zone_notice")}]
+             {"item": "Return-period zones (licence notice)", "value": record.get("glofas_zone_notice")},
+             {"item": "Observed extent caveat", "value": " ".join(filter(None, [(record.get("observed_extent_caveat") or {}).get("text"),
+                                                                                (record.get("observed_extent_caveat") or {}).get("built_up_note"),
+                                                                                (record.get("observed_cluster") or {}).get("text")]))}]
     rows = exposure_table_rows(record) or [{"status": record.get("status"), "reason": record.get("reason")}]
     return {"Exposure by extent": pd.DataFrame(rows), "Exposure source": pd.DataFrame(about)}
 
@@ -697,14 +700,18 @@ class FIRRISEngineAdapter(EngineAdapter):
                 summary["modelled_flood_hazard"] = workflow.modelled_hazard
                 for key, entry in hazard_exports(context.output_directory, workflow.modelled_hazard, workflow.modelled_hazard_layers,
                                                  result_version=context.result_version,
-                                                 producer=context.gis_metadata.get("producer")).items():
+                                                 producer=context.gis_metadata.get("producer"), aoi_name=context.aoi_name,
+                                                 aoi_geometry=context.aoi_geometry).items():
                     (outputs if entry.get("role") == "product" else reports)[key] = entry
             if workflow.flood_exposure is not None:  # Depth & Exposure module: estimated exposure (opt-in)
                 from app.services.firris.exposure_exports import exposure_exports
                 summary["flood_exposure"] = workflow.flood_exposure
+                from app.services.reporting.dates import period_dict_text
                 for key, entry in exposure_exports(context.output_directory, workflow.flood_exposure, workflow.flood_exposure_layers,
                                                    result_version=context.result_version,
-                                                   producer=context.gis_metadata.get("producer")).items():
+                                                   producer=context.gis_metadata.get("producer"), aoi_name=context.aoi_name,
+                                                   aoi_geometry=context.aoi_geometry,
+                                                   target_text=period_dict_text(workflow.provenance.get("target_period"))).items():
                     (outputs if entry.get("role") == "product" else reports)[key] = entry
         provenance = {
             "producer": context.gis_metadata["producer"], "engine_key": self.key, "engine_version": self.version,

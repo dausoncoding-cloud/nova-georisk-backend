@@ -120,9 +120,15 @@ def test_depth_layers_maps_tables_and_package(run):
     from PIL import Image
     with Image.open(directory / files["modelled_flood_depth_rp100_map_png"]["path"]) as image:
         layout = json.loads(image.text["NOVA_GIS_METADATA"])["cartography"]
-    assert layout["notice"] == "Contains data from GloFAS flood hazard maps (JRC/CEMS), ODbL v1.0"
-    assert layout["colour_scale"]["classes"][0]["label"] == "Permanent water (not flooding)"
-    assert layout["colour_scale"]["classes"][0]["color"] == "#8C8C8C"
+    furniture = layout["furniture"]
+    assert furniture["source"].startswith("Contains data from GloFAS flood hazard maps (JRC/CEMS), ODbL v1.0.")
+    assert furniture["title"] == "Modelled flood depth, 1-in-100-year river discharge — Ikwiriri floodplain"
+    assert furniture["legend_title"] == "Modelled flood depth (m)" and furniture["north_arrow"] and furniture["aoi_outline"]
+    assert furniture["scale_bar_km"] > 0
+    classes = {c["label"]: c["color"] for c in layout["colour_scale"]["classes"]}
+    assert classes["Permanent water (GloFAS)"] == "#8C8C8C" and classes["Outside the area"] == "#FFFFFF"
+    assert classes["Dry (< 0.1 m)"] not in ("#FFFFFF", "#8C8C8C") and classes["2–3 m"] != classes["> 3 m"]
+    assert "Outside GloFAS coverage / no data" not in classes  # this synthetic area is fully covered
     assert "Target period" not in readme and "GloFAS" in readme
     assert files["modelled_permanent_water"]["role"] == "product" and files["modelled_permanent_water"]["layer"]["renderable"]
     for key in ("modelled_flood_depth_rp10", "modelled_flood_depth_rp100", "modelled_flood_depth_rp500", "modelled_permanent_water"):

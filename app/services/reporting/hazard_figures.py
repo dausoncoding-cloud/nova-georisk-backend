@@ -98,9 +98,10 @@ def aep_figure(record: dict[str, Any], stem: Path, *, title: str, years_max: int
         t = np.logspace(np.log10(min(periods)), np.log10(max(periods)), 200)
         left.plot(t, 100 / t, color=INK, linewidth=1.5)
         left.plot(periods, [r["aep"] * 100 for r in rows], "o", color=INK, markersize=4)
-        for period, row in zip(periods, rows):
-            left.annotate(f"{row['aep'] * 100:.3g}%", (period, row["aep"] * 100), textcoords="offset points", xytext=(4, 3),
-                          fontsize=6.5)
+        for index, (period, row) in enumerate(zip(periods, rows)):
+            last = index == len(rows) - 1  # the last label goes left of its point, off the axis edge
+            left.annotate(f"{row['aep'] * 100:.3g}%", (period, row["aep"] * 100), textcoords="offset points",
+                          xytext=(-5, 3) if last else (4, 3), ha="right" if last else "left", fontsize=6.5)
         left.set_xscale("log")
         left.set_yscale("log")
         left.set_xticks(periods)

@@ -496,7 +496,9 @@ def run_satellite_workflow(
         flood_exposure, flood_exposure_layers = run_exposure(
             aoi_geometry, event_year=event_year, extent=(predicted_class == 1) & valid_mask,
             extent_transform=raster_spec.transform, extent_crs=f"EPSG:{raster_spec.crs_epsg}",
-            hazard_layers=modelled_hazard_layers)
+            hazard_layers=modelled_hazard_layers,
+            users_accuracy_flood_pct=(((independent_accuracy.get("metrics") or {}).get("per_class") or {}).get("1") or {}).get(
+                "users_accuracy_pct") if independent_accuracy.get("status") == "assessed" else None)
         provenance["flood_exposure"] = {"status": flood_exposure.get("status"), "reason": flood_exposure.get("reason"),
                                         "population": (flood_exposure.get("population") or {}).get("source"),
                                         "buildings": {k: v for k, v in (flood_exposure.get("buildings") or {}).items()

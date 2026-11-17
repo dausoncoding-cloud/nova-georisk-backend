@@ -21,7 +21,7 @@ from app.services.maps.export import RasterSpec, write_cog
 from app.services.reporting.report_builder import export_csv
 
 NODATA = -9999.0
-PEOPLE_COLOURS = ("#FFF5EB", "#FDD0A2", "#FD8D3C", "#D94801", "#7F2704")
+PEOPLE_COLOURS = ("#FDD0A2", "#FDAE6B", "#F16913", "#A63603", "#4D1A04")  # first class visibly not white (outside = white)
 PEOPLE_BINS = (1, 5, 20, 50)  # people per 100 m cell
 
 
@@ -30,7 +30,7 @@ def people_legend() -> dict[str, Any]:
     entries = [{"label": f"{low:g}–{high:g}", "color": colour, "max": float(high)}
                for low, high, colour in zip(edges[:-1], edges[1:], PEOPLE_COLOURS)]
     entries.append({"label": f"> {PEOPLE_BINS[-1]}", "color": PEOPLE_COLOURS[-1], "max": None})
-    return {"title": "Estimated people per 100 m cell inside the extent", "entries": entries, "nodata_label": "Outside the extent"}
+    return {"title": "People per ~100 m cell", "entries": entries, "nodata_label": "Outside the extent"}
 
 
 MAP_LABELS = {"observed_extent": "Estimated people inside the observed flood candidates",
@@ -45,7 +45,8 @@ def exposure_table_rows(record: dict[str, Any]) -> list[dict[str, Any]]:
                 "people_cells_touching": row["people_cells_touching"], "buildings_status": b.get("status"),
                 "buildings_conf_0_75": (b.get("0.75") or {}).get("count"), "footprint_m2_conf_0_75": (b.get("0.75") or {}).get("area_m2"),
                 "buildings_conf_0_65": (b.get("0.65") or {}).get("count"), "footprint_m2_conf_0_65": (b.get("0.65") or {}).get("area_m2"),
-                "building_method": b.get("method") or b.get("reason"), "building_tiles": b.get("tiles")}
+                "building_method": b.get("method") or b.get("reason"), "building_tiles": b.get("tiles"),
+                "note": ((record.get("observed_extent_caveat") or {}).get("text") if row["extent"] == "observed_extent" else None)}
         for field, suffix in (("including_permanent_water", "including_permanent_water"),
                               ("sensitivity_glofas_permanent_water_masked", "sensitivity_glofas_permanent_water_masked")):
             extra = row.get(field)
@@ -57,8 +58,13 @@ def exposure_table_rows(record: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+WORLDPOP_SOURCE = "People: WorldPop R2025A (Bondarenko et al. 2025, doi:10.5258/SOTON/WP00839), CC BY 4.0."
+BUILDINGS_SOURCE = "Buildings: Google Open Buildings v3 (Sirko et al. 2021, arXiv:2107.12283), CC BY 4.0."
+
+
 def exposure_exports(output_directory: Path, record: dict[str, Any], layers: dict[str, Any] | None, *, result_version: int,
-                     producer: str | None = None) -> dict[str, dict]:
+                     producer: str | None = None, aoi_name: str | None = None, aoi_geometry: dict | None = None,
+                     target_text: str | None = None) -> dict[str, dict]:
     entries: dict[str, dict] = {}
     path = output_directory / "flood-exposure.json"
     path.write_text(json.dumps(record, indent=2, default=float), encoding="utf-8")
@@ -96,8 +102,23 @@ def exposure_exports(output_directory: Path, record: dict[str, Any], layers: dic
             licence += f" Zone: {GLOFAS_DATABASE_NOTICE}"
             notice = f"{GLOFAS_PRODUCED_WORK_NOTICE}; WorldPop R2025A, CC BY 4.0"
         gis = {"crs": "EPSG:4326", "bounding_box": bounds, "spatial_resolution": resolution, "product_key": key, "display_label": label,
-               "units": "people per cell", "nodata": NODATA, "legend": people_legend(), "producer": producer, "static_product": True,
+               "units": "people per ~100 m cell", "nodata": NODATA, "legend": people_legend(), "producer": producer, "static_product": True,
                "semantics": semantics, "licence": licence, "attribution": population.get("citation"), "map_notice": notice}
+        year_text = f"WorldPop R2025A {population.get('year')} ({(population.get('year_status') or {}).get('status', 'modelled')}), area-weighted"
+        observed_map = extent == "observed_extent"
+        points = layers.get("building_points") or {}
+        gis["furniture"] = {
+            "title": (("Estimated people inside the observed flood candidates" if observed_map
+                       else "Estimated people inside the modelled 1-in-100-year zone") + (f" — {aoi_name}" if aoi_name else "")),
+            "subtitle": ((f"Target {target_text}; " if observed_map and target_text else "")
+                         + (year_text if observed_map else f"{year_text}; zone: GloFAS v2.1, undefended, permanent water excluded")
+                         + "; an estimate, not people affected"),
+            "source": (f"{WORLDPOP_SOURCE} {BUILDINGS_SOURCE} Flood candidates: this FRRIS run." if observed_map
+                       else f"{GLOFAS_PRODUCED_WORK_NOTICE}. {WORLDPOP_SOURCE}"),
+            "legend_title": "People per ~100 m cell", "nodata_label": "Outside the extent", "aoi_outline": aoi_geometry,
+            "points": ({"path": "exposed_buildings_observed_extent.geojson", "min_confidence": 0.75,
+                        "label": "Building (Open Buildings v3, confidence ≥ 0.75)"}
+                       if observed_map and points.get("status") == "delivered" else None)}
         layer = {"layer_type": "raster", "crs": "EPSG:4326", "bounding_box": bounds, "spatial_resolution": resolution,
                  "units": "people per cell", "nodata": NODATA, "legend": people_legend(), "renderable": True, "rendering_reason": None,
                  "available_delivery_types": ["cog"], "planned_delivery_types": [], "product_key": key}

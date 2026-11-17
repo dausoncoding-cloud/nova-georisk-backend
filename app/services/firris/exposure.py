@@ -34,7 +34,13 @@ WORLDPOP_ALPHA_CAVEAT = ("WorldPop R2025A is an alpha release: WorldPop states t
                          "improvements are made, so these population figures may change.")
 BUILDINGS_LIMITATION = ("Open Buildings detection quality varies between areas; informal buildings and thatched or vegetated "
                         "roofs may be missed, so building counts may be too low.")
-BUILDINGS_SPOT_CHECK = "pending: manual comparison with very-high-resolution imagery (owner)"
+BUILDINGS_SPOT_CHECK = ("done 2026-11-17 by the owner on the Rufiji observed extent (Google Earth Pro, recent imagery, 5 views, "
+                        "about 100 points): about 95% or more of the building points sit on real structures (metal, thatch and "
+                        "mud roofs), a few on bare ground or under trees; some small buildings carry 2–3 points; omissions were "
+                        "not assessed")
+BUILT_UP_NOTE = ("Built-up areas can also produce SAR backscatter change unrelated to flooding (for example new or changed "
+                 "buildings), which can add false flood candidates where people live.")
+CLUSTER_BLOCK_CELLS = 6  # 6 × 3″ ≈ 550 m blocks for the "where are the exposed people" sentence
 EXPOSURE_WORDING = ("Estimated exposure: modelled people and detected buildings inside each extent. Not people affected, "
                     "not damage; the version, year, threshold and method are part of every figure.")
 MAP_EXTENTS = ("observed_extent", "rp100")
@@ -140,7 +146,8 @@ def exposure_rows(population, aoi_geometry: dict, *, observed: dict | None, haza
     return rows, arrays
 
 
-def exposure_record(population, rows: list[dict], *, points: dict | None = None) -> dict[str, Any]:
+def exposure_record(population, rows: list[dict], *, points: dict | None = None, users_accuracy_flood_pct: float | None = None,
+                    cluster: dict | None = None) -> dict[str, Any]:
     status_year = year_status(population.countries, population.year)
     return {
         "status": "assessed", "reason": None, "wording": EXPOSURE_WORDING,
@@ -159,9 +166,58 @@ def exposure_record(population, rows: list[dict], *, points: dict | None = None)
                             "occurrence >= 90 %, already excluded at 30 m). GloFAS permanent-water cells are excluded from the "
                             "modelled return-period zones only, as in the hazard figures."),
         "rows": rows,
+        "observed_extent_caveat": observed_extent_caveat(users_accuracy_flood_pct) if any(
+            r["extent"] == "observed_extent" for r in rows) else None,
+        "observed_cluster": cluster,
         "glofas_zone_notice": ("The return-period zones come from the GloFAS flood hazard maps: " + GLOFAS_DATABASE_NOTICE),
         "building_points": {k: v for k, v in (points or {}).items() if k != "features"} or None,
     }
+
+
+def observed_extent_caveat(users_accuracy_flood_pct: float | None) -> dict[str, Any]:
+    """The observed extent inherits the flood map's commission error (owner, 2026-11-17)."""
+    if users_accuracy_flood_pct is None:
+        text = ("These figures inherit the flood map's commission error, which is not assessable for this run (no independent "
+                "Sentinel-2 comparison), so some of these people and buildings may lie outside the real flood.")
+        return {"status": "not_assessable", "users_accuracy_flood_pct": None, "text": text, "built_up_note": BUILT_UP_NOTE}
+    text = (f"These figures inherit the flood map's commission error: against the independent Sentinel-2 reference, "
+            f"{users_accuracy_flood_pct:.1f}% of the pixels mapped as flood candidates were flooded (user's accuracy for flood), "
+            "so part of these people and buildings may lie outside the real flood.")
+    return {"status": "assessed", "users_accuracy_flood_pct": float(users_accuracy_flood_pct), "text": text,
+            "built_up_note": BUILT_UP_NOTE}
+
+
+def observed_cluster(people: np.ndarray, transform: Affine, *, block: int = CLUSTER_BLOCK_CELLS) -> dict[str, Any] | None:
+    """Where most observed-extent people are: the smallest set of ~550 m blocks holding half of them, if compact."""
+    total = float(people.sum())
+    if total <= 0:
+        return None
+    height, width = people.shape
+    rows, cols = -(-height // block), -(-width // block)
+    padded = np.zeros((rows * block, cols * block))
+    padded[:height, :width] = people
+    sums = padded.reshape(rows, block, cols, block).sum(axis=(1, 3)).ravel()
+    order = np.argsort(sums)[::-1]
+    chosen, held = [], 0.0
+    for index in order:
+        chosen.append(index)
+        held += sums[index]
+        if held >= 0.5 * total:
+            break
+    r, c = np.unravel_index(chosen, (rows, cols))
+    west, north = transform * (int(c.min()) * block, int(r.min()) * block)
+    east, south = transform * ((int(c.max()) + 1) * block, (int(r.max()) + 1) * block)
+    compact = (east - west) <= 0.05 and (north - south) <= 0.05  # about 5.5 km
+    share = held / total * 100
+    def lon(v):
+        return f"{abs(v):.3f}°{'E' if v >= 0 else 'W'}"
+    def lat(v):
+        return f"{abs(v):.3f}°{'N' if v >= 0 else 'S'}"
+    lats = sorted((south, north), key=abs)
+    text = (f"About half of these people ({share:.0f}%) are in a settled area around {lon(west)[:-2]}–{lon(east)}, "
+            f"{lat(lats[0])[:-2]}–{lat(lats[1])}, where SAR change can be unrelated to flooding." if compact else None)
+    return {"share_pct": share, "blocks": len(chosen), "bounds": {"west": west, "south": south, "east": east, "north": north},
+            "compact": compact, "text": text}
 
 
 def unavailable_exposure(reason: str) -> dict[str, Any]:
@@ -169,8 +225,8 @@ def unavailable_exposure(reason: str) -> dict[str, Any]:
 
 
 def run_exposure(aoi_geometry: dict, *, event_year: int | None, extent: np.ndarray | None, extent_transform: Affine | None,
-                 extent_crs: str, hazard_layers: dict | None, acquire=None, count=None, points=None
-                 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+                 extent_crs: str, hazard_layers: dict | None, acquire=None, count=None, points=None,
+                 users_accuracy_flood_pct: float | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Population and buildings for every extent; on failure, a 'not available' record (the flood map is unaffected)."""
     from app.services.gee.open_buildings import building_points, count_buildings
     from app.services.gee.worldpop import PopulationUnavailable, acquire_worldpop
@@ -196,6 +252,8 @@ def run_exposure(aoi_geometry: dict, *, event_year: int | None, extent: np.ndarr
             building_layer = points(arrays["observed_extent"]["geometry"])
         except Exception as exc:  # noqa: BLE001 - the layer is optional; counts stay exact
             building_layer = {"status": "not_delivered", "reason": f"The building layer could not be read: {exc}", "features": []}
-    record = exposure_record(population, rows, points=building_layer)
+    cluster = observed_cluster(arrays["observed_extent"]["people"], population.transform) if "observed_extent" in arrays else None
+    record = exposure_record(population, rows, points=building_layer, users_accuracy_flood_pct=users_accuracy_flood_pct,
+                             cluster=cluster)
     layers = {"population_transform": population.transform, "arrays": arrays, "building_points": building_layer}
     return record, layers
