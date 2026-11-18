@@ -6,6 +6,23 @@ author: @deeteki
 header: FRRIS User Guide · NOVA-GeoRisk
 ---
 
+## Quick start
+
+Six steps from sign-in to downloads. Each step points to its full section.
+
+::: steps
+1. **Sign in.** Open NOVA-GeoRisk, choose **Continue with SSO**, then **Open FRRIS**. See [section 1](#1-signing-in-and-the-nova-georisk-suite).
+2. **Draw or upload your area.** In the **Area playground**, draw a polygon or upload GeoJSON, Shapefile or KML. Check **Fits one analysis?**, then **Save to my areas**. See [section 2](#2-area-playground).
+3. **Start a new analysis.** Choose **New analysis**, then the project and the area. Set the **target** (flood) days and a **dry-season baseline**; the last day is included. See [section 3](#3-new-analysis).
+4. **Read the preflight.** Green **Ready**: continue. Blue warning: the run can go ahead with a limitation. Red: change the dates or press **Use nearest pass**. "Footprint covers 100%" does not mean cloud-free. See [Reading the preflight](#reading-the-preflight).
+5. **Run.** Choose the products (flood extent, confidence score and, if needed, modelled hazard and exposure), check the **Run summary** and press **Run analysis**. Follow the progress, or come back later. See [section 4](#4-following-a-run).
+6. **Read the results and download.** Start with **Overview**, then **Accuracy assessment** (independent or not assessable). Download the report, maps and GIS layers from **Downloads & GIS layers**. See [section 5](#5-results) and [section 6](#6-reading-the-scientific-report).
+:::
+
+::: tip
+Keep the area compact, choose a dry-season baseline on the same orbit, and read the Sentinel-2 line of the preflight. Section 7 explains why.
+:::
+
 ## 1. Signing in and the NOVA-GeoRisk suite
 
 FRRIS is one system in the NOVA-GeoRisk suite. It maps **flood candidates** from Sentinel-1 radar and checks them against an **independent Sentinel-2 optical reference**. It can also add **modelled river-flood hazard** (GloFAS) and **estimated exposure** (WorldPop people, Open Buildings).
@@ -352,4 +369,11 @@ The footprint is the scene outline. Clouds and shadow inside the area are only m
 Use the report's provenance section, and the dataset credits listed in section 4 of the report.
 
 **Who do I contact?**
-Contact your NOVAREX project team through the support channel in your service agreement. Please include the analysis name, its date and a screenshot of the message you see.
+Contact **DEETEKI** support:
+
+| Channel | Contact |
+|---|---|
+| Email | deeteki@deeteki.com |
+| Phone / WhatsApp | +255 762 085 205 |
+
+Please include the analysis name, its date and a screenshot of the message you see.
