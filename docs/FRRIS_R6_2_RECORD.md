@@ -20,7 +20,7 @@
 | | Backend | Frontend |
 |---|---|---|
 | Base (production r6.1) | `9f3b187` (tag `firris-science-2-r6.1`) | `1d0e588` (tag `firris-science-2-r6.1`) |
-| r6.2 candidate | `main` after this record (docs and guide only on top of r6.1 code) | `874ff5b` on `fix/frris-r6.2`, fast-forwarded into `main` |
+| r6.2 candidate | `main` `34f8389` and later (docs and guide only on top of r6.1 code) | `874ff5b` on `fix/frris-r6.2`, fast-forwarded into `main` |
 
 Because the backend code is unchanged, an r6.2 deploy only needs a new **frontend** image. Running the full Phase A gates on both images is still recommended (same procedure as r6.1).
 
