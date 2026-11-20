@@ -24,6 +24,7 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.platform_admin import SecurityAlert
 from app.models.sessions import UserSession
 from app.services.billing import ledger, limits
 from app.services.sessions import geoip, user_agent
@@ -113,6 +114,8 @@ class SessionTracker:
         location = geoip.lookup(address)
         seen_before = db.query(UserSession.id).filter(
             UserSession.user_id == user_id, UserSession.browser == device.browser, UserSession.os == device.os).first()
+        has_history = seen_before is not None or db.query(UserSession.id).filter(
+            UserSession.user_id == user_id).first() is not None
         record = UserSession(
             id=session_ref, user_id=user_id, organization_id=organization_id, session_hash=digest(token),
             created_at=now, last_seen_at=now, expires_at=now + timedelta(seconds=self._ttl),
@@ -121,6 +124,11 @@ class SessionTracker:
             country=location.country if location else None, country_code=location.country_code if location else None,
         )
         db.add(record)
+        if seen_before is None and has_history:  # a first sign-in ever is not an alert
+            db.add(SecurityAlert(organization_id=organization_id, user_id=user_id, session_id=session_ref,
+                                 kind="new_device", created_at=now,
+                                 detail={"browser": device.browser, "os": device.os, "device_type": device.device_type,
+                                         "city": record.city, "country": record.country}))
         drop_expired_ips(db, now=now)
         db.flush()
         limit = limits.session_limit(db, organization_id)

@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import api_router
+from app.services.usage.middleware import usage_counter_middleware
 from app.core.artifact_storage import ArtifactStorageError, require_artifact_storage_ready
 from app.core.config import get_settings
 from app.core.http import (
@@ -58,6 +59,7 @@ if settings.allowed_cors_origins:
     )
 
 app.middleware("http")(request_context_middleware)
+app.middleware("http")(usage_counter_middleware)  # subscriptions M4: API requests per organisation
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(PublicAPIError, public_api_error_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)

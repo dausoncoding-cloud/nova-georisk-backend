@@ -125,6 +125,14 @@ class Settings(BaseSettings):
     # "Last active" on the device list is updated at most this often per session.
     session_last_seen_interval_seconds: int = 300
 
+    # --- NOVA ARI console (plan section 8) ---
+    # "Payment overdue": an active, sold subscription whose recorded plan payments end more than this many
+    # days ago (or that started this long ago with no plan payment).
+    billing_payment_overdue_grace_days: int = 7
+    billing_expiring_soon_days: int = 7
+    # API-request and download counters (Redis buffer, flushed to Postgres). Tests switch this off.
+    usage_counting_enabled: bool = True
+
     @property
     def allowed_cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]

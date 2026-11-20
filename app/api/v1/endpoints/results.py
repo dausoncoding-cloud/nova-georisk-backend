@@ -18,6 +18,7 @@ from app.db.session import get_db
 from app.models.project import Project
 from app.models.result import Result
 from app.schemas.results import ResultPage, ResultResponse
+from app.services.usage.counters import record_download
 
 router = APIRouter(prefix="/results", tags=["Results"], dependencies=[Depends(verify_internal_secret)])
 
@@ -199,6 +200,8 @@ def get_result_product(
         size, digest = artifact_fingerprint(output_path)
         if digest != entry["checksum_sha256"] or (entry.get("file_size_bytes") is not None and entry["file_size_bytes"] != size):
             raise HTTPException(status_code=404, detail="Result product integrity check failed.")
+    if not request.headers.get("range") and entry.get("artifact_type") != "preview":  # subscriptions M4: downloads
+        record_download(None if context.is_service else context.organization_id, entry.get("file_size_bytes"))
     return _protected_file_response(
         request,
         output_path,
