@@ -18,6 +18,7 @@ from rasterio.warp import transform_bounds
 from shapely.geometry import Point
 
 from app.services.validation.auc_presentation import scope_auc
+from app.services.firris.trend_exports import workbook_rows as trend_workbook_rows
 from app.services.validation.multi_roc import record_summary_rows, record_table_rows
 from app.platform.engines.base import EngineAdapter, EngineExecutionContext, EngineExecutionOutput
 from app.platform.result_exports import artifact_entry, build_result_exports
@@ -580,6 +581,8 @@ class FIRRISEngineAdapter(EngineAdapter):
                 "ROC thresholds by variable": pd.DataFrame(record_table_rows(variable_record)
                                                            or [{"status": "not_assessable", "reason": variable_record.get("reason")}]),
                 **_hazard_sheets(workflow.modelled_hazard),
+                **({"Trend analysis": pd.DataFrame(trend_workbook_rows(workflow.trend_analysis))}
+                   if workflow.trend_analysis is not None else {}),
                 **_exposure_sheets(workflow.flood_exposure),
                 "Samples": workflow.samples,
             }, str(xlsx_path),
@@ -714,6 +717,11 @@ class FIRRISEngineAdapter(EngineAdapter):
                                                  producer=context.gis_metadata.get("producer"), aoi_name=context.aoi_name,
                                                  aoi_geometry=context.aoi_geometry).items():
                     (outputs if entry.get("role") == "product" else reports)[key] = entry
+            if workflow.trend_analysis is not None:  # Trend Analysis (opt-in): CSVs and the record JSON
+                from app.services.firris.trend_exports import trend_exports
+                summary["trend_analysis"] = workflow.trend_analysis
+                reports.update(trend_exports(context.output_directory, workflow.trend_analysis,
+                                             result_version=context.result_version))
             if workflow.flood_exposure is not None:  # Depth & Exposure module: estimated exposure (opt-in)
                 from app.services.firris.exposure_exports import exposure_exports
                 summary["flood_exposure"] = workflow.flood_exposure

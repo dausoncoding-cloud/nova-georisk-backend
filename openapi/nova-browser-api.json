@@ -1144,6 +1144,16 @@
               }
             ]
           },
+          "trend_sar_passes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisPreflightTrendPasses"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "warnings": {
             "items": {
               "$ref": "#/components/schemas/AnalysisPreflightIssue"
@@ -1156,6 +1166,53 @@
           "ok"
         ],
         "title": "AnalysisPreflightResponse",
+        "type": "object"
+      },
+      "AnalysisPreflightTrendPasses": {
+        "description": "Trend Analysis: Sentinel-1 passes in the series window on the shared orbit (informational; never blocking).",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "first_day": {
+            "format": "date",
+            "title": "First Day",
+            "type": "string"
+          },
+          "last_day": {
+            "format": "date",
+            "title": "Last Day",
+            "type": "string"
+          },
+          "orbit": {
+            "title": "Orbit",
+            "type": "integer"
+          },
+          "span_years": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span Years"
+          },
+          "used": {
+            "title": "Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "orbit",
+          "first_day",
+          "last_day",
+          "count",
+          "used"
+        ],
+        "title": "AnalysisPreflightTrendPasses",
         "type": "object"
       },
       "AnalysisSubmitRequest": {
@@ -3460,6 +3517,17 @@
             "description": "Add the GloFAS v2.1 modelled river-flood hazard (depth for return periods 10-500 years) as context. Earth Engine source only.",
             "title": "Modelled Flood Hazard",
             "type": "boolean"
+          },
+          "trend_analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FIRRISTrendAnalysisConfig"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Add Trend Analysis: JRC annual surface water 1984-2021, CHIRPS rainfall and anomaly, and Sentinel-1 SAR open water per pass (VV < -18 dB). Earth Engine source only."
           }
         },
         "title": "FIRRISContextConfig",
@@ -3750,6 +3818,37 @@
           "source"
         ],
         "title": "FIRRISSatelliteWorkflowConfig",
+        "type": "object"
+      },
+      "FIRRISTrendAnalysisConfig": {
+        "additionalProperties": false,
+        "description": "Trend Analysis options (docs/FRRIS_TREND_ANALYSIS_PLAN.md). Context next to the flood map; never changes it.",
+        "properties": {
+          "rainfall_days": {
+            "default": 90,
+            "description": "CHIRPS rainfall window in days, ending on the target's last day (daily, 10-day totals and anomaly).",
+            "enum": [
+              30,
+              60,
+              90,
+              180
+            ],
+            "title": "Rainfall Days",
+            "type": "integer"
+          },
+          "sar_series": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisDateRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sentinel-1 open-water series window (end exclusive, like the target and baseline periods). Default: the baseline start to the target end. At most the latest 24 passes on the run's orbit are used."
+          }
+        },
+        "title": "FIRRISTrendAnalysisConfig",
         "type": "object"
       },
       "FiiRequest": {

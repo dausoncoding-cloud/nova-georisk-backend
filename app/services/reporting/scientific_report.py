@@ -344,7 +344,10 @@ NOT_PRODUCED_WITH_HAZARD = ("Observed flood depth, velocity, exposure, vulnerabi
 NOT_PRODUCED_WITH_EXPOSURE = ("Observed flood depth, velocity, vulnerability and risk are not produced. The modelled river-flood "
                               "hazard (section {hazard}) is undefended model context, and the exposure (section {exposure}) is an "
                               "estimate of people and buildings inside each extent, not of people affected or damage.")
-FIGURE_KINDS = {"modelled_hazard_depth_by_return_period": "Modelled flood hazard — depth by return period",
+FIGURE_KINDS = {"trend_surface_water_annual": "Trend analysis — annual surface water (JRC)",
+                "trend_rainfall": "Trend analysis — rainfall and 10-day totals (CHIRPS)",
+                "trend_sar_open_water": "Trend analysis — SAR open water per Sentinel-1 pass",
+                "modelled_hazard_depth_by_return_period": "Modelled flood hazard — depth by return period",
                 "modelled_hazard_aep": "Modelled flood hazard — AEP and probability of at least one occurrence",
                 "roc_by_variable_panels": "ROC by variable, one panel per variable", "roc_by_variable": "ROC by variable",
                 "roc": "ROC curve", "pr": "precision–recall curve", "confusion": "confusion matrix", "class_metrics": "per-class accuracy"}
@@ -550,6 +553,8 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
         writer.para(f"Independent accuracy: {STATUS.get(status, status)}" + ("; the reason is given in section 9." if reason else "."))
     writer.heading("Scope of this report: not included in this version", 2)
     for name in NOT_INCLUDED:
+        if name == "Trend analysis" and (summary.get("trend_analysis") or {}).get("status") == "assessed":
+            continue  # delivered in this report's Trend analysis section
         writer.para(f"• {name}")
 
     area = overview["area_accounting"]
@@ -643,6 +648,11 @@ def build_scientific_report(output_directory: Path, *, ids: dict[str, str], name
     if summary.get("flood_exposure"):
         sections["exposure"] = number
         exposure_section(writer, output_directory, summary.get("flood_exposure"), map_entries, number=number)
+        number += 1
+    if summary.get("trend_analysis"):  # Trend Analysis (opt-in): after the hazard and exposure sections
+        from app.services.reporting.trend_report import trend_section
+        sections["trend"] = number
+        figure_files.update(trend_section(writer, output_directory, summary.get("trend_analysis"), number=number))
         number += 1
     writer.heading(f"{number}. Limitations and what is not claimed")
     # The paired-observation disclaimer is generic to the diagnostics tool, not about this map.

@@ -1,7 +1,7 @@
 """Engine-neutral submission and capability contracts."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -25,7 +25,7 @@ from app.models.task import Task, TaskStatus, TaskType
 from app.platform.engines import get_engine_adapter
 from app.core.config import get_settings
 from app.core.rate_limit import FixedWindowRateLimiter, get_preflight_limiter
-from app.schemas.analyses import (AnalysisPreflightResponse, AnalysisSubmitRequest, AnalysisSubmitResponse,
+from app.schemas.analyses import (AnalysisPreflightResponse, AnalysisPreflightTrendPasses, AnalysisSubmitRequest, AnalysisSubmitResponse,
                                   EngineExecutionContract, SatelliteSourceConfig)
 from app.services.firris import preflight as firris_preflight
 from app.schemas.source_bindings import SourceBoundAnalysisRequest, SourceBindingValidationResponse
@@ -218,7 +218,15 @@ def preflight_analysis(
     source = _gee_source(project, payload)
     if source is None:
         raise HTTPException(status_code=422, detail="Availability checks apply to FRRIS satellite (Earth Engine) analyses.")
-    return _run_preflight(aoi, source)
+    response = _run_preflight(aoi, source)
+    trend = payload.parameters.workflow.context.trend_analysis
+    if trend is not None and not response.blocking:  # Trend Analysis: pass count of the series window (never blocks)
+        field, warnings = firris_preflight.trend_sar_preflight(
+            mapping(to_shape(aoi.geometry)), response, trend, target_last=source.target_period.end - timedelta(days=1),
+            baseline_first=source.baseline_period.start, timeout=settings.firris_preflight_timeout_seconds)
+        response = response.model_copy(update={"trend_sar_passes": AnalysisPreflightTrendPasses(**field) if field else None,
+                                               "warnings": [*response.warnings, *warnings]})
+    return response
 
 
 @router.post("", response_model=AnalysisSubmitResponse, status_code=status.HTTP_202_ACCEPTED)

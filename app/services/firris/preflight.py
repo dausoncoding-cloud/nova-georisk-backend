@@ -252,3 +252,50 @@ def run_preflight(*, aoi_geometry: dict, source: SatelliteSourceConfig, today: d
     shared = sorted(set(periods["target"].relative_orbits) & set(periods["baseline"].relative_orbits))
     return AnalysisPreflightResponse(ok=not blocking, target=periods["target"], baseline=periods["baseline"],
                                      shared_relative_orbits=shared, capacity=capacity, blocking=blocking, warnings=warnings)
+
+
+def trend_pass_dates(aoi_geometry: dict, orbit: int, first_day: date, last_day: date) -> list[str]:
+    """Trend Analysis: Sentinel-1 pass dates on ``orbit`` in [first_day, last_day]. Metadata only. Patched in tests."""
+    from app.services.gee import auth, ingestion
+    from app.services.gee.trend_series import s1_pass_dates
+    auth.initialize_gee()
+    return s1_pass_dates(ingestion.build_aoi_geometry(aoi_geometry), orbit, first_day, last_day)
+
+
+def trend_sar_preflight(aoi_geometry: dict, response: AnalysisPreflightResponse, trend_options, *,
+                        target_last: date, baseline_first: date, timeout: float | None = None):
+    """Count the passes of the Trend Analysis Sentinel-1 window; returns (field, warnings). Never blocks: on any error
+    or without exactly one shared orbit it returns (None, [])."""
+    from app.services.firris.trend_analysis import S1_MIN_TREND_SPAN_YEARS
+    from app.services.firris.trends import _decimal_year
+    from app.services.gee.trend_series import MAX_PASSES
+    if len(response.shared_relative_orbits) != 1:
+        return None, []
+    orbit = response.shared_relative_orbits[0]
+    window = getattr(trend_options, "sar_series", None)
+    first_day = window.start if window else baseline_first
+    last_day = (window.end - timedelta(days=1)) if window else target_last
+    try:
+        dates = _executor.submit(trend_pass_dates, aoi_geometry, orbit, first_day, last_day).result(
+            timeout=timeout or DEFAULT_TIMEOUT_SECONDS)
+    except Exception:  # noqa: BLE001 - informational only
+        logger.warning("FRRIS preflight: Trend Analysis pass count unavailable", exc_info=True)
+        return None, []
+    used = dates[-MAX_PASSES:]
+    span = (_decimal_year(used[-1]) - _decimal_year(used[0])) if len(used) >= 2 else None
+    field = {"orbit": orbit, "first_day": first_day, "last_day": last_day, "count": len(dates), "used": len(used),
+             "span_years": span}
+    warnings = []
+    if len(dates) > MAX_PASSES:
+        warnings.append(_issue("trend_sar_passes_capped",
+                               f"Trend analysis: the Sentinel-1 series window has {len(dates)} passes on orbit {orbit}; the "
+                               f"latest {MAX_PASSES} are used (from {day_text(date.fromisoformat(used[0]))})."))
+    if len(dates) < 2:
+        warnings.append(_issue("trend_sar_passes_few",
+                               f"Trend analysis: the Sentinel-1 series window has {len(dates)} pass{'' if len(dates) == 1 else 'es'} "
+                               f"on orbit {orbit}; SAR open water needs at least 2 passes to show a change."))
+    elif span is not None and span < S1_MIN_TREND_SPAN_YEARS:
+        warnings.append(_issue("trend_sar_short_span",
+                               f"Trend analysis: the Sentinel-1 passes used span {span:.1f} years; SAR open water will be "
+                               f"shown as a change (seasonal; a trend needs at least {S1_MIN_TREND_SPAN_YEARS:g} years)."))
+    return field, warnings

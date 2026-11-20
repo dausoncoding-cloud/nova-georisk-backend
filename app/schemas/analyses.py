@@ -148,6 +148,22 @@ class FIRRISPostprocessingConfig(BaseModel):
         return self
 
 
+class FIRRISTrendAnalysisConfig(BaseModel):
+    """Trend Analysis options (docs/FRRIS_TREND_ANALYSIS_PLAN.md). Context next to the flood map; never changes it."""
+    model_config = ConfigDict(extra="forbid")
+    rainfall_days: Literal[30, 60, 90, 180] = Field(default=90, description=(
+        "CHIRPS rainfall window in days, ending on the target's last day (daily, 10-day totals and anomaly)."))
+    sar_series: AnalysisDateRange | None = Field(default=None, description=(
+        "Sentinel-1 open-water series window (end exclusive, like the target and baseline periods). Default: the "
+        "baseline start to the target end. At most the latest 24 passes on the run's orbit are used."))
+
+    @model_validator(mode="after")
+    def sar_series_in_archive(self) -> "FIRRISTrendAnalysisConfig":
+        if self.sar_series is not None and self.sar_series.start < date(2014, 10, 3):
+            raise ValueError("The Sentinel-1 series cannot start before 3 Oct 2014 (start of the Sentinel-1 archive).")
+        return self
+
+
 class FIRRISContextConfig(BaseModel):
     """Opt-in context layers next to the flood map (Depth & Exposure module). They never change the flood map."""
     model_config = ConfigDict(extra="forbid")
@@ -157,6 +173,9 @@ class FIRRISContextConfig(BaseModel):
     flood_exposure: bool = Field(default=False, description=(
         "Add the estimated exposure (WorldPop R2025A people, Open Buildings v3 buildings) inside the observed flood "
         "extent and inside each modelled return-period zone. Needs the modelled flood hazard."))
+    trend_analysis: FIRRISTrendAnalysisConfig | None = Field(default=None, description=(
+        "Add Trend Analysis: JRC annual surface water 1984-2021, CHIRPS rainfall and anomaly, and Sentinel-1 SAR open "
+        "water per pass (VV < -18 dB). Earth Engine source only."))
 
 
 class FIRRISSatelliteWorkflowConfig(BaseModel):
@@ -178,6 +197,8 @@ class FIRRISSatelliteWorkflowConfig(BaseModel):
             raise ValueError("The modelled flood hazard (GloFAS) needs the Earth Engine source")
         if self.context.flood_exposure and not self.context.modelled_flood_hazard:
             raise ValueError("The exposure estimate uses the modelled hazard zones: switch on the modelled flood hazard too")
+        if self.context.trend_analysis is not None and self.source.provider != "gee":
+            raise ValueError("Trend Analysis needs the Earth Engine source")
         return self
 
 
@@ -234,9 +255,20 @@ class AnalysisPreflightCapacity(BaseModel):
     suggested_scale_m: float | None = None
 
 
+class AnalysisPreflightTrendPasses(BaseModel):
+    """Trend Analysis: Sentinel-1 passes in the series window on the shared orbit (informational; never blocking)."""
+    orbit: int
+    first_day: date
+    last_day: date
+    count: int
+    used: int
+    span_years: float | None = None
+
+
 class AnalysisPreflightResponse(BaseModel):
     """Metadata-only availability check (plan items 4.1, 4.4, 4.6). Never creates a task or result."""
     ok: bool
+    trend_sar_passes: AnalysisPreflightTrendPasses | None = None
     target: AnalysisPreflightPeriod | None = None
     baseline: AnalysisPreflightPeriod | None = None
     shared_relative_orbits: list[int] = Field(default_factory=list)
