@@ -1,0 +1,100 @@
+/* NOVA-GeoRisk user guides (FRRIS, WRRIS, MEGIS): one stylesheet for every guide.
+   Look: the client proposal PDF (Claude Docs export). A4, ~2 cm margins; the running header and the
+   "Page X of Y" footer are drawn by build.mjs (Playwright headerTemplate/footerTemplate), not here.
+   Fonts are embedded from ./fonts (SIL OFL 1.1); DejaVu is the fallback for missing glyphs only. */
+
+@font-face { font-family: "Inter"; font-weight: 400; font-style: normal; src: url("fonts/inter-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-weight: 400; font-style: italic; src: url("fonts/inter-latin-400-italic.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-weight: 600; font-style: normal; src: url("fonts/inter-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-weight: 700; font-style: normal; src: url("fonts/inter-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Inter"; font-weight: 400; src: url("fonts/inter-latin-ext-400-normal.woff2") format("woff2");
+  unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Inter"; font-weight: 600; src: url("fonts/inter-latin-ext-600-normal.woff2") format("woff2");
+  unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Source Serif 4"; font-weight: 400; font-style: normal; src: url("fonts/source-serif-4-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Source Serif 4"; font-weight: 400; font-style: italic; src: url("fonts/source-serif-4-latin-400-italic.woff2") format("woff2"); }
+@font-face { font-family: "Source Serif 4"; font-weight: 600; font-style: normal; src: url("fonts/source-serif-4-latin-600-normal.woff2") format("woff2"); }
+
+:root {
+  --ink: #1f1e1d;          /* body and headings */
+  --muted: #8a8a86;        /* running header, footer, captions, pills */
+  --rule: #e8e5dc;         /* table and figure borders */
+  --tint: #f3f3f3;         /* table header row, pills */
+  --callout: #f7f7f5;      /* tip and caveat boxes */
+  --accent: #b9b5a9;       /* callout left border */
+  --caveat: #c2410c;       /* caveat callout left border */
+  --serif: "Source Serif 4", "DejaVu Serif", Georgia, serif;
+  --sans: "Inter", "DejaVu Sans", Arial, sans-serif;
+}
+
+@page { size: A4; }
+
+html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+body { margin: 0; color: var(--ink); font-family: var(--sans); font-size: 10.5pt; line-height: 1.5; background: #fff;
+       font-feature-settings: "tnum" 0; hyphens: manual; }
+
+/* ---- Cover: title, pills, short table of contents ---- */
+.cover { break-after: page; }
+.cover h1 { font-family: var(--serif); font-weight: 400; font-size: 28pt; line-height: 1.2; margin: 0 0 10pt; letter-spacing: -0.2pt; }
+.cover .subtitle { font-size: 11.5pt; color: #4a4946; margin: 0 0 12pt; max-width: 34em; }
+.pills { display: flex; gap: 6pt; margin: 0 0 26pt; }
+.pill { display: inline-block; background: var(--tint); color: #6b6a66; font-size: 8pt; line-height: 1; padding: 4pt 8pt;
+        border-radius: 999px; }
+.toc { margin-top: 6pt; }
+.toc h2 { margin-top: 0; }
+.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: none; }
+.toc li { display: flex; align-items: baseline; padding: 3.5pt 0; border-bottom: 1px solid var(--rule); font-size: 10pt; }
+.toc li .n { width: 1.8em; color: var(--muted); flex: none; }
+.toc li a { color: var(--ink); text-decoration: none; flex: 1; }
+.toc li ul { display: none; }
+
+/* ---- Headings ---- */
+h2 { font-family: var(--serif); font-weight: 400; font-size: 20pt; line-height: 1.25; margin: 26pt 0 8pt; break-after: avoid; }
+h2.chapter { break-before: page; margin-top: 0; }
+h3 { font-family: var(--sans); font-weight: 600; font-size: 12pt; line-height: 1.35; margin: 16pt 0 5pt; break-after: avoid; }
+h4 { font-family: var(--sans); font-weight: 600; font-size: 10.5pt; margin: 12pt 0 4pt; break-after: avoid; }
+
+p { margin: 0 0 7pt; orphans: 3; widows: 3; }
+strong { font-weight: 600; }
+a { color: var(--ink); text-decoration-color: var(--rule); }
+ul, ol { margin: 0 0 8pt; padding-left: 18pt; }
+li { margin: 0 0 2.5pt; }
+li > ul, li > ol { margin-top: 2.5pt; }
+code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.8pt; background: var(--tint); padding: 0.5pt 3pt; border-radius: 3pt; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 14pt 0; }
+
+/* ---- Tables: full width, 1 px #e8e5dc, grey header, rounded outer corners ---- */
+table { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid var(--rule); border-radius: 6pt;
+        overflow: hidden; margin: 6pt 0 12pt; font-size: 9.5pt; line-height: 1.4; break-inside: auto; }
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+th, td { text-align: left; vertical-align: top; padding: 5pt 7pt; border-bottom: 1px solid var(--rule); border-right: 1px solid var(--rule); }
+th:last-child, td:last-child { border-right: 0; }
+tbody tr:last-child td { border-bottom: 0; }
+thead th { background: var(--tint); color: #6b6a66; font-weight: 600; font-size: 8.8pt; }
+
+/* ---- Figures: full text width, thin border, rounded, italic caption ---- */
+figure { margin: 8pt 0 14pt; break-inside: avoid; }
+/* Landscape screenshots fill the text width; tall (portrait) crops are capped in height and centred, so a figure
+   never splits across pages and leaves room for the text around it. */
+figure img { display: block; max-width: 100%; width: auto; height: auto; max-height: 125mm; margin: 0 auto;
+             border: 1px solid var(--rule); border-radius: 6pt; }
+figcaption { text-align: left; }
+figure.narrow img { width: 46%; margin: 0 auto; }
+figcaption { font-style: italic; font-size: 9pt; color: #5f5e5a; margin-top: 5pt; }
+
+/* ---- Callouts: tips and caveats ---- */
+.callout { background: var(--callout); border-left: 3px solid var(--accent); border-radius: 0 6pt 6pt 0; padding: 7pt 10pt;
+           margin: 8pt 0 12pt; font-size: 9.8pt; break-inside: avoid; }
+.callout p:last-child, .callout ul:last-child { margin-bottom: 0; }
+.callout .label { font-weight: 600; margin-right: 4pt; }
+.callout.caveat { border-left-color: var(--caveat); }
+
+/* ---- Numbered steps ---- */
+div.steps > ol { padding-left: 0; list-style: none; counter-reset: step; }
+div.steps > ol > li { counter-increment: step; position: relative; padding-left: 22pt; margin-bottom: 5pt; }
+div.steps > ol > li::before { content: counter(step); position: absolute; left: 0; top: 1pt; width: 15pt; height: 15pt; border-radius: 50%;
+                        background: var(--tint); color: #5f5e5a; font-size: 8pt; font-weight: 600; text-align: center; line-height: 15pt; }
+
+.keep { break-inside: avoid; }
+.small { font-size: 9pt; color: #5f5e5a; }
