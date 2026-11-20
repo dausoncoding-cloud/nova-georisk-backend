@@ -156,8 +156,8 @@ The display spelling is "Cancelled"; the code keeps `canceled`. Status changes a
 | S2 | Plans in use: seat limits, storage accounting and thresholds, status rules (Suspended, Expired with grace, Cancelled) wired to entitlements | 2.5 |
 | S3 | Sessions: per-user index, limit per plan, the "signed out elsewhere" notice, device list, sign-out per device, login history, offline GeoIP | 3.0 |
 | S4 | Platform admin API: organisations, plan and status changes, payments, top-ups, adjustments, sessions, catalogue edits, audit (reason required) | 3.0 |
-| S5 | Frontend "My subscription": credits, ledger, seats, storage, payments, devices, history, banners, the New analysis credit notice | 3.0 |
-| S6 | Frontend admin console "NOVA ARI" | 4.0 |
+| S5 | Frontend "My subscription": credits, ledger, seats, storage, payments, devices, history, banners, the New analysis credit notice. **Match the designs in `docs/design/subscriptions/` (boards 13–14)** | 3.0 |
+| S6 | Frontend admin console "NOVA ARI". **Match the designs in `docs/design/subscriptions/` (boards 13–14)** | 4.0 |
 | S7 | Tests, security review, user-guide section, release (Phase A/B) | 2.5 |
 | | **Total** | **24 days** |
 | | **With 20% contingency** | **≈ 29 working days (about 6 weeks)** |
