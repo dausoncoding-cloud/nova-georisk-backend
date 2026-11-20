@@ -1,14 +1,15 @@
-"""Subscription billing records: versioned prices, the append-only credit ledger, submission idempotency.
+"""Subscription billing records: versioned prices, the append-only credit ledger, submission idempotency,
+manual payments and the platform audit trail.
 
-See docs/PLATFORM_SUBSCRIPTIONS_PLAN.md sections 2-3. Ledger and price rows are never updated or
-deleted (database triggers enforce it); a correction is a new row.
+See docs/PLATFORM_SUBSCRIPTIONS_PLAN.md sections 2-5 and 8. Ledger, price, payment and platform-audit rows
+are never updated or deleted (database triggers enforce it); a correction is a new row.
 """
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import (DDL, BigInteger, CheckConstraint, DateTime, ForeignKey, Integer, String, Text,
+from sqlalchemy import (DDL, BigInteger, CheckConstraint, Date, DateTime, ForeignKey, Integer, String, Text,
                         UniqueConstraint, event)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -17,6 +18,8 @@ from app.db.base import Base, UUIDPrimaryKeyMixin
 
 LEDGER_KINDS = ("monthly_grant", "top_up", "charge", "refund", "adjustment", "expiry")
 LEDGER_BUCKETS = ("monthly", "top_up")
+PAYMENT_METHODS = ("bank_transfer", "mobile_money", "cash", "other")
+PAYMENT_PURPOSES = ("plan_period", "top_up", "reversal")
 
 
 def _now() -> datetime:
@@ -128,10 +131,78 @@ class CreditUsageNotice(UUIDPrimaryKeyMixin, Base):
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class Payment(UUIDPrimaryKeyMixin, Base):
+    """A payment NOVA ARI received outside the app (no gateway in v1). Never edited: a mistake is reversed
+    by a new negative `reversal` row that names the original (at most one reversal per payment)."""
+
+    __tablename__ = "payments"
+    __table_args__ = (
+        CheckConstraint("method IN ('bank_transfer','mobile_money','cash','other')", name="ck_payment_method"),
+        CheckConstraint("purpose IN ('plan_period','top_up','reversal')", name="ck_payment_purpose"),
+        CheckConstraint("(purpose = 'reversal') = (amount < 0)", name="ck_payment_sign"),
+        CheckConstraint("amount <> 0", name="ck_payment_amount_nonzero"),
+        CheckConstraint("purpose <> 'top_up' OR (credits IS NOT NULL AND credits > 0)", name="ck_payment_topup_credits"),
+        CheckConstraint("purpose <> 'plan_period' OR (covers_from IS NOT NULL AND covers_until IS NOT NULL "
+                        "AND covers_until >= covers_from)", name="ck_payment_period"),
+        CheckConstraint("(purpose = 'reversal') = (reverses_payment_id IS NOT NULL)", name="ck_payment_reversal_link"),
+        CheckConstraint("purpose <> 'reversal' OR (note IS NOT NULL AND length(trim(note)) > 0)",
+                        name="ck_payment_reversal_reason"),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"),
+                                                       nullable=False, index=True)
+    subscription_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organization_subscriptions.id"),
+                                                       nullable=False, index=True)
+    # Whole TZS, signed: negative only for a reversal.
+    amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="TZS")
+    method: Mapped[str] = mapped_column(String(20), nullable=False)
+    reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    paid_on: Mapped[date] = mapped_column(Date, nullable=False)
+    purpose: Mapped[str] = mapped_column(String(20), nullable=False)
+    covers_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    covers_until: Mapped[date | None] = mapped_column(Date, nullable=True)
+    credits: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # List price at recording time (credits x top-up price), for display; None when no price is set (MEGIS, Q2).
+    expected_amount: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    reverses_payment_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("payments.id"),
+                                                                  nullable=True, unique=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recorded_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"),
+                                                                  nullable=True)
+    # The admin request's key, so a double-clicked "Record payment" records one payment.
+    idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+
+
+class PlatformAudit(UUIDPrimaryKeyMixin, Base):
+    """Every NOVA ARI action on a customer account (plan section 8): who, what, which organisation,
+    before and after, and a required reason. Operator commands record `actor_label` and no user."""
+
+    __tablename__ = "platform_audit"
+    __table_args__ = (
+        CheckConstraint("length(trim(reason)) > 0", name="ck_platform_audit_reason"),
+        CheckConstraint("actor_user_id IS NOT NULL OR actor_label IS NOT NULL", name="ck_platform_audit_actor"),
+    )
+
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    actor_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    action: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"),
+                                                              nullable=True, index=True)
+    target_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    previous: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    current: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, index=True)
+
+
 # Immutability (mirrors access_audit). Shared by the migration and by create_all in tests.
 IMMUTABLE_FUNCTION = """CREATE OR REPLACE FUNCTION nova_immutable_billing_record() RETURNS trigger AS $$
 BEGIN RAISE EXCEPTION USING MESSAGE = TG_TABLE_NAME || ' rows are append-only'; END; $$ LANGUAGE plpgsql"""
-IMMUTABLE_TABLES = ("credit_ledger_entries", "billing_plan_prices")
+IMMUTABLE_TABLES = ("credit_ledger_entries", "billing_plan_prices", "payments", "platform_audit")
 
 
 def immutable_trigger_ddl(table: str) -> list[str]:
@@ -143,7 +214,7 @@ def immutable_trigger_ddl(table: str) -> list[str]:
     ]
 
 
-for _model in (CreditLedgerEntry, BillingPlanPrice):
+for _model in (CreditLedgerEntry, BillingPlanPrice, Payment, PlatformAudit):
     event.listen(_model.__table__, "after_create", DDL(IMMUTABLE_FUNCTION).execute_if(dialect="postgresql"))
     for _statement in immutable_trigger_ddl(_model.__tablename__):
         event.listen(_model.__table__, "after_create", DDL(_statement).execute_if(dialect="postgresql"))

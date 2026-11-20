@@ -107,6 +107,10 @@ class Settings(BaseSettings):
     # Q4 (open): unused monthly credits expire at month end; top-up credits do not.
     billing_monthly_credits_roll_over: bool = False
     billing_top_up_credits_expire: bool = False
+    # Q5: at 100% storage, block new analyses (True) or only warn (False, until the client decides).
+    billing_storage_block_at_limit: bool = False
+    # Q7: days an Expired or Cancelled organisation keeps viewing and downloads; None = no limit until decided.
+    billing_view_grace_days: int | None = None
 
     @property
     def allowed_cors_origins(self) -> list[str]:

@@ -107,6 +107,12 @@ def effective_monthly_credits(db: Session, subscription: OrganizationSubscriptio
     return (plan.monthly_credits if plan and plan.monthly_credits is not None else 0)
 
 
+def has_unlimited_credits(db: Session, subscription: OrganizationSubscription) -> bool:
+    """The Internal plan: never charged, never blocked for credits (status rules still apply)."""
+    plan = _plan(db, subscription)
+    return bool(plan and plan.unlimited_credits)
+
+
 def effective_limits(db: Session, subscription: OrganizationSubscription) -> dict:
     """Plan limits with the subscription's per-contract overrides applied (None = not set)."""
     plan = _plan(db, subscription)

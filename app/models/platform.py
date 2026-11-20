@@ -69,6 +69,9 @@ class BillingPlan(TimestampMixin, Base):
         Boolean, nullable=False, default=False, server_default=text("false")
     )
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    # Internal plan (NOVAREX and the team's test organisation): not sold, hidden from customers.
+    is_internal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    unlimited_credits: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
 
 
 class BillingPlanEngine(Base):
@@ -108,6 +111,8 @@ class OrganizationSubscription(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     storage_bytes_override: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     session_limit_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
     refund_on_data_failure_override: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # When `status` last changed (the Expired/Cancelled viewing grace counts from here).
+    status_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     plan: Mapped[BillingPlan | None] = relationship()
 

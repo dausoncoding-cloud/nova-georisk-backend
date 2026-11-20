@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session, joinedload
 
 from app.bff.oidc import OIDCClaims
+from app.services.billing.limits import SeatLimitReached, ensure_seat_available
 from app.models.identity import (
     MembershipRole,
     Organization,
@@ -236,6 +237,10 @@ def resolve_membership(
         raise MembershipResolutionError(
             "invalid_invitation", "The invitation cannot create a duplicate membership."
         )
+    try:  # subscriptions: plan seat limit (no-op until enforced); the invitation stays unused
+        ensure_seat_available(db, invitation.organization_id)
+    except SeatLimitReached as exc:
+        raise MembershipResolutionError(exc.code, exc.message) from exc
     membership = OrganizationMembership(
         organization_id=invitation.organization_id,
         user_id=user.id,

@@ -55,7 +55,8 @@ def seed_catalogue(db: Session, catalogue: dict | None = None) -> SeedReport:
                     seat_limit=item["seat_limit"], monthly_credits=item["monthly_credits"],
                     storage_bytes=item["storage_bytes"], session_limit=item["session_limit"],
                     refund_on_data_failure=item.get("refund_on_data_failure", refund_default),
-                    sort_order=item["sort_order"],
+                    sort_order=item["sort_order"], is_internal=item.get("is_internal", False),
+                    unlimited_credits=item.get("unlimited_credits", False),
                     description=f"{spec['name']} - {item['name']}",
                     metadata_json={"catalogue_version": catalogue["version"]},
                 ))
@@ -67,6 +68,8 @@ def seed_catalogue(db: Session, catalogue: dict | None = None) -> SeedReport:
                 if db.get(BillingPlanEngine, (key, engine_key)) is None:
                     db.add(BillingPlanEngine(plan_key=key, engine_key=engine_key))
                     report.engine_links.append(f"{key}:{engine_key}")
+            if item.get("is_internal"):
+                continue  # not sold: no price row, no top-up offer
             if db.query(BillingPlanPrice).filter(BillingPlanPrice.plan_key == key).first() is None:
                 db.add(BillingPlanPrice(
                     plan_key=key, version=1, currency=catalogue["currency"], monthly_price=item["monthly_price"],
@@ -79,6 +82,10 @@ def seed_catalogue(db: Session, catalogue: dict | None = None) -> SeedReport:
 
 
 TOP_UP_PACK_CREDITS = 10
+
+
+def internal_plan_key(family: str) -> str:
+    return f"{family}.internal"
 
 
 def current_price(db: Session, plan_key: str, at=None) -> BillingPlanPrice | None:

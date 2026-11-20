@@ -888,6 +888,43 @@
         "title": "AdministrativeBoundaryPage",
         "type": "object"
       },
+      "Allowance": {
+        "properties": {
+          "level": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "used": {
+            "title": "Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "used",
+          "limit",
+          "level"
+        ],
+        "title": "Allowance",
+        "type": "object"
+      },
       "AnalysisDateRange": {
         "properties": {
           "end": {
@@ -1828,6 +1865,16 @@
             "title": "Enforcement Enabled",
             "type": "boolean"
           },
+          "seats": {
+            "$ref": "#/components/schemas/Allowance"
+          },
+          "storage": {
+            "$ref": "#/components/schemas/Allowance"
+          },
+          "storage_blocks_at_limit": {
+            "title": "Storage Blocks At Limit",
+            "type": "boolean"
+          },
           "subscriptions": {
             "items": {
               "$ref": "#/components/schemas/SubscriptionSummary"
@@ -1838,7 +1885,10 @@
         },
         "required": [
           "enforcement_enabled",
-          "subscriptions"
+          "subscriptions",
+          "seats",
+          "storage",
+          "storage_blocks_at_limit"
         ],
         "title": "BillingSummaryResponse",
         "type": "object"
@@ -2645,6 +2695,11 @@
           "top_ups": {
             "title": "Top Ups",
             "type": "integer"
+          },
+          "unlimited": {
+            "default": false,
+            "title": "Unlimited",
+            "type": "boolean"
           },
           "used": {
             "title": "Used",
@@ -5335,6 +5390,163 @@
         "title": "OverviewHeadline",
         "type": "object"
       },
+      "PaymentPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PaymentResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "PaymentPage",
+        "type": "object"
+      },
+      "PaymentResponse": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "integer"
+          },
+          "covers_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Covers From"
+          },
+          "covers_until": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Covers Until"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "credits": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Family"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "paid_on": {
+            "format": "date",
+            "title": "Paid On",
+            "type": "string"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference"
+          },
+          "reversed": {
+            "title": "Reversed",
+            "type": "boolean"
+          },
+          "reverses_payment_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reverses Payment Id"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "paid_on",
+          "family",
+          "purpose",
+          "amount",
+          "currency",
+          "method",
+          "reference",
+          "credits",
+          "covers_from",
+          "covers_until",
+          "reverses_payment_id",
+          "reversed"
+        ],
+        "title": "PaymentResponse",
+        "type": "object"
+      },
       "PlanCatalogueResponse": {
         "properties": {
           "family": {
@@ -7828,6 +8040,11 @@
             "title": "Id",
             "type": "string"
           },
+          "is_internal": {
+            "default": false,
+            "title": "Is Internal",
+            "type": "boolean"
+          },
           "limits": {
             "$ref": "#/components/schemas/PlanLimits"
           },
@@ -10047,6 +10264,113 @@
           }
         },
         "summary": "Get Ledger",
+        "tags": [
+          "Billing"
+        ]
+      }
+    },
+    "/api/v1/billing/payments": {
+      "get": {
+        "description": "Payments NOVA ARI recorded for this organisation (owners and admins only). Admin notes are not shown.",
+        "operationId": "get_payments_api_v1_billing_payments_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authorization failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Get Payments",
         "tags": [
           "Billing"
         ]

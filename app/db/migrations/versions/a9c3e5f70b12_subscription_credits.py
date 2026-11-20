@@ -148,6 +148,8 @@ def _seed(bind) -> None:
     for family, plans in catalogue["plans"].items():
         spec = catalogue["families"][family]
         for item in plans:
+            if item.get("is_internal"):
+                continue  # seeded by c4e6a8b0d2f1 (it adds the is_internal column)
             bind.execute(sa.text(
                 "INSERT INTO billing_plans (key, name, description, status, metadata, family, is_custom, seat_limit, "
                 "monthly_credits, storage_bytes, session_limit, refund_on_data_failure, sort_order, created_at, updated_at) "

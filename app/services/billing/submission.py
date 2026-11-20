@@ -24,7 +24,7 @@ from app.core.security import RequestContext
 from app.models.billing import SubmissionIdempotencyKey
 from app.models.platform import OrganizationEngineEntitlement, OrganizationSubscription, SubscriptionStatus
 from app.models.task import Task
-from app.services.billing import ledger
+from app.services.billing import ledger, limits
 
 # Wording from docs/design/subscriptions/NOVA-GeoRisk_Subscription_limit_reached.png.
 NO_CREDITS = ("Your monthly analysis allowance has been reached. New analyses are paused until renewal; "
@@ -92,6 +92,10 @@ class SubmissionCharge:
         code = block_code(subscription)
         if code is not None:
             raise _payment_required(code, STATUS_MESSAGES[code])
+        if limits.storage_blocks_submission(db, context.organization_id):
+            raise _payment_required("storage_full", limits.STORAGE_FULL_MESSAGE)
+        if ledger.has_unlimited_credits(db, subscription):
+            return cls(None, context, engine_key)  # Internal plan: allowed, never charged
         ledger.ensure_period(db, subscription)
         if ledger.balances(db, subscription.id).total <= 0:
             raise _payment_required("credits_exhausted", NO_CREDITS)

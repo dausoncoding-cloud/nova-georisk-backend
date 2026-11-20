@@ -104,7 +104,7 @@ def _failed_charged_task(client, db, t):
 def test_catalogue_seed_matches_data_file_and_is_idempotent(db_session):
     first = catalogue.seed_catalogue(db_session)
     db_session.commit()
-    assert len(first.plans) == 12 and len(first.prices) == 12
+    assert len(first.plans) == 14 and len(first.prices) == 12  # 12 sold plans + 2 Internal (no price)
     again = catalogue.seed_catalogue(db_session)
     assert again.plans == [] and again.prices == [] and again.engine_links == []
     researcher = db_session.get(BillingPlan, "frris_wrris.researcher")
@@ -127,7 +127,8 @@ def test_submission_charges_one_credit_in_the_same_transaction(client, db_sessio
     assert ledger.balances(db_session, t.sub.id).total == 1
     summary = client.get("/api/v1/billing/summary", headers=t.headers).json()["subscriptions"][0]
     assert summary["credits"] == {"period": ledger.period_of(), "granted": 2, "top_ups": 0, "used": 1,
-                                        "remaining": 1, "available": 2, "used_percent": 50.0, "level": None}
+                                        "remaining": 1, "available": 2, "used_percent": 50.0, "level": None,
+                                        "unlimited": False}
     assert summary["can_submit"] is True and summary["plan_name"] == "Researcher"
     # Fields the "My subscription" board shows (docs/design/subscriptions/).
     assert (summary["monthly_price"], summary["currency"], summary["seats_used"]) == (150000, "TZS", 1)
@@ -262,7 +263,8 @@ def test_enforcement_off_keeps_todays_behaviour(client, db_session):
     assert client.post("/api/v1/analyses", headers=t.headers, json=_payload(t)).status_code == 202
     assert db_session.query(CreditLedgerEntry).count() == 0
     assert client.get("/api/v1/billing/summary", headers=t.headers).json() == {
-        "enforcement_enabled": False, "subscriptions": []}
+        "enforcement_enabled": False, "subscriptions": [], "seats": {"used": 1, "limit": None, "level": None},
+        "storage": {"used": 0, "limit": None, "level": None}, "storage_blocks_at_limit": False}
 
 
 def test_data_failure_refund_only_when_the_flag_is_on_and_at_most_once(client, db_session, enforced):

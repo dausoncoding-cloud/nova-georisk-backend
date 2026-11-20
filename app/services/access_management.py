@@ -6,6 +6,7 @@ from app.core.config import get_settings
 from app.core.entitlements import require_active_membership
 from app.models.identity import Organization, OrganizationMembership, User, MembershipRole
 from app.models.management import AccessAudit
+from app.services.billing.limits import ensure_seat_available
 
 
 def authorize(db, context, organization_id=None, *, lock=False):
@@ -54,6 +55,8 @@ def mutate(db, context, request, user, role, status, *, provision=False, evidenc
         owners = db.query(OrganizationMembership).join(User).filter(OrganizationMembership.organization_id==context.organization_id, OrganizationMembership.role==MembershipRole.OWNER, OrganizationMembership.status=='active', User.is_active.is_(True)).count()
         if owners <= 1:
             raise HTTPException(409, 'The final active owner cannot be demoted or removed.')
+    if status == 'active' and (m is None or m.status != 'active'):
+        ensure_seat_available(db, context.organization_id)  # subscriptions: plan seat limit (no-op until enforced)
     previous = {'role': m.role.value, 'status': m.status} if m else None
     if m is None:
         m = OrganizationMembership(organization_id=context.organization_id, user_id=user.id, role=role, status=status)

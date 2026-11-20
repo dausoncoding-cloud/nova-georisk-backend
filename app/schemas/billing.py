@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -16,6 +16,16 @@ class CreditSummary(BaseModel):
     available: int
     used_percent: float
     # None, 75, 90 or 100 (no credits left).
+    level: int | None
+    # Internal plan: never charged; `remaining` and `level` are not meaningful.
+    unlimited: bool = False
+
+
+class Allowance(BaseModel):
+    used: int
+    # None = no limit.
+    limit: int | None
+    # None, 75, 90 or 100.
     level: int | None
 
 
@@ -53,6 +63,7 @@ class SubscriptionSummary(BaseModel):
     family: str
     plan_key: str | None
     plan_name: str | None
+    is_internal: bool = False
     status: str
     status_label: str
     starts_at: datetime | None
@@ -77,6 +88,11 @@ class SubscriptionSummary(BaseModel):
 class BillingSummaryResponse(BaseModel):
     enforcement_enabled: bool
     subscriptions: list[SubscriptionSummary]
+    # Organisation-wide: seats are people (largest plan limit), storage is bought per system (sum).
+    seats: Allowance
+    storage: Allowance
+    # Q5: whether a full storage quota pauses new analyses (otherwise it only warns).
+    storage_blocks_at_limit: bool
 
 
 class LedgerEntryResponse(BaseModel):
@@ -97,6 +113,32 @@ class LedgerEntryResponse(BaseModel):
 
 class LedgerPage(BaseModel):
     items: list[LedgerEntryResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class PaymentResponse(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    paid_on: date
+    family: str | None
+    # plan_period, top_up or reversal.
+    purpose: str
+    # Whole TZS; negative for a reversal.
+    amount: int
+    currency: str
+    method: str
+    reference: str | None
+    credits: int | None
+    covers_from: date | None
+    covers_until: date | None
+    reverses_payment_id: uuid.UUID | None
+    reversed: bool
+
+
+class PaymentPage(BaseModel):
+    items: list[PaymentResponse]
     total: int
     limit: int
     offset: int

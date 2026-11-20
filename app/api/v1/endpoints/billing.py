@@ -1,26 +1,27 @@
 """Customer view of the organisation's subscriptions and credits (every active member may read).
 
-Organisation-scoped: only the session's organisation is ever read. Payments and admin actions are not
-here (owners/admins and the NOVA ARI console, later milestones).
+Organisation-scoped: only the session's organisation is ever read. Payments are visible to owners and
+admins only. Nothing here writes billing data: payments, top-ups and status changes are NOVA ARI actions.
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.entitlements import require_active_membership
 from app.core.http import PublicAPIError
-from app.core.security import RequestContext, get_request_context, verify_internal_secret
+from app.core.security import OrganizationRole, RequestContext, get_request_context, verify_internal_secret
 from app.db.session import get_db
 from app.models.aoi import AOI
-from app.models.billing import CreditLedgerEntry
-from app.models.identity import OrganizationMembership
+from app.models.billing import CreditLedgerEntry, Payment
 from app.models.platform import BillingPlan, OrganizationSubscription
 from app.models.project import Project
 from app.models.task import Task
-from app.schemas.billing import (BillingSummaryResponse, CreditSummary, LedgerEntryResponse, LedgerPage,
-                                 PlanCatalogueResponse, PlanLimits, PlanOption, SubscriptionSummary, TopUpOffer)
-from app.services.billing import catalogue, ledger
+from app.schemas.billing import (Allowance, BillingSummaryResponse, CreditSummary, LedgerEntryResponse, LedgerPage,
+                                 PaymentPage, PaymentResponse, PlanCatalogueResponse, PlanLimits, PlanOption,
+                                 SubscriptionSummary, TopUpOffer)
+from app.services.billing import catalogue, ledger, limits
 from app.services.billing import submission as billing
 
 router = APIRouter(prefix="/billing", tags=["Billing"], dependencies=[Depends(verify_internal_secret)])
@@ -29,30 +30,37 @@ STATUS_LABELS = {"active": "Active", "trial": "Trial", "suspended": "Suspended",
                  "canceled": "Cancelled", "pending": "Pending"}
 
 
-def _require_member(db: Session, context: RequestContext) -> None:
+def _require_member(db: Session, context: RequestContext):
     if context.is_service:
         raise PublicAPIError(403, "organization_context_required", "An organisation session is required.")
-    require_active_membership(db, context)
+    return require_active_membership(db, context)
 
 
-def _summary(db: Session, subscription: OrganizationSubscription) -> SubscriptionSummary:
+def _allowance(value: limits.Allowance) -> Allowance:
+    return Allowance(used=value.used, limit=value.limit, level=value.level)
+
+
+def _summary(db: Session, subscription: OrganizationSubscription, seats_used: int,
+             storage_full: bool) -> SubscriptionSummary:
     plan = db.get(BillingPlan, subscription.plan_key) if subscription.plan_key else None
+    unlimited = ledger.has_unlimited_credits(db, subscription)
     usage = ledger.usage(db, subscription)
     code = billing.block_code(subscription)
-    if code is None and usage.remaining <= 0:
+    if code is None and storage_full:
+        code = "storage_full"
+    if code is None and not unlimited and usage.remaining <= 0:
         code = "credits_exhausted"
-    message = billing.NO_CREDITS if code == "credits_exhausted" else billing.STATUS_MESSAGES.get(code)
+    message = {"credits_exhausted": billing.NO_CREDITS,
+               "storage_full": limits.STORAGE_FULL_MESSAGE}.get(code) or billing.STATUS_MESSAGES.get(code)
     price = catalogue.current_price(db, subscription.plan_key) if subscription.plan_key else None
-    seats_used = db.query(OrganizationMembership).filter(
-        OrganizationMembership.organization_id == subscription.organization_id,
-        OrganizationMembership.status == "active").count()
     top_up = None
     if price is not None and price.top_up_credit_price is not None:
         top_up = TopUpOffer(credits=catalogue.TOP_UP_PACK_CREDITS, currency=price.currency,
                             price=catalogue.TOP_UP_PACK_CREDITS * price.top_up_credit_price)
     return SubscriptionSummary(
         id=subscription.id, family=subscription.family, plan_key=subscription.plan_key,
-        plan_name=plan.name if plan else None, status=subscription.status.value,
+        plan_name=plan.name if plan else None, is_internal=bool(plan and plan.is_internal),
+        status=subscription.status.value,
         status_label=STATUS_LABELS[subscription.status.value], starts_at=subscription.starts_at,
         ends_at=subscription.ends_at, engines=catalogue.family_engines(subscription.family),
         currency=price.currency if price else "TZS", monthly_price=price.monthly_price if price else None,
@@ -60,7 +68,8 @@ def _summary(db: Session, subscription: OrganizationSubscription) -> Subscriptio
         renews_on=ledger.renews_on(subscription), warning_levels=list(ledger.WARNING_LEVELS), top_up=top_up,
         credits=CreditSummary(period=usage.period, granted=usage.granted, top_ups=usage.top_ups, used=usage.used,
                               remaining=usage.remaining, available=usage.available,
-                              used_percent=usage.used_percent, level=usage.level),
+                              used_percent=0.0 if unlimited else usage.used_percent,
+                              level=None if unlimited else usage.level, unlimited=unlimited),
         can_submit=code is None or not billing.enforcement_enabled(),
         block_code=code, block_message=message,
     )
@@ -74,14 +83,19 @@ def get_billing_summary(
     ids = [row.id for row in db.query(OrganizationSubscription.id).filter(
         OrganizationSubscription.organization_id == context.organization_id,
         OrganizationSubscription.family.isnot(None)).order_by(OrganizationSubscription.family)]
-    items = []
     for subscription_id in ids:
         # Lazily bring the subscription to this billing month (idempotent grant/expiry) before reading it.
         subscription = ledger.lock_subscription(db, subscription_id)
         ledger.ensure_period(db, subscription)
         db.commit()
-        items.append(_summary(db, db.get(OrganizationSubscription, subscription_id)))
-    return BillingSummaryResponse(enforcement_enabled=billing.enforcement_enabled(), subscriptions=items)
+    seats = limits.seats(db, context.organization_id)
+    storage = limits.storage(db, context.organization_id)
+    storage_full = limits.storage_blocks_submission(db, context.organization_id)
+    items = [_summary(db, db.get(OrganizationSubscription, subscription_id), seats.used, storage_full)
+             for subscription_id in ids]
+    return BillingSummaryResponse(enforcement_enabled=billing.enforcement_enabled(), subscriptions=items,
+                                  seats=_allowance(seats), storage=_allowance(storage),
+                                  storage_blocks_at_limit=get_settings().billing_storage_block_at_limit)
 
 
 @router.get("/ledger", response_model=LedgerPage)
@@ -126,7 +140,8 @@ def get_plan_catalogue(
 ) -> PlanCatalogueResponse:
     """The plan table on "My subscription" (prices are public list prices, not organisation data)."""
     _require_member(db, context)
-    plans = db.query(BillingPlan).filter(BillingPlan.family == family, BillingPlan.status == "active") \
+    plans = db.query(BillingPlan).filter(BillingPlan.family == family, BillingPlan.status == "active",
+                                         BillingPlan.is_internal.is_(False)) \
         .order_by(BillingPlan.sort_order).all()
     options = []
     for plan in plans:
@@ -137,3 +152,28 @@ def get_plan_catalogue(
             limits=PlanLimits(seat_limit=plan.seat_limit, monthly_credits=plan.monthly_credits,
                               storage_bytes=plan.storage_bytes, session_limit=plan.session_limit)))
     return PlanCatalogueResponse(family=family, plans=options)
+
+
+@router.get("/payments", response_model=PaymentPage)
+def get_payments(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db), context: RequestContext = Depends(get_request_context),
+) -> PaymentPage:
+    """Payments NOVA ARI recorded for this organisation (owners and admins only). Admin notes are not shown."""
+    membership = _require_member(db, context)
+    if membership.role.value not in {OrganizationRole.OWNER.value, OrganizationRole.ADMIN.value}:
+        raise PublicAPIError(403, "billing_role_required", "Only organisation owners and admins can see payments.")
+    query = db.query(Payment).filter(Payment.organization_id == context.organization_id)
+    total = query.count()
+    rows = query.order_by(Payment.paid_on.desc(), Payment.created_at.desc(), Payment.id).offset(offset).limit(limit).all()
+    reversed_ids = {row.reverses_payment_id for row in db.query(Payment.reverses_payment_id).filter(
+        Payment.organization_id == context.organization_id, Payment.reverses_payment_id.isnot(None))}
+    families = dict(db.query(OrganizationSubscription.id, OrganizationSubscription.family).filter(
+        OrganizationSubscription.organization_id == context.organization_id))
+    return PaymentPage(items=[PaymentResponse(
+        id=row.id, created_at=row.created_at, paid_on=row.paid_on, family=families.get(row.subscription_id),
+        purpose=row.purpose, amount=row.amount, currency=row.currency, method=row.method, reference=row.reference,
+        credits=row.credits, covers_from=row.covers_from, covers_until=row.covers_until,
+        reverses_payment_id=row.reverses_payment_id, reversed=row.id in reversed_ids) for row in rows],
+        total=total, limit=limit, offset=offset)
