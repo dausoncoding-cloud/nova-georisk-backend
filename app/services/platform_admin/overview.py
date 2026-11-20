@@ -14,13 +14,13 @@ from app.core.config import get_settings
 from app.models.billing import CreditLedgerEntry, Payment
 from app.models.identity import Organization, OrganizationMembership, User
 from app.models.platform import BillingPlan, OrganizationSubscription, SubscriptionStatus
-from app.models.platform_admin import OrganizationUsageDaily, SecurityAlert
+from app.models.platform_admin import OrganizationUsageDaily, SecurityAlert, SubscriptionRequest
 from app.models.project import Project
 from app.models.sessions import UserSession
 from app.models.task import Task
 from app.services.billing import catalogue, ledger, limits
 
-FLAGS = ("payment_overdue", "expiring_soon", "new_device", "credits_low", "storage_high", "suspended")
+FLAGS = ("payment_overdue", "expiring_soon", "new_device", "credits_low", "storage_high", "suspended", "request_open")
 
 
 def _today() -> date:
@@ -41,16 +41,23 @@ def paid_through(db: Session, subscription_id: uuid.UUID) -> date | None:
 def payment_overdue(db: Session, subscription: OrganizationSubscription, plan: BillingPlan | None,
                     today: date | None = None) -> bool:
     """An Active, sold subscription whose paid period ended more than the grace days ago (or which started
-    that long ago with no plan payment). Internal plans and inactive subscriptions are never overdue."""
+    that long ago with no plan payment). Internal plans and inactive subscriptions are never overdue.
+    With BILLING_OVERDUE_GRACE_FROM (the go-live date), nothing before that date is judged: the unpaid
+    period counts from the go-live date at the earliest."""
     if subscription.status != SubscriptionStatus.ACTIVE or plan is None or plan.is_internal:
         return False
     today = today or _today()
-    grace = timedelta(days=get_settings().billing_payment_overdue_grace_days)
-    through = paid_through(db, subscription.id)
-    if through is not None:
-        return today > through + grace
-    start = (subscription.starts_at or subscription.created_at)
-    return start is not None and today > start.astimezone(ledger._zone()).date() + grace
+    settings = get_settings()
+    grace = timedelta(days=settings.billing_payment_overdue_grace_days)
+    base = paid_through(db, subscription.id)  # last paid day, or the start date when nothing is paid yet
+    if base is None:
+        start = subscription.starts_at or subscription.created_at
+        if start is None:
+            return False
+        base = start.astimezone(ledger._zone()).date()
+    if settings.billing_overdue_grace_from is not None and base < settings.billing_overdue_grace_from:
+        base = settings.billing_overdue_grace_from
+    return today > base + grace
 
 
 def expiring_soon(subscription: OrganizationSubscription, now: datetime | None = None) -> bool:
@@ -110,6 +117,8 @@ def customer_rows(db: Session) -> list[CustomerRow]:
     now = datetime.now(timezone.utc)
     rows: list[CustomerRow] = []
     plans = {plan.key: plan for plan in db.query(BillingPlan)}
+    open_requests = {sub_id for (sub_id,) in db.query(SubscriptionRequest.subscription_id)
+                     .filter(SubscriptionRequest.status == "open")}
     for organization in db.query(Organization).order_by(Organization.name):
         subscriptions = limits.subscriptions(db, organization.id)
         seats = limits.seats(db, organization.id)
@@ -148,6 +157,8 @@ def customer_rows(db: Session) -> list[CustomerRow]:
                 flags.append("storage_high")
             if subscription.status == SubscriptionStatus.SUSPENDED:
                 flags.append("suspended")
+            if subscription.id in open_requests:
+                flags.append("request_open")
             rows.append(CustomerRow(
                 organization_id=organization.id, organization_name=organization.name,
                 organization_slug=organization.slug, subscription_id=subscription.id, family=subscription.family,

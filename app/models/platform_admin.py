@@ -74,3 +74,35 @@ class OrganizationUsageDaily(Base):
     api_requests: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
     downloads: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
     download_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default=text("0"))
+
+
+class SubscriptionRequest(UUIDPrimaryKeyMixin, Base):
+    """"Request top-up" and "Request upgrade" from the customer's My subscription page (no payment in the
+    app). NOVA ARI closes each one with an outcome and a reason (audited)."""
+
+    __tablename__ = "subscription_requests"
+    __table_args__ = (
+        CheckConstraint("kind IN ('top_up','upgrade')", name="ck_subscription_request_kind"),
+        CheckConstraint("status IN ('open','done','declined')", name="ck_subscription_request_status"),
+        CheckConstraint("kind <> 'upgrade' OR plan_key IS NOT NULL", name="ck_subscription_request_plan"),
+        CheckConstraint("kind <> 'top_up' OR (credits IS NOT NULL AND credits > 0)", name="ck_subscription_request_credits"),
+        CheckConstraint("(status = 'open') = (closed_at IS NULL)", name="ck_subscription_request_closed"),
+        # One open request per kind per subscription: asking again returns the open one.
+        Index("uq_subscription_request_open", "subscription_id", "kind", unique=True,
+              postgresql_where=text("status = 'open'")),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organization_subscriptions.id", ondelete="CASCADE"), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    plan_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    credits: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_by_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, index=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open")
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_by_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    close_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

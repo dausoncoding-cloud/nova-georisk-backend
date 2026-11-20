@@ -33,7 +33,10 @@ from app.schemas.platform_admin import (AddCustomerRequest, AddSubscriptionReque
                                         EndSessionsResponse, GrantCreditsRequest, LimitChangeRequest, MemberResponse,
                                         OverviewTiles, PaymentRecorded, PlanChangeRequest, PriceChangeRequest,
                                         ReasonRequest, RecordPaymentRequest, SecurityAlertPage, SecurityAlertResponse,
-                                        StatusChangeRequest, UsageThisPeriod)
+                                        StatusChangeRequest, UsageThisPeriod, AdminRequest, AdminRequestPage,
+                                        CloseRequest)
+from app.models.platform_admin import SubscriptionRequest
+from app.services.billing import requests as billing_requests
 from app.services.billing import audit, backfill, ledger, limits, payments, statuses
 from app.services.platform_admin import actions, overview
 from app.services.platform_admin.access import AdminContext, require_platform_admin
@@ -66,6 +69,9 @@ def _errors(db: Session):
     except backfill.BackfillError as exc:
         db.rollback()
         raise PublicAPIError(422, "invalid_request", str(exc)) from exc
+    except billing_requests.RequestError as exc:
+        db.rollback()
+        raise PublicAPIError(exc.status, exc.code, exc.message) from exc
 
 
 def _key(value: str | None) -> str:
@@ -465,3 +471,45 @@ def list_audit(
         target_type=row.target_type, target_id=row.target_id, previous=row.previous, current=row.current,
         reason=row.reason, request_id=row.request_id) for row in rows], total=query.count(), limit=limit,
         offset=offset)
+
+
+# --- customer requests (top-up, upgrade) ------------------------------------------------------------
+
+@router.get("/requests", response_model=AdminRequestPage)
+def list_customer_requests(
+    state: str = Query("open", pattern="^(open|all)$"), limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0), db: Session = Depends(get_db), admin: AdminContext = Depends(require_platform_admin),
+) -> AdminRequestPage:
+    query = db.query(SubscriptionRequest)
+    if state == "open":
+        query = query.filter(SubscriptionRequest.status == "open")
+    rows = query.order_by(SubscriptionRequest.created_at.desc(), SubscriptionRequest.id).offset(offset).limit(limit).all()
+    orgs = {org.id: org.name for org in db.query(Organization).filter(
+        Organization.id.in_({row.organization_id for row in rows}))} if rows else {}
+    subs = {sub.id: sub for sub in db.query(OrganizationSubscription).filter(
+        OrganizationSubscription.id.in_({row.subscription_id for row in rows}))} if rows else {}
+    user_ids = {row.requested_by_user_id for row in rows} | {row.closed_by_user_id for row in rows if row.closed_by_user_id}
+    users = {user.id: user.display_name or user.email for user in db.query(User).filter(User.id.in_(user_ids))} if rows else {}
+    plans = {plan.key: plan.name for plan in db.query(BillingPlan)}
+    items = []
+    for row in rows:
+        subscription = subs.get(row.subscription_id)
+        items.append(AdminRequest(
+            id=row.id, created_at=row.created_at, organization_id=row.organization_id,
+            organization_name=orgs.get(row.organization_id, ""), subscription_id=row.subscription_id,
+            family=subscription.family if subscription else None,
+            current_plan=plans.get(subscription.plan_key) if subscription else None, kind=row.kind,
+            plan_key=row.plan_key, plan_name=plans.get(row.plan_key), credits=row.credits, note=row.note,
+            requested_by=users.get(row.requested_by_user_id), status=row.status, closed_at=row.closed_at,
+            closed_by=users.get(row.closed_by_user_id), close_reason=row.close_reason))
+    return AdminRequestPage(items=items, total=query.count(), limit=limit, offset=offset)
+
+
+@router.post("/requests/{request_id}/close", response_model=CloseRequest)
+def close_customer_request(request_id: uuid.UUID, body: CloseRequest, db: Session = Depends(get_db),
+                           admin: AdminContext = Depends(require_platform_admin)) -> CloseRequest:
+    """Close after acting on it (record the payment or change the plan first), or decline it."""
+    with _errors(db):
+        billing_requests.close(db, request_id, outcome=body.outcome, reason=body.reason, actor=admin.actor)
+        db.commit()
+    return body

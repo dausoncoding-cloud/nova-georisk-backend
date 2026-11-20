@@ -361,3 +361,24 @@ def test_usage_counting_never_breaks_a_request(client, db_session, monkeypatch):
     assert client.get("/api/v1/billing/summary", headers=t.headers).status_code == 200
     counters.record_download(t.org.id, 10)
     assert counters.flush(db_session) == 0
+
+
+def test_go_live_grace_stops_the_overdue_burst(db_session, monkeypatch):
+    """Backfilled customers without payment records are judged from BILLING_OVERDUE_GRACE_FROM (go-live)."""
+    from app.models.platform import BillingPlan
+    t = _tenant(db_session, "pa-golive", plan_key="frris_wrris.academic")
+    t.sub.starts_at = datetime.now(timezone.utc) - timedelta(days=60)
+    db_session.commit()
+    plan = db_session.get(BillingPlan, "frris_wrris.academic")
+    today = date.today()
+    assert overview.payment_overdue(db_session, t.sub, plan, today=today) is True
+    monkeypatch.setattr(get_settings(), "billing_overdue_grace_from", today - timedelta(days=3))
+    assert overview.payment_overdue(db_session, t.sub, plan, today=today) is False  # 3 days after go-live
+    assert overview.payment_overdue(db_session, t.sub, plan, today=today + timedelta(days=4)) is False
+    assert overview.payment_overdue(db_session, t.sub, plan, today=today + timedelta(days=5)) is True  # > 7 days
+    # A recorded payment still moves the date forward as before.
+    payments.record_plan_payment(db_session, t.sub.id, amount=750_000, method="cash", paid_on=today,
+                                 covers_from=today, covers_until=today + timedelta(days=30),
+                                 actor=admin_actor(_admin(db_session)), key="golive-pay-1")
+    assert overview.payment_overdue(db_session, t.sub, plan, today=today + timedelta(days=37)) is False
+    assert overview.payment_overdue(db_session, t.sub, plan, today=today + timedelta(days=38)) is True

@@ -309,3 +309,35 @@ class AuditPage(BaseModel):
 
 
 __all__ = ["LedgerPage"]
+
+
+class AdminRequest(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    organization_id: uuid.UUID
+    organization_name: str
+    subscription_id: uuid.UUID
+    family: str | None
+    current_plan: str | None
+    kind: str
+    plan_key: str | None
+    plan_name: str | None
+    credits: int | None
+    note: str | None
+    requested_by: str | None
+    status: str
+    closed_at: datetime | None
+    closed_by: str | None
+    close_reason: str | None
+
+
+class AdminRequestPage(BaseModel):
+    items: list[AdminRequest]
+    total: int
+    limit: int
+    offset: int
+
+
+class CloseRequest(BaseModel):
+    outcome: Literal["done", "declined"]
+    reason: str = _reason()

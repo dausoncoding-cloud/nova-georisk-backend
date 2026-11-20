@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CreditSummary(BaseModel):
@@ -142,3 +142,25 @@ class PaymentPage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class SubscriptionRequestCreate(BaseModel):
+    subscription_id: uuid.UUID
+    # top_up (the plan's top-up pack) or upgrade (to plan_key).
+    kind: str = Field(pattern="^(top_up|upgrade)$")
+    plan_key: str | None = Field(default=None, max_length=64)
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class SubscriptionRequestResponse(BaseModel):
+    id: uuid.UUID
+    subscription_id: uuid.UUID
+    kind: str
+    plan_key: str | None
+    plan_name: str | None
+    credits: int | None
+    status: str
+    created_at: datetime
+    closed_at: datetime | None
+    # True when an open request of this kind already existed (nothing new was sent).
+    existing: bool = False

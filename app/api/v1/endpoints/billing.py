@@ -20,7 +20,10 @@ from app.models.project import Project
 from app.models.task import Task
 from app.schemas.billing import (Allowance, BillingSummaryResponse, CreditSummary, LedgerEntryResponse, LedgerPage,
                                  PaymentPage, PaymentResponse, PlanCatalogueResponse, PlanLimits, PlanOption,
-                                 SubscriptionSummary, TopUpOffer)
+                                 SubscriptionRequestCreate, SubscriptionRequestResponse, SubscriptionSummary,
+                                 TopUpOffer)
+from app.models.platform_admin import SubscriptionRequest
+from app.services.billing import requests as billing_requests
 from app.services.billing import catalogue, ledger, limits
 from app.services.billing import submission as billing
 
@@ -177,3 +180,49 @@ def get_payments(
         credits=row.credits, covers_from=row.covers_from, covers_until=row.covers_until,
         reverses_payment_id=row.reverses_payment_id, reversed=row.id in reversed_ids) for row in rows],
         total=total, limit=limit, offset=offset)
+
+
+def _require_billing_role(db: Session, context: RequestContext):
+    membership = _require_member(db, context)
+    if membership.role.value not in {OrganizationRole.OWNER.value, OrganizationRole.ADMIN.value}:
+        raise PublicAPIError(403, "billing_role_required",
+                             "Only organisation owners and admins can request top-ups or plan changes.")
+    return membership
+
+
+def _request_view(db: Session, row: SubscriptionRequest, existing: bool = False) -> SubscriptionRequestResponse:
+    plan = db.get(BillingPlan, row.plan_key) if row.plan_key else None
+    return SubscriptionRequestResponse(
+        id=row.id, subscription_id=row.subscription_id, kind=row.kind, plan_key=row.plan_key,
+        plan_name=plan.name if plan else None, credits=row.credits, status=row.status, created_at=row.created_at,
+        closed_at=row.closed_at, existing=existing)
+
+
+@router.post("/requests", response_model=SubscriptionRequestResponse, status_code=201)
+def create_request(
+    body: SubscriptionRequestCreate,
+    db: Session = Depends(get_db), context: RequestContext = Depends(get_request_context),
+) -> SubscriptionRequestResponse:
+    """"Request top-up" / "Request upgrade": sends a request to NOVA ARI (no payment in the app). Asking again
+    while one is open returns the open request."""
+    _require_billing_role(db, context)
+    try:
+        created = billing_requests.create(db, organization_id=context.organization_id, user_id=context.user_id,
+                                          subscription_id=body.subscription_id, kind=body.kind,
+                                          plan_key=body.plan_key, note=body.note)
+    except billing_requests.RequestError as exc:
+        db.rollback()
+        raise PublicAPIError(exc.status, exc.code, exc.message) from exc
+    db.commit()
+    return _request_view(db, created.request, created.existing)
+
+
+@router.get("/requests", response_model=list[SubscriptionRequestResponse])
+def list_requests(
+    db: Session = Depends(get_db), context: RequestContext = Depends(get_request_context),
+) -> list[SubscriptionRequestResponse]:
+    """This organisation's recent requests (owners and admins)."""
+    _require_billing_role(db, context)
+    rows = (db.query(SubscriptionRequest).filter(SubscriptionRequest.organization_id == context.organization_id)
+            .order_by(SubscriptionRequest.created_at.desc()).limit(20).all())
+    return [_request_view(db, row) for row in rows]

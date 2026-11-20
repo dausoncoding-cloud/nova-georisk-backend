@@ -7,6 +7,7 @@ never touches `os.environ` directly. Values map 1:1 onto `.env.example`.
 from functools import lru_cache
 from pathlib import PurePosixPath, PureWindowsPath
 import uuid
+from datetime import date
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -129,6 +130,9 @@ class Settings(BaseSettings):
     # "Payment overdue": an active, sold subscription whose recorded plan payments end more than this many
     # days ago (or that started this long ago with no plan payment).
     billing_payment_overdue_grace_days: int = 7
+    # Go-live grace: periods are only judged from this date (set in the turn-on checklist), so customers
+    # backfilled without payment records are not all flagged at once. None = no go-live grace.
+    billing_overdue_grace_from: date | None = None
     billing_expiring_soon_days: int = 7
     # API-request and download counters (Redis buffer, flushed to Postgres). Tests switch this off.
     usage_counting_enabled: bool = True
