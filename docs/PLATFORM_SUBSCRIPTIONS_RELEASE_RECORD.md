@@ -1,9 +1,8 @@
 # Platform subscriptions: release record
 
-**Status:** in progress on `feat/platform-subscriptions` (M5 of M5). Not merged, not deployed.
+**Status:** complete on `feat/platform-subscriptions` (M1–M5), 2026-11-20. **Not merged, not deployed.** The owner merges, after the independent security review of §3.
 **Plan:** `docs/PLATFORM_SUBSCRIPTIONS_PLAN.md`. **Designs:** `docs/design/subscriptions/`.
-This record is completed in M5 (end-to-end tests, user-guide section, release). Section 1 is the
-checklist the owner follows before switching enforcement on.
+Section 1 is the checklist the owner follows before switching enforcement on. Section 3 is the list for the security review. Section 4 has the tests, merge notes and deploy notes.
 
 ## 1. Turn-on checklist (`BILLING_ENFORCEMENT_ENABLED=true`)
 
@@ -154,4 +153,147 @@ Other code worth a look:
 
 ## 4. Tests, merge notes and deploy notes
 
-Completed in M5.
+### 4.1 Tests (branch heads, end of M5)
+
+Run on separate test containers (Postgres on 55442, Redis on 56479):
+
+| Suite | Result |
+|---|---|
+| Backend integration | see the M5 report (full run at the end) |
+| Backend unit | see the M5 report |
+| Frontend (`vitest run`) | see the M5 report; `tsc --noEmit` and `api:check` clean |
+
+What the subscription tests cover:
+- **Credits (M1):**
+  - no double charge on a repeated submit (Idempotency-Key) or on parallel submits for the last credit (two real connections);
+  - charge in the same transaction as the task;
+  - the 402 hard stop leaves viewing and downloads open;
+  - refunds only with the flag, at most once;
+  - one monthly grant, expiry and roll-over;
+  - 75, 90 and 100% notices recorded once;
+  - append-only ledger.
+- **Payments, statuses, limits (M2):**
+  - payments, top-ups, reversals (with shortfall), grants and adjustments, each with a reason;
+  - the statuses and the Q7 grace;
+  - seats at provisioning, re-activation and invitation;
+  - storage, the Internal plan, and the backfill (dry run, all-or-nothing apply).
+- **Sessions (M3):**
+  - Researcher limit of 1 and others 3, applied by the Lua script against a real Redis;
+  - the "signed out because …" notice is visible only with the old cookie;
+  - device list and sign-out (own sessions only);
+  - login history for the user and for owners and admins;
+  - GeoIP reads a local file and never opens a socket;
+  - IP addresses dropped after 30 days;
+  - the real `/auth/callback` wiring.
+- **Console (M4):**
+  - every console GET returns 403 to an organisation owner;
+  - revocation takes effect on the next request;
+  - the role is written only by the command;
+  - every action needs a reason and writes an audit row with the actor and request ID;
+  - flags, tiles, Add customer;
+  - usage counted through the real middleware and download route (range requests and previews excluded), and counting never breaks a request.
+- **Customer side and end to end (M5):** `tests/integration/test_subscriptions_e2e.py` runs the release order over HTTP:
+  - Phase A, backfill, Phase B;
+  - the hard stop, a top-up request, the payment, analyses resuming;
+  - suspension and reactivation;
+  - an upgrade request;
+  - the Internal plan;
+  - the audit trail.
+
+  The go-live grace for "Payment overdue" is tested separately.
+- **Frontend:** idempotency keys; the "signed out elsewhere" notice; the console (access, table, flags, reasons, one key per payment, Add customer, requests); "My subscription" (board 13 layout, limit-reached state, top-up request, viewer cannot request); banners and the New analysis credit notice.
+
+### 4.2 Merge notes (for the owner)
+
+**Alembic chain:** `f1a2b3c4d5e6` (main) → `a9c3e5f70b12` (M1) → `c4e6a8b0d2f1` (M2) → `e8b0c2d4f6a3` (M3) → `f2c4e6a8b0d5` (M4) → `a7b9c1d3e5f2` (M5).
+- Before merging, check main's head. If it has moved, re-chain `a9c3e5f70b12.down_revision` to it.
+- Each downgrade refuses while financial, audit or admin rows exist.
+
+**Shared backend files** (every hunk is small; all were kept through rebases onto r7 and later main):
+
+| File | Change |
+|---|---|
+| `app/api/v1/endpoints/analyses.py` | `submit_analysis` and `submit_source_bound_analysis`: Idempotency-Key header, replay check, `SubmissionCharge.reserve/charge`, `remember_key`; refund on queue failure. Next to r7's preflight hunks; they don't overlap. |
+| `app/api/v1/endpoints/tasks.py` | `retry_task`: the same pattern. |
+| `app/workers/celery_tasks.py` | `_mark_failed`: `refund_failed_task(...)` (3 lines). |
+| `app/api/v1/endpoints/results.py`, `external_data.py`, `app/main.py` | Usage hooks (§3 A14–A16). |
+| `app/api/v1/router.py` | `billing`, `account_sessions` (2 routers), `admin_platform` routers. |
+| `app/bff/main.py`, `session.py`, `membership.py`, `app/schemas/auth.py`, `deploy/nginx/conf.d/gateway.conf`, `app/services/access_management.py` | §3 A1–A13. |
+| `app/models/platform.py` | Plan limit, internal and override columns; `status_changed_at`; family index. |
+| `app/models/__init__.py`, `app/db/migrations/env.py` | Register `billing`, `sessions`, `platform_admin`. |
+| `app/core/config.py` | Settings listed in 4.3. |
+| `tests/unit/test_phase0_security.py` | One expected JSON gains `"signedOutNotice": None`. |
+| `docs/FIRRIS_SCIENTIFIC_OUTPUT_REMEDIATION_PLAN.md` | Backlog items 33 (ResultPages flake under load) and 34 (`.modal-panel`). |
+| `openapi/*.json` | Regenerated. After any rebase, run `scripts/export_openapi.py` and `scripts/export_bff_openapi.py`. |
+
+**New test file:** `tests/conftest.py` (switches usage counting off in all tests).
+
+**Shared frontend files:**
+
+| File | Change |
+|---|---|
+| `src/app/AppRouter.tsx` | `/nova-ari/*` and `/subscription` routes. |
+| `src/app/AuthenticatedLayout.tsx` | "Subscription" nav item (only with a subscription); banner above the page outlet. |
+| `src/app/SuiteHomePage.tsx` | Admin-only console link. |
+| `src/features/analyses/AnalysisSubmitPage.tsx` | Idempotency key on submit; credit notice; Run disabled while new analyses are paused. |
+| `src/features/analyses/analysisApi.ts`, `src/features/tasks/tasksApi.ts`, `TaskDetailPage.tsx` | Idempotency key on submit and retry. |
+| `src/features/auth/LoginPage.tsx` | The "signed out elsewhere" notice. |
+| `src/shared/ui/Icon.tsx` | `card` icon. |
+| `openapi/`, generated types | Regenerated (`npm run api:generate`). |
+
+### 4.3 Deploy notes
+
+**Order:**
+1. Deploy with `BILLING_ENFORCEMENT_ENABLED=false` (Phase A), then `alembic upgrade head`.
+2. Follow §1, including the backfill and the go-live date.
+3. Switch on (Phase B).
+
+**New settings** (all have safe defaults):
+- `BILLING_ENFORCEMENT_ENABLED` (false)
+- `BILLING_TIMEZONE` (Africa/Dar_es_Salaam)
+- `BILLING_MONTHLY_CREDITS_ROLL_OVER` (false), `BILLING_TOP_UP_CREDITS_EXPIRE` (false)
+- `BILLING_STORAGE_BLOCK_AT_LIMIT` (false)
+- `BILLING_VIEW_GRACE_DAYS` (unset)
+- `BILLING_PAYMENT_OVERDUE_GRACE_DAYS` (7), `BILLING_OVERDUE_GRACE_FROM` (unset; **set it at Phase B**)
+- `BILLING_EXPIRING_SOON_DAYS` (7)
+- `USAGE_COUNTING_ENABLED` (true)
+- `GEOIP_DATABASE_PATH` (unset)
+- `SESSION_IP_RETENTION_DAYS` (30), `SESSION_HISTORY_RETENTION_DAYS` (unset)
+- `SESSION_TRUSTED_PROXY_CIDRS` (private ranges), `SESSION_LAST_SEEN_INTERVAL_SECONDS` (300)
+
+**Operator commands:** all run inside the API container. No new files are copied into any image, and the Dockerfile is unchanged.
+
+| Command | When |
+|---|---|
+| `python -m app.services.billing.cli seed` | After migrating (idempotent). |
+| `python -m app.services.billing.cli backfill-subscriptions … [--apply]` | Phase B, once; dry run first. |
+| `python -m app.services.billing.cli grant-monthly` | Optional cron on the 1st (grants also happen on first use). |
+| `python -m app.services.billing.cli sweep-statuses [--apply]` | Daily cron. Expires ended subscriptions; applies the Q7 grace once it is set. |
+| `python -m app.services.usage.cli flush` | Cron every 15 minutes. |
+| `python -m app.services.sessions.cli purge --apply` | Daily cron. Removes IP addresses older than 30 days; applies Q9 retention once it is set. |
+| `python -m app.services.platform_admin.cli grant / revoke / list` | Grants and revokes the NOVA ARI role. Deploy time only. |
+
+**Rollback:** set `BILLING_ENFORCEMENT_ENABLED=false` and restart. Nothing is lost.
+
+### 4.4 Open client questions: where each answer goes
+
+| Question | Configured in | Default until answered |
+|---|---|---|
+| Q1 Researcher credits | Plans and pricing > Change limits (or the plan data for new installs) | 10 |
+| Q2 MEGIS top-up price | Plans and pricing > Change price (top-up per credit) | none (no top-ups) |
+| Q3 refund on data failure | Plan limit `refund_on_data_failure`, or a per-contract value | off |
+| Q4 roll-over / top-up expiry | `BILLING_MONTHLY_CREDITS_ROLL_OVER`, `BILLING_TOP_UP_CREDITS_EXPIRE` | no / no |
+| Q5 storage at 100% | `BILLING_STORAGE_BLOCK_AT_LIMIT` | warn only |
+| Q6 receipts / VAT | not built (out of v1) | — |
+| Q7 viewing grace | `BILLING_VIEW_GRACE_DAYS` | unset (viewing never closes) |
+| Q8 sessions above Researcher | Plan `session_limit` | 3 |
+| Q9 login-history retention | `SESSION_HISTORY_RETENTION_DAYS` | kept |
+
+### 4.5 Known limits and later options
+
+- **Account-sharing detection** beyond the "New device" alert is a later option (about 4–5 days), as is the "possible account sharing" panel on board 14.
+- **No email channel yet.** Usage notices at 75, 90 and 100% are recorded once each (`credit_usage_notices.delivered_at`), and requests wait in the console, ready for a later email step.
+- **No WRRIS engine key yet.** It takes one line in `plans.v1.json` once the engine exists.
+- **"Provider unavailable" failures** are not yet told apart from software errors, so they are never refunded automatically.
+- **The console's customer table is built per request.** It suits hundreds of customers; thousands would need a precomputed table.
+- **Redis is not persistent here.** A restart loses at most the usage counts since the last flush.
