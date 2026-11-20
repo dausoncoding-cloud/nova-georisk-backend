@@ -3,7 +3,7 @@
 //   npm install && node build.mjs FRRIS_USER_GUIDE.md FRRIS_User_Guide.pdf
 //
 // Markdown conventions (see FRRIS_USER_GUIDE.md):
-//   * front matter between "---" lines: title, subtitle, date (pill), author (pill), header (running-header text);
+//   * front matter between "---" lines: title, subtitle, date, author and version (pills), header (running-header text);
 //   * "## N. Title" starts a chapter on a new page and goes into the table of contents;
 //   * ![Caption](img/file.png) on its own line becomes a numbered figure ("Figure N. Caption");
 //   * ::: tip | caveat | steps ... ::: wraps Markdown in a callout box or a numbered-steps list.
@@ -68,7 +68,7 @@ const content = marked.parse(body);
 const cover = `<section class="cover">
   <h1>${meta.title ?? ""}</h1>
   ${meta.subtitle ? `<p class="subtitle">${meta.subtitle}</p>` : ""}
-  <div class="pills">${meta.date ? `<span class="pill">${meta.date}</span>` : ""}${meta.author ? `<span class="pill">${meta.author}</span>` : ""}</div>
+  <div class="pills">${meta.date ? `<span class="pill">${meta.date}</span>` : ""}${meta.author ? `<span class="pill">${meta.author}</span>` : ""}${meta.version ? `<span class="pill">${meta.version}</span>` : ""}</div>
   <nav class="toc"><h2>Contents</h2><ol>${toc.map((t) => `<li><span class="n">${t.n}</span><a href="#${t.id}">${t.title}</a></li>`).join("")}</ol></nav>
 </section>`;
 const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${meta.title ?? ""}</title>
@@ -111,6 +111,7 @@ for (const bytes of [first, rest]) {
 }
 merged.setTitle(meta.title ?? "");
 merged.setAuthor(meta.author ?? "");
+if (meta.version) merged.setSubject(meta.version);
 merged.setProducer("NOVA-GeoRisk user-guide builder (Chromium, pdf-lib)");
 writeFileSync(resolve(here, output), await merged.save());
 console.log(`${output}: ${merged.getPageCount()} pages, ${figure} figures`);

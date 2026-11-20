@@ -3,6 +3,7 @@ title: FRRIS User Guide
 subtitle: Flood Risk & Resilience Intelligence on NOVA-GeoRisk. A step-by-step training guide for mapping flood candidates, reading their accuracy, and using the modelled hazard and exposure.
 date: Nov 2026
 author: @deeteki
+version: Guide v1.1 · FRRIS r6.2
 header: FRRIS User Guide · NOVA-GeoRisk
 ---
 

@@ -4,7 +4,7 @@ One build for every system guide (FRRIS now; WRRIS and MEGIS reuse it). Markdown
 
 | File | What it is |
 |---|---|
-| `FRRIS_USER_GUIDE.md` | The FRRIS guide text (front matter: title, subtitle, date, author, header) |
+| `FRRIS_USER_GUIDE.md` | The FRRIS guide text (front matter: title, subtitle, date, author, version, header) |
 | `FRRIS_User_Guide.pdf` | The built PDF |
 | `guide.css` | The shared stylesheet (A4, Source Serif 4 headings, Inter body, tables, figures, callouts) |
 | `fonts/` | Inter and Source Serif 4 (SIL OFL 1.1, licences included), embedded in the PDF |
