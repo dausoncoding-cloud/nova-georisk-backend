@@ -77,13 +77,13 @@ def summarise(points: list[dict], *, units: str, fit_trend: bool, per: str = "ye
 
 def series_record(*, key: str, title: str, indicator: str, units: str, points: Iterable[dict], source: str,
                   method: str, caveats: list[str], fit_trend: bool, x_kind: str, per: str = "year",
-                  columns: dict[str, str] | None = None) -> dict[str, Any]:
+                  columns: dict[str, str] | None = None, axis_label: str | None = None) -> dict[str, Any]:
     """One series: chronological points, flags, the statistics block and the texts every chart and table shows.
 
     Each point is {"t": year | ISO date, "value": float | None, "flagged": bool, "flag": str | None, ...extra columns}.
     """
     ordered = sorted(points, key=lambda p: _decimal_year(p["t"]))
-    return {"key": key, "title": title, "indicator": indicator, "units": units, "x": x_kind,
+    return {"key": key, "title": title, "indicator": indicator, "axis_label": axis_label or indicator, "units": units, "x": x_kind,
             "source": source, "method": method, "caveats": list(caveats), "columns": dict(columns or {}),
             "points": ordered, "n_points": len(ordered), "n_flagged": sum(1 for p in ordered if p.get("flagged")),
             "summary": summarise(ordered, units=units, fit_trend=fit_trend, per=per)}

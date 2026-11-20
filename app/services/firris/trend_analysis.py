@@ -85,6 +85,7 @@ def run_trend_analysis(aoi_geometry: dict, *, target_period: dict, baseline_peri
         return trends.series_record(
             key="surface_water_annual", title="Surface-water extent, annual (JRC, 1984–2021)",
             indicator="Surface-water extent (seasonal + permanent)", units="km²", x_kind="year", points=points,
+            axis_label="Surface water",
             source=JRC_SOURCE, method=(f"Area of JRC YearlyHistory classes 2 (seasonal) and 3 (permanent) inside the area, "
                                        f"summed on a {scale:g} m grid."),
             caveats=JRC_CAVEATS, fit_trend=True,
@@ -116,6 +117,7 @@ def run_trend_analysis(aoi_geometry: dict, *, target_period: dict, baseline_peri
                                               speckle_radius_m=speckle_radius_m)
         record = trends.series_record(
             key="sar_open_water", title=f"{S1_NAME} per Sentinel-1 pass", indicator=S1_NAME, units="km²", x_kind="date",
+            axis_label="SAR open water",
             points=result["points"], source=S1_SOURCE, method=S1_METHOD.format(radius=speckle_radius_m, scale=scale),
             caveats=S1_CAVEATS, fit_trend=True,
             columns={"water_outside_permanent_km2": "Outside JRC permanent water (km²)", "coverage_pct": "Pass coverage (%)",
