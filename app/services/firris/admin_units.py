@@ -44,6 +44,7 @@ class Unit:
     geometry: Any                    # full unit polygon, EPSG:4326 (not clipped)
     code: str | None = None
     parent: str | None = None        # e.g. the region of a district
+    source_name: str | None = None   # the name exactly as in the source (display fixes are recorded, not hidden)
 
 
 @dataclass
@@ -175,6 +176,7 @@ def level_breakdown(source_result: BoundaryUnits | NotProvided, *, population, a
     for piece in pieces:
         unit = piece.unit
         rows.append({"unit_id": piece.id, "name": unit.name if unit else OUTSIDE_NAME, "code": unit.code if unit else None,
+                     "source_name": unit.source_name if unit else None,
                      "parent": unit.parent if unit else None, "area_in_aoi_km2": piece.area_in_aoi_km2,
                      "share_of_unit_in_aoi": piece.share_of_unit_in_aoi, "extents": {}})
     for key, label, mask, mask_t in extents:

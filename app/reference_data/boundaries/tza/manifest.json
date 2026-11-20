@@ -4,8 +4,12 @@
   "citation": "Runfola, D. et al. (2020). geoBoundaries: A global database of political administrative boundaries. PLoS ONE 15(4): e0231866. https://doi.org/10.1371/journal.pone.0231866",
   "files": {
     "districts": {
-      "level": "L2", "use": "district units (FRRIS v1.1 exposure by administrative level)",
-      "boundaryID": "TZA-ADM2-72390352", "release_type": "gbOpen", "units": 170, "year_represented": "2021",
+      "level": "L2",
+      "use": "district units (FRRIS v1.1 exposure by administrative level)",
+      "boundaryID": "TZA-ADM2-72390352",
+      "release_type": "gbOpen",
+      "units": 170,
+      "year_represented": "2021",
       "source": "Tanzania National Bureau of Statistics / UN OCHA ROSA",
       "licence": "Creative Commons Attribution 3.0 Intergovernmental Organisations (CC BY 3.0 IGO)",
       "url": "https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbOpen/TZA/ADM2/geoBoundaries-TZA-ADM2.geojson",
@@ -13,8 +17,12 @@
       "sha256": "1eb3cbe313f1213bbcb1fb9c9aaf72c10d1c8d02ea24caa5d10d953c0a949c7c"
     },
     "region_lookup": {
-      "level": "L1 lookup only", "use": "district -> region assignment (district_region.csv); regions are built by grouping districts, never drawn from this layer",
-      "boundaryID": "TZA-ADM1-57458955", "release_type": "gbHumanitarian", "units": 31, "year_represented": "2018",
+      "level": "L1 lookup only",
+      "use": "district -> region assignment (district_region.csv); regions are built by grouping districts, never drawn from this layer",
+      "boundaryID": "TZA-ADM1-57458955",
+      "release_type": "gbHumanitarian",
+      "units": 31,
+      "year_represented": "2018",
       "source": "Tanzania National Bureau of Statistics / UN OCHA ROSA (HDX cod-ab-tza)",
       "licence": "Creative Commons Attribution 3.0 Intergovernmental Organisations (CC BY 3.0 IGO)",
       "url": "https://github.com/wmgeolab/geoBoundaries/raw/9469f09/releaseData/gbHumanitarian/TZA/ADM1/geoBoundaries-TZA-ADM1.geojson",
@@ -25,7 +33,16 @@
   "district_region_table": {
     "file": "district_region.csv",
     "method": "each district assigned to the region (gbHumanitarian ADM1) with the largest area overlap, in an equal-area projection; minimum overlap 100.0% for all 170 districts",
-    "status": "PENDING OWNER APPROVAL (shown 2026-11-20); not used by any run until approved"
+    "status": "approved by owner, 20 Nov 2026",
+    "approval": "gbHumanitarian TZA-ADM1-57458955 used as lookup only; regions are drawn by merging districts"
   },
-  "not_used": "gbOpen TZA ADM1 (OSM 2015, 30 regions) and any ADM3 layer: owner decision 2026-11-20. Wards come only from client-supplied NBS boundaries."
+  "not_used": "gbOpen TZA ADM1 (OSM 2015, 30 regions) and any ADM3 layer: owner decision 2026-11-20. Wards come only from client-supplied NBS boundaries.",
+  "display_name_fixes": {
+    "Babati UrbanBabati Urban": "Babati Urban",
+    "Butiam": "Butiama"
+  },
+  "display_name_fixes_note": "Owner-approved 20 Nov 2026; whitespace is also collapsed. Source names are kept in provenance.",
+  "limitations": [
+    "The 170-district layer (2021, NBS / UN OCHA ROSA) predates newer councils (for example Kibiti, Ubungo, Kigamboni, Buchosa); a complete list needs the client's NBS 2022 council list."
+  ]
 }

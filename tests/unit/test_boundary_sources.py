@@ -92,3 +92,22 @@ def test_rufiji_aoi_falls_in_rufiji_district_of_pwani():
     names = [u.name for u in bs.GeoBoundariesDistricts(REAL).units(rufiji).units]
     assert names == ["Rufiji"]
     assert bs.district_region_table()[next(u.id for u in bs.GeoBoundariesDistricts(REAL).all_units() if u.name == "Rufiji")] == "Pwani"
+
+
+def test_real_manifest_approval_name_fixes_and_limitation():
+    _MANIFEST.cache_clear()
+    assert bs.regions_approved()
+    assert bs.clean_name("Babati UrbanBabati Urban") == "Babati Urban" and bs.clean_name("Butiam") == "Butiama"
+    assert bs.clean_name("Kigoma  Urban") == "Kigoma Urban"
+    assert any("Kibiti" in text and "Buchosa" in text and "NBS 2022 council list" in text for text in bs.limitations())
+
+
+@pytest.mark.skipif(not (REAL / "boundaries" / "tza" / "geoBoundaries-TZA-ADM2.geojson").exists(), reason="pinned file not fetched")
+def test_real_regions_are_31_including_songwe_and_keep_source_names():
+    _MANIFEST.cache_clear(); _FEATURES.cache_clear()
+    districts = bs.GeoBoundariesDistricts(REAL).all_units()
+    assert {u.parent for u in districts} >= {"Songwe", "Pwani"} and len({u.parent for u in districts}) == 31
+    babati = next(u for u in districts if u.source_name == "Babati UrbanBabati Urban")
+    assert babati.name == "Babati Urban" and babati.parent == "Manyara"
+    songwe = bs.GroupedRegions(bs.GeoBoundariesDistricts(REAL)).units(mapping(box(32.5, -9.5, 33.5, -8.8)))
+    assert "Songwe" in [u.name for u in songwe.units]

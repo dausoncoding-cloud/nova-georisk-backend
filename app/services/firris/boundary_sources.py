@@ -28,9 +28,14 @@ REGIONS_PENDING = ("Region totals are not shown yet: the district-to-region tabl
 FILE_UNAVAILABLE = "The pinned boundary file for this level is not available on the server; this level is not shown."
 
 
-def clean_name(name: str) -> str:
-    """Display name: whitespace collapsed (the source has double spaces); the source name is kept in provenance."""
-    return re.sub(r"\s+", " ", name).strip()
+def clean_name(name: str, country: str = "tza") -> str:
+    """Display name: owner-approved spelling fixes, whitespace collapsed; the source name is kept in provenance."""
+    fixes = manifest(country).get("display_name_fixes", {}) if country else {}
+    return re.sub(r"\s+", " ", fixes.get(name, name)).strip()
+
+
+def limitations(country: str = "tza") -> list[str]:
+    return list(manifest(country).get("limitations", []))
 
 
 @functools.lru_cache(maxsize=4)
@@ -73,8 +78,9 @@ class GeoBoundariesDistricts:
         entry = country_manifest["files"]["districts"]
         features = _features(str(self.reference_dir / "boundaries" / self.country / entry["file"]), entry["sha256"])
         regions = district_region_table(self.country) if regions_approved(self.country) else {}
-        return [Unit(id=f["properties"]["shapeID"], name=clean_name(f["properties"]["shapeName"]), level="L2",
-                     geometry=shape(f["geometry"]), parent=regions.get(f["properties"]["shapeID"])) for f in features]
+        return [Unit(id=f["properties"]["shapeID"], name=clean_name(f["properties"]["shapeName"], self.country), level="L2",
+                     geometry=shape(f["geometry"]), parent=regions.get(f["properties"]["shapeID"]),
+                     source_name=f["properties"]["shapeName"]) for f in features]
 
     def units(self, aoi_geometry: dict) -> BoundaryUnits | NotProvided:
         country_manifest = manifest(self.country)
@@ -84,7 +90,8 @@ class GeoBoundariesDistricts:
         except (FileNotFoundError, OSError):
             return NotProvided("L2", FILE_UNAVAILABLE, _provenance(entry, country_manifest))
         aoi = shape(aoi_geometry)
-        return BoundaryUnits("L2", [u for u in units if u.geometry.intersects(aoi)], _provenance(entry, country_manifest))
+        return BoundaryUnits("L2", [u for u in units if u.geometry.intersects(aoi)],
+                             _provenance(entry, country_manifest, limitations=limitations(self.country)))
 
 
 class GroupedRegions:
@@ -98,7 +105,7 @@ class GroupedRegions:
         country = self.districts.country
         country_manifest = manifest(country)
         table_entry = country_manifest["district_region_table"]
-        provenance = _provenance(country_manifest["files"]["districts"], country_manifest,
+        provenance = _provenance(country_manifest["files"]["districts"], country_manifest, limitations=limitations(country),
                                  grouping={"table": table_entry["file"], "method": table_entry["method"],
                                            "status": table_entry["status"],
                                            "region_lookup": _provenance(country_manifest["files"]["region_lookup"], country_manifest)})
@@ -132,7 +139,8 @@ class ReviewedWards:
             wards = [f for f in boundary_features(source) if str(f["properties"].get("level", "")).lower() == "ward"]
             if not wards:
                 continue
-            units = [Unit(id=str(f["properties"]["spatial_unit_id"]), name=clean_name(str(f["properties"]["name"])),
+            units = [Unit(id=str(f["properties"]["spatial_unit_id"]), name=clean_name(str(f["properties"]["name"]), country=""),
+                          source_name=str(f["properties"]["name"]),
                           level="L3", geometry=shape(f["geometry"]), code=str(f["properties"]["spatial_unit_id"]))
                      for f in wards]
             provenance = {"dataset": "client-supplied NBS ward boundaries (reviewed dataset)",
