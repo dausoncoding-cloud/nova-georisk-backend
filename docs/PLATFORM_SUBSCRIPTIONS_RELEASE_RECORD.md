@@ -1,6 +1,6 @@
 # Platform subscriptions: release record
 
-**Status:** in progress on `feat/platform-subscriptions` (M4 of M5). Not merged, not deployed.
+**Status:** in progress on `feat/platform-subscriptions` (M5 of M5). Not merged, not deployed.
 **Plan:** `docs/PLATFORM_SUBSCRIPTIONS_PLAN.md`. **Designs:** `docs/design/subscriptions/`.
 This record is completed in M5 (end-to-end tests, user-guide section, release). Section 1 is the
 checklist the owner follows before switching enforcement on.
@@ -15,7 +15,7 @@ Enforcement is **off by default**. With it off, nothing changes for customers:
 The read endpoints (`/billing/*`) work either way. Switching it on before steps 1–6 makes **every** new analysis return 402 for any organisation without a subscription.
 
 **Release Phase A (deploy with enforcement off):**
-1. **Deploy and migrate:** `alembic upgrade head`. The migrations are `a9c3e5f70b12` (M1), `c4e6a8b0d2f1` (M2), `e8b0c2d4f6a3` (M3) and `f2c4e6a8b0d5` (M4); see section 2.
+1. **Deploy and migrate:** `alembic upgrade head`. The migrations are `a9c3e5f70b12` (M1), `c4e6a8b0d2f1` (M2), `e8b0c2d4f6a3` (M3), `f2c4e6a8b0d5` (M4) and `a7b9c1d3e5f2` (M5); see section 2.
 2. **Seed the catalogue** (idempotent; it only adds missing rows):
    `python -m app.services.billing.cli seed`
    - Expect 14 plans: 12 sold plans and 2 Internal plans.
@@ -28,6 +28,10 @@ The read endpoints (`/billing/*`) work either way. Switching it on before steps 
    - This command is the only way to grant or revoke the role; no screen or API route can.
    - `list` shows who holds it.
    - The console is at `/nova-ari`, and the suite home shows a link to admins only.
+2c. **Go-live grace for "Payment overdue" (M5).** Set `BILLING_OVERDUE_GRACE_FROM=<go-live date, YYYY-MM-DD>` (normally the Phase B day).
+   - Before that date, nothing is judged. A customer without a recorded plan payment is flagged only more than `BILLING_PAYMENT_OVERDUE_GRACE_DAYS` (7) days after it.
+   - Without this setting, every backfilled sold customer would be flagged at once, 7 days after its backfill start.
+   - Record the customers' plan payments in that week.
 2b. **Usage counters (M4).** Add a cron job that flushes the usage buffer every 15 minutes:
    ```
    python -m app.services.usage.cli flush
@@ -84,6 +88,7 @@ The read endpoints (`/billing/*`) work either way. Switching it on before steps 
    | Q8 sessions above Researcher | plan `session_limit` (3) | 3 per user |
    | Q9 login-history retention | `SESSION_HISTORY_RETENTION_DAYS` | kept |
    | "Payment overdue" grace | `BILLING_PAYMENT_OVERDUE_GRACE_DAYS` | 7 days after the paid period (or the start) |
+   | Go-live date for "Payment overdue" | `BILLING_OVERDUE_GRACE_FROM` | unset; **set it at Phase B** (step 2c) |
    | "Expiring soon" window | `BILLING_EXPIRING_SOON_DAYS` | 7 days |
 9. **Switch on:** set `BILLING_ENFORCEMENT_ENABLED=true` and restart the API.
 10. **Smoke test** with the team's test organisation:
@@ -103,6 +108,7 @@ The read endpoints (`/billing/*`) work either way. Switching it on before steps 
 | `c4e6a8b0d2f1` | `a9c3e5f70b12` | Append-only `payments` and `platform_audit`; `status_changed_at`; Internal plan flags and seed |
 | `e8b0c2d4f6a3` | `c4e6a8b0d2f1` | `user_sessions` (device list, login history; no cookie, IP removed after 30 days) |
 | `f2c4e6a8b0d5` | `e8b0c2d4f6a3` | `platform_admins` (NOVA ARI role; command-only), `security_alerts`, `organization_usage_daily`. The downgrade refuses while grants exist. |
+| `a7b9c1d3e5f2` | `f2c4e6a8b0d5` | `subscription_requests` ("Request top-up" and "Request upgrade"; NOVA ARI closes each with a reason) |
 
 Both downgrades refuse when they would drop financial or audit rows.
 
@@ -131,20 +137,18 @@ git diff origin/main -U0 -- app/bff/main.py app/bff/session.py app/bff/membershi
 | A12 | `app/schemas/auth.py` 33–34 | M3 | Optional `signed_out_notice` (`signedOutNotice`) on `BrowserSessionResponse`. | — |
 | A13 | `deploy/nginx/conf.d/gateway.conf` 48, 72, 94 | M3 | `proxy_set_header X-Nova-Session-Ref "";` next to each existing `X-Nova-Role ""` blanking. | — |
 
-**M4 adds no hunk to the files above.** The console's requests use the existing proxy (`/api/v1/platform-admin/*`) with the same CSRF and trusted headers.
+**M4 and M5 add no hunk to the files above.** The console's requests use the existing proxy (`/api/v1/platform-admin/*`) with the same CSRF and trusted headers.
 
-**Not in these files but relevant to the review:**
-- `app/services/platform_admin/access.py` (`require_platform_admin`): the role check. It is read from the database on every request; `context.is_service` is refused; it needs an active membership and an unrevoked grant. Organisation routes never read it.
-- `app/services/platform_admin/cli.py`: the only writer of `platform_admins`.
-- `app/api/admin_platform/router.py`: every route depends on the internal secret and `require_platform_admin`. A test sends every console GET as an organisation owner and expects 403.
-- Usage hooks: request middleware and download routes (M4). These are all of their hunks:
+**Also for review (outside the BFF/gateway/auth files):**
 
-  | File | Hunk | What |
-  |---|---|---|
-  | `app/main.py` | +1 import; +1 line after `app.middleware("http")(request_context_middleware)` | Registers `usage_counter_middleware`. It counts after the response is produced, only for `/api/v1/*` requests that carry the internal secret (constant-time compare) and an organisation, excluding `/api/v1/platform-admin`. Redis errors are ignored. |
-  | `app/api/v1/endpoints/results.py` `get_result_product` | +1 import; +2 lines before `_protected_file_response` | Counts a download after every access and integrity check has passed. Range requests (map viewer) and previews are not counted. |
-  | `app/api/v1/endpoints/external_data.py` `download` | +1 import; +1 line after `record_for`/`bytes_for` | Counts a dataset download after the existing authorisation. |
+| # | File | Milestone | What and why | Failure behaviour |
+|---|---|---|---|---|
+| A14 | `app/main.py`: +1 import; +1 line `app.middleware("http")(usage_counter_middleware)` after `request_context_middleware` | M4 | Counts API requests per organisation (`app/services/usage/middleware.py`). Counts only after the response is produced, for `/api/v1/*` requests that carry the internal secret (constant-time compare) and an organisation, excluding `/api/v1/platform-admin`. Reads no body; writes one Redis counter. | Redis errors are ignored. It cannot change the response or the status. |
+| A15 | `app/api/v1/endpoints/results.py` `get_result_product`: +1 import; +2 lines just before `_protected_file_response` | M4 | Counts a download after every existing check (membership, project access, entitlement, path containment, integrity). Range requests and previews are not counted. | Best-effort, as A14. |
+| A16 | `app/api/v1/endpoints/external_data.py` `download`: +1 import; +1 line after `record_for`/`bytes_for` | M4 | Counts a dataset download after the existing authorisation. | Best-effort, as A14. |
+| A17 | `app/services/platform_admin/access.py` `require_platform_admin`; `app/services/platform_admin/cli.py`; `app/api/admin_platform/router.py` | M4 | The NOVA ARI role. Checked from the database on every request: service context refused, active membership required, unrevoked grant required. Granted and revoked only by the deploy-time command. Every console route depends on the internal secret and this check, and organisation routes never read the role. Tests: every console GET returns 403 to an organisation owner; revocation takes effect on the next request; a disabled user is refused; no API module writes `platform_admins`. | Fails closed (403). |
 
+Other code worth a look:
 - `app/services/sessions/tracking.py`: the Lua script that ends older sessions.
 - `app/api/v1/endpoints/account_sessions.py`: sign-out per device. A user can only end their own sessions; another user's session returns 404.
 
