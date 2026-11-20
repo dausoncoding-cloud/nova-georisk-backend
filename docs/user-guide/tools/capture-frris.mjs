@@ -6,6 +6,8 @@
 //   node tools/capture-frris.mjs before-run   # sign-in, suite, playground, new analysis, preflight; submits the two runs
 //   node tools/capture-frris.mjs analysis     # only the new-analysis part (the area already exists)
 //   node tools/capture-frris.mjs results      # task pages and result tabs, once both runs have finished
+//   node tools/capture-frris.mjs trend-run     # Trend analysis option and preflight; submits a May 2024 run with trends
+//   node tools/capture-frris.mjs trend-results # the Trends tab of that run ("trend" in results.json)
 //
 // Images go to ./img (1280 x 860 viewport, device scale 1.5).
 import { chromium } from "playwright";
@@ -159,7 +161,13 @@ if (stage === "results" || stage === "fix") {
   await shot(failed, "18-run-failed");
   await failed.close();
 
-  const tab = async (id, key, ms = 2500) => { const p = await page(ctx, `/results/${id}?tab=${key}`); await settle(p, ms); return p; };
+  const tab = async (id, key, ms = 2500) => {
+    const p = await page(ctx, `/results/${id}?tab=${key}`);
+    // Wait for the area name: until it loads, the page title falls back to "Flood mapping".
+    await p.getByRole("heading", { level: 1, name: "Rufiji floodplain 2024" }).waitFor({ timeout: 30000 });
+    await settle(p, ms);
+    return p;
+  };
   const region = async (p, label, name) => {
     const r = p.getByRole("region", { name: label }).first();
     await r.scrollIntoViewIfNeeded(); await settle(p, 1500);
@@ -193,6 +201,46 @@ if (stage === "results" || stage === "fix") {
   await shot(p, "28-map-viewer"); await p.close();
   p = await tab(ids.peak, "downloads"); await shot(p, "29-downloads"); await p.close();
   p = await tab(ids.peak, "provenance"); await shot(p, "30-provenance"); await p.close();
+  await ctx.close();
+}
+
+if (stage === "trend-run") {
+  // Trend Analysis (guide v1.2): the option, the preflight pass count, and a May 2024 run with trends.
+  const ctx = await context();
+  const p = await page(ctx, "/frris/analyses/new");
+  await chooseArea(p, "Rufiji floodplain 2024");
+  await settle(p, 1500);
+  await fillPeriods(p, ["2024-05-24", "2024-05-25"], ["2022-08-28", "2022-09-02"]);
+  await waitPreflight(p);
+  await p.getByText("Model confidence score", { exact: false }).first().click();
+  await p.getByRole("switch", { name: /^Trend analysis/ }).check();
+  await p.waitForFunction(() => /Sentinel-1 pass(es)? on orbit/.test(document.querySelector("main")?.innerText ?? ""), null, { timeout: 120000 });
+  await settle(p, 1500);
+  await card(p, "Periods and satellite availability", "34-trend-preflight");
+  await card(p, "Products", "35-trend-option");
+  await p.getByRole("button", { name: "Run analysis" }).click();
+  await p.waitForURL((url) => !url.pathname.endsWith("/new"), { timeout: 60000 }).catch(() => {});
+  writeFileSync(join(DATA, "trend-task-url.txt"), p.url());
+  await ctx.close();
+}
+
+if (stage === "trend-results") {
+  const ids = JSON.parse(readFileSync(join(DATA, "results.json"), "utf8"));
+  const ctx = await context();
+  const p = await page(ctx, `/results/${ids.trend}?tab=trends`);
+  await p.getByRole("heading", { level: 1, name: "Rufiji floodplain 2024" }).waitFor({ timeout: 30000 });
+  // Card captures only: the sticky result tabs would overlap a card scrolled to the top of the viewport.
+  await p.addStyleTag({ content: ".fr-result .workspace-tabs.result-tabs { position: static !important; }" });
+  await settle(p, 2500);
+  await shot(p, "36-trends-tab");
+  for (const [name, file] of [["Surface-water extent, annual (JRC, 1984–2021)", "37-trends-surface-water"],
+                              ["Daily rainfall, 90 days to 25 May 2024", "38-trends-rainfall"],
+                              ["SAR open water (VV < -18 dB) per Sentinel-1 pass", "39-trends-sar"]]) {
+    const region = p.getByRole("region", { name }).first();
+    await region.scrollIntoViewIfNeeded();
+    await settle(p, 600);
+    await shot(region, file);
+  }
   await ctx.close();
 }
 

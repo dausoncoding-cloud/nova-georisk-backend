@@ -3,7 +3,7 @@ title: FRRIS User Guide
 subtitle: Flood Risk & Resilience Intelligence on NOVA-GeoRisk. A step-by-step training guide for mapping flood candidates, reading their accuracy, and using the modelled hazard and exposure.
 date: Nov 2026
 author: @deeteki
-version: Guide v1.1 · FRRIS r6.2
+version: Guide v1.2 · FRRIS with Trend Analysis
 header: FRRIS User Guide · NOVA-GeoRisk
 ---
 
@@ -160,8 +160,21 @@ The maximum Sentinel-2 cloud cover (default 20%) can be changed. The minimum are
 | **Model confidence score** | The Random Forest vote fraction for each pixel (0 to 1). It is a model score, not a calibrated probability. |
 | **Modelled flood hazard (GloFAS v2.1)** | Modelled river-flood depth for 10- to 500-year return periods. Context next to the flood map, not an observation. |
 | **Estimated exposure (WorldPop, Open Buildings)** | People and buildings inside the flood candidates and inside each modelled zone. Switches on the hazard, which it needs. |
+| **Trend analysis** | Annual surface water since 1984 (JRC), rainfall before the target date with its anomaly (CHIRPS), and SAR open water on each Sentinel-1 pass. Line charts, tables and CSV. Context only; it does not change the flood map. |
 
 ![Step 4: products, with the modelled hazard and the estimated exposure switched on.](img/13-products.png)
+
+**Trend analysis options.** When **Trend analysis** is on, three fields appear:
+- **Rainfall window:** 30, 60, 90 or 180 days, ending on the target's last day.
+- **Sentinel-1 series from / to (included):** leave both empty to use the baseline's first day to the target's last day.
+
+At most the latest 24 radar passes on the run's orbit are used.
+
+![Step 4 with Trend analysis switched on: the rainfall window and the optional Sentinel-1 series window.](img/35-trend-option.png)
+
+The preflight then adds a **Trend analysis** line: how many Sentinel-1 passes fall in the series window, how many are used, and how many years they span. It warns when the latest 24 are used, when there are fewer than 2 passes, or when the passes span less than 2 years. In that last case the radar series is shown as a change, because it is seasonal and too short for a trend. These warnings never block the run.
+
+![The preflight with Trend analysis on (May 2024 run): 53 passes on orbit 57, the latest 24 used, spanning 0.8 years.](img/34-trend-preflight.png)
 
 ### Run
 
@@ -193,7 +206,7 @@ FRRIS stops a run when the data would not support a reliable map, and says why i
 
 ## 5. Results
 
-A result has these tabs: **Overview**, **Accuracy assessment**, **Modelled hazard** and **Exposure** (when chosen), **Downloads & GIS layers**, **Provenance**, **Map viewer**, **Metrics** and **Execution**.
+A result has these tabs: **Overview**, **Accuracy assessment**, **Modelled hazard**, **Exposure** and **Trends** (when chosen), **Downloads & GIS layers**, **Provenance**, **Map viewer**, **Metrics** and **Execution**.
 
 ### Overview
 
@@ -273,6 +286,39 @@ The **Exposure** tab estimates the people and buildings inside the observed floo
 
 ![The Exposure tab (peak run): the commission-error caveat, and people per 100 m cell inside the observed flood candidates and inside the 1-in-100-year zone.](img/26-exposure-peak.png)
 
+### Trends
+
+The **Trends** tab shows three series for the area, each with its chart, statistics, method, caveats, source, a table and a **Download CSV** button. **It describes the past; it is not a forecast.**
+
+![The Trends tab (May 2024 run).](img/36-trends-tab.png)
+
+How to read the statistics:
+
+| You see | Meaning |
+|---|---|
+| A dashed line and "statistically significant trend +x per year, p, R²" | A trend fitted to at least 6 valid points, and statistically significant (p < 0.05). The line is a visual aid, not a forecast |
+| "No statistically significant trend (p, R²); no trend line drawn" | The values vary, but no reliable direction can be claimed. No line is drawn and no slope is given |
+| "Change" | Only two points, or a series too short or too seasonal for a trend: the change from the first to the last valid point |
+| Hollow grey points and gaps in the line | Flagged points, shown but not used (too much missing data, or a radar pass covering less than 70% of the area) |
+
+**Annual surface water (JRC, 1984–2021).** This is seasonal and permanent water mapped from Landsat each year, not flood extent.
+- **Flagged years:** a year is flagged when more than 30% of the area that has ever held water has no observation that year. These are mostly early years.
+- **Rufiji:** the series reads "no statistically significant trend" (p = 0.071, R² = 0.12). The wet years 2002, 2017 and 2020 stand out.
+
+![Annual surface water at Rufiji: 10 flagged early years shown hollow (gaps in the line), and no statistically significant trend.](img/37-trends-surface-water.png)
+
+**Rainfall (CHIRPS).** Daily rainfall and 10-day totals over the window, and the **anomaly**: the window's total compared with the 1991–2020 mean of the same calendar window. No change or trend is computed for rainfall.
+- **Rufiji:** the 90 days to 25 May 2024 had 940.8 mm, against a 567.3 mm mean: **+65.8%**.
+
+![Daily rainfall over the 90 days to 25 May 2024.](img/38-trends-rainfall.png)
+
+**SAR open water (VV < −18 dB).** The radar open-water area on each Sentinel-1 pass of the run's orbit.
+- **What it is not:** it is **not the flood map** and **not accuracy-assessed**. It can miss wind-roughened water and water under vegetation, and it can include smooth dry surfaces. Use it to see change over time.
+- **When a trend is fitted:** only when the passes span at least 2 years.
+- **Rufiji:** the 24 passes span 0.8 years, so the series reads "seasonal; too short for a trend". The flood stands out on the 7 April – 1 May 2024 passes: about 11–14 km², against about 1.2–1.5 km² in the dry season.
+
+![SAR open water per pass at Rufiji: a change, seasonal and too short for a trend.](img/39-trends-sar.png)
+
 ### Map viewer
 
 The **Map viewer** shows the result layers over a basemap: the flood-candidate extent, the confidence score, the modelled depths, permanent water and the people layers. Switch layers on and off and compare two layers side by side.
@@ -305,10 +351,11 @@ Every result has a scientific report (PDF and Word). Its sections:
 | 9 Accuracy assessment | The reference coverage, then the independent tables and ROC (or "not assessable"), then internal agreement |
 | 10 Modelled flood hazard *(when chosen)* | GloFAS figures, tables and maps |
 | 11 Estimated exposure *(when chosen)* | People and buildings by extent, with the caveats |
+| 12 Trend analysis *(when chosen)* | The three series with their charts, the rainfall anomaly, the rules, caveats and sources |
 | Limitations, provenance | What is not claimed; what was used |
 | Appendices | The full accuracy tables, the downloads, and the ROC by variable |
 
-Without the hazard and exposure options, section 10 is Limitations and section 11 is Provenance.
+The optional sections are numbered in this order after section 9, and only when chosen. For example, a run with only Trend analysis has "10. Trend analysis", then Limitations and Provenance. Without any option, section 10 is Limitations and section 11 is Provenance.
 
 ![The first page of the scientific report (May 2024 run).](img/31-report-first-page.png)
 
@@ -345,6 +392,12 @@ The independent check needs clear Sentinel-2 pixels **inside your area on both d
 ::: caveat
 **The April 2024 peak run.** The Sentinel-2 scene of 29 April 2024 had 10.9% cloud over its tile. That cloud was thin cirrus, and it lay over the Rufiji area: only **1.5%** of the area was clear. On the 22 Oct 2023 baseline 36.6% was clear (the rest was cloud and cloud shadow). Only **0.46%** of the area was clear on both dates, and the eligible reference covered **0.42%**. The accuracy is therefore **not assessable**. The flood map itself is unaffected.
 :::
+
+### Reading trends
+
+- **Short series are seasonal:** a few months of radar passes mostly show the wet and dry seasons, so a trend over less than 2 years is not drawn. For a real trend, set a Sentinel-1 window of several years.
+- **No significant trend is a result in itself:** it means the data do not support a direction. Report it as such, not as "a slight increase".
+- **Surface water is not flooding:** a wetter year in JRC can come from seasonal water, irrigation or reservoirs.
 
 ### Limits of GloFAS and WorldPop
 
