@@ -50,6 +50,16 @@ def change(first: dict, last: dict) -> dict[str, Any]:
             "delta": last["value"] - first["value"], "percent": pct, "percent_text": UNDEFINED if pct is None else f"{pct:.1f}%"}
 
 
+def describe_values(points: list[dict], *, units: str, note: str) -> dict[str, Any]:
+    """Values only (rainfall): the number of valid points and the highest value; no change and no trend is computed."""
+    valid = [p for p in points if not p.get("flagged") and p.get("value") is not None]
+    if not valid:
+        return {"kind": "none", "n_valid": 0, "text": "No valid values."}
+    top = max(valid, key=lambda p: p["value"])
+    return {"kind": "values", "n_valid": len(valid), "max": {"t": top["t"], "value": top["value"]},
+            "text": f"Highest {top['value']:.1f} {units} ({top['t']}). {note}"}
+
+
 def summarise(points: list[dict], *, units: str, fit_trend: bool, per: str = "year",
               min_span_years: float | None = None) -> dict[str, Any]:
     """The statistics block of a series under the §2 rules. ``points`` must already be in chronological order.
@@ -100,7 +110,7 @@ def summarise(points: list[dict], *, units: str, fit_trend: bool, per: str = "ye
 def series_record(*, key: str, title: str, indicator: str, units: str, points: Iterable[dict], source: str,
                   method: str, caveats: list[str], fit_trend: bool, x_kind: str, per: str = "year",
                   columns: dict[str, str] | None = None, axis_label: str | None = None,
-                  min_span_years: float | None = None) -> dict[str, Any]:
+                  min_span_years: float | None = None, values_note: str | None = None) -> dict[str, Any]:
     """One series: chronological points, flags, the statistics block and the texts every chart and table shows.
 
     Each point is {"t": year | ISO date, "value": float | None, "flagged": bool, "flag": str | None, ...extra columns}.
@@ -109,7 +119,8 @@ def series_record(*, key: str, title: str, indicator: str, units: str, points: I
     return {"key": key, "title": title, "indicator": indicator, "axis_label": axis_label or indicator, "units": units, "x": x_kind,
             "source": source, "method": method, "caveats": list(caveats), "columns": dict(columns or {}),
             "points": ordered, "n_points": len(ordered), "n_flagged": sum(1 for p in ordered if p.get("flagged")),
-            "summary": summarise(ordered, units=units, fit_trend=fit_trend, per=per, min_span_years=min_span_years)}
+            "summary": (describe_values(ordered, units=units, note=values_note) if values_note is not None else
+                        summarise(ordered, units=units, fit_trend=fit_trend, per=per, min_span_years=min_span_years))}
 
 
 def dekadal_totals(daily: list[dict], last_day: str) -> list[dict]:

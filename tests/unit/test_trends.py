@@ -107,3 +107,12 @@ def test_a_short_span_is_a_change_seasonal_too_short_for_a_trend():
     assert "seasonal; too short for a trend" in summary["text"] and "span 0.9 years" in summary["text"]
     long = [{"t": f"{2021 + i // 12}-{i % 12 + 1:02d}-01", "value": float(i), "flagged": False} for i in range(0, 36, 3)]
     assert trends.summarise(long, units="km²", fit_trend=True, min_span_years=2.0)["kind"] == "trend"
+
+
+def test_values_only_series_report_no_change_and_no_trend():
+    pts = [{"t": f"2024-05-{d:02d}", "value": float(d % 7), "flagged": False} for d in range(1, 11)]
+    record = trends.series_record(key="r", title="T", indicator="Rainfall", units="mm/day", source="S", method="M", caveats=[],
+                                  fit_trend=False, x_kind="date", points=pts, values_note="No change or trend is computed for rainfall.")
+    summary = record["summary"]
+    assert summary["kind"] == "values" and "change" not in summary and "trend" not in summary
+    assert summary["max"] == {"t": "2024-05-06", "value": 6.0} and summary["text"].startswith("Highest 6.0 mm/day (2024-05-06).")

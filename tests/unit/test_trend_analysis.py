@@ -61,7 +61,9 @@ def test_the_record_holds_the_four_series_the_anomaly_and_the_rule():
     assert water["units"] == "km²" and water["n_flagged"] == 3 and water["summary"]["kind"] == "trend"
     assert water["summary"]["trend"]["slope"] == pytest.approx(0.1)  # flagged 2000–2002 are not fitted
     daily = record["series"]["rainfall_daily"]
-    assert daily["n_points"] == 30 and "trend" not in daily["summary"]
+    assert daily["n_points"] == 30 and "trend" not in daily["summary"] and "change" not in daily["summary"]
+    assert daily["summary"]["kind"] == "values" and "No change or trend is computed for rainfall" in daily["summary"]["text"]
+    assert record["series"]["rainfall_dekadal"]["summary"]["kind"] == "values"
     assert calls["rain"] == (date(2024, 5, 25), 30)  # the window ends on the target's last day (API end − 1)
     assert record["rainfall_anomaly"]["total_mm"] == 60.0 and record["rainfall_anomaly"]["anomaly_percent"] == pytest.approx(-40.0)
     sar = record["series"]["sar_open_water"]

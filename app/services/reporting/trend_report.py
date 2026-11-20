@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services.firris import trends
-from app.services.reporting.trend_figures import _statistics_line, rainfall_figure, series_figure
+from app.services.reporting.trend_figures import rainfall_figure, series_figure
 
 SECTION = "Trend analysis"
 FIGURE_LABELS = {"trend_surface_water_annual": "Trend analysis — annual surface water (JRC)",
@@ -54,7 +54,6 @@ def trend_section(writer, output_directory: Path, record: dict[str, Any] | None,
     if water.get("status") == "assessed":
         paths = series_figure(water, output_directory / "figure-trend-surface-water-annual")
         writer.image(paths["png"], 16, f"{water['title']}. {water['method']} Hollow points are flagged years.", max_height_cm=8)
-        writer.para(_statistics_line(water) + ".")
         _caveats(writer, water)
         figures["figure_trend_surface_water_annual_png"] = (paths["png"], "image/png")
         figures["figure_trend_surface_water_annual_svg"] = (paths["svg"], "image/svg+xml")
@@ -88,7 +87,6 @@ def trend_section(writer, output_directory: Path, record: dict[str, Any] | None,
                   if sar.get("capped") else "")
         writer.image(paths["png"], 16, f"{sar['title']}, orbit {sar.get('orbit')}, {window.get('first_day')} to "
                      f"{window.get('last_day')}.{capped} {sar['method']}", max_height_cm=8)
-        writer.para(_statistics_line(sar) + ".")
         _caveats(writer, sar)
         figures["figure_trend_sar_open_water_png"] = (paths["png"], "image/png")
         figures["figure_trend_sar_open_water_svg"] = (paths["svg"], "image/svg+xml")

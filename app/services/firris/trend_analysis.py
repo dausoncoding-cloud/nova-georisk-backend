@@ -52,6 +52,10 @@ CHIRPS_CAVEATS = [
 ]
 
 
+RAIN_NOTE = ("No change or trend is computed for rainfall; the window total is compared with the 1991–2020 mean in "
+             "the rainfall anomaly.")
+
+
 def _last_day(period: dict) -> date:
     """API periods end exclusively: the last day included is end − 1."""
     return date.fromisoformat(str(period["end"])[:10]) - timedelta(days=1)
@@ -103,7 +107,7 @@ def run_trend_analysis(aoi_geometry: dict, *, target_period: dict, baseline_peri
             key="rainfall_daily", title=f"Daily rainfall, {rainfall_days} days to {target_last:%d %b %Y}",
             indicator="Rainfall", units="mm/day", x_kind="date", points=daily_points, source=CHIRPS_SOURCE,
             method="CHIRPS daily precipitation, area-weighted mean over the area.", caveats=CHIRPS_CAVEATS, fit_trend=False,
-            per="day")
+            per="day", values_note=RAIN_NOTE)
 
     def rainfall_dekadal():
         points = trends.dekadal_totals(daily_points, target_last.isoformat()) if daily_points else []
@@ -113,7 +117,7 @@ def run_trend_analysis(aoi_geometry: dict, *, target_period: dict, baseline_peri
             key="rainfall_dekadal", title=f"10-day rainfall totals, {rainfall_days} days to {target_last:%d %b %Y}",
             indicator="Rainfall, 10-day total", units="mm per 10 days", x_kind="date", points=points, source=CHIRPS_SOURCE,
             method="Sum of the daily values in 10-day blocks ending on the target's last day; incomplete blocks flagged.",
-            caveats=CHIRPS_CAVEATS, fit_trend=False, columns={"start": "First day", "end": "Last day"})
+            caveats=CHIRPS_CAVEATS, fit_trend=False, columns={"start": "First day", "end": "Last day"}, values_note=RAIN_NOTE)
 
     def sar_open_water():
         result = series_api.s1_water_per_pass(aoi, aoi_area_m2, orbit, sar_first, sar_last, scale=scale,
