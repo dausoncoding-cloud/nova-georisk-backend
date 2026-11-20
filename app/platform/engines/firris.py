@@ -714,6 +714,8 @@ class FIRRISEngineAdapter(EngineAdapter):
                                                  producer=context.gis_metadata.get("producer"), aoi_name=context.aoi_name,
                                                  aoi_geometry=context.aoi_geometry).items():
                     (outputs if entry.get("role") == "product" else reports)[key] = entry
+            if workflow.trend_analysis is not None:  # Trend Analysis (opt-in): exports are added in step 5
+                summary["trend_analysis"] = workflow.trend_analysis
             if workflow.flood_exposure is not None:  # Depth & Exposure module: estimated exposure (opt-in)
                 from app.services.firris.exposure_exports import exposure_exports
                 summary["flood_exposure"] = workflow.flood_exposure

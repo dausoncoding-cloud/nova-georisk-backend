@@ -61,6 +61,7 @@ class FIRRISWorkflowOutput:
     accuracy_assessment: dict[str, Any] = field(default_factory=dict)
     # Depth & Exposure module (context, opt-in): the record for the summary and the layers for the GIS outputs.
     modelled_hazard: dict[str, Any] | None = None
+    trend_analysis: dict[str, Any] | None = None
     modelled_hazard_layers: dict[str, Any] | None = None
     flood_exposure: dict[str, Any] | None = None
     flood_exposure_layers: dict[str, Any] | None = None
@@ -520,7 +521,26 @@ def run_satellite_workflow(
                                                       if k in ("asset", "version", "primary_threshold", "sensitivity_threshold")}}
         if flood_exposure.get("status") == "assessed":
             provenance["datasets"] = [*(provenance.get("datasets") or []), WORLDPOP_ASSET, OPEN_BUILDINGS_ASSET]
+    trend_analysis = None
+    trend_options = (workflow.get("context") or {}).get("trend_analysis")
+    if provider == "gee" and trend_options is not None:
+        from app.services.firris.trend_analysis import run_trend_analysis
+        source = workflow.get("source") or {}
+        orbits = {scene.get("relative_orbit") for scene in
+                  ((quality.get("per_collection") or {}).get("sentinel_1_target") or {}).get("scenes", [])
+                  if isinstance(scene, dict) and scene.get("relative_orbit") is not None}
+        trend_analysis = run_trend_analysis(
+            aoi_geometry, target_period=source["target_period"], baseline_period=source["baseline_period"],
+            orbit=next(iter(orbits)) if len(orbits) == 1 else None, options=trend_options,
+            scale=float(source.get("scale", 30)),
+            speckle_radius_m=int((workflow.get("preprocessing") or {}).get("sar_speckle_radius_m", 50)))
+        provenance["trend_analysis"] = {key: trend_analysis.get(key) for key in ("status", "reason", "method_version",
+                                                                                 "options", "s1_rule", "datasets")}
+        if trend_analysis.get("status") == "assessed":
+            provenance["datasets"] = [*(provenance.get("datasets") or []),
+                                      *[d for d in trend_analysis["datasets"] if d not in (provenance.get("datasets") or [])]]
     return FIRRISWorkflowOutput(
+        trend_analysis=trend_analysis,
         modelled_hazard=modelled_hazard,
         modelled_hazard_layers=modelled_hazard_layers,
         flood_exposure=flood_exposure,
