@@ -142,3 +142,15 @@ def storage(db: Session, organization_id: uuid.UUID) -> Allowance:
 def storage_blocks_submission(db: Session, organization_id: uuid.UUID) -> bool:
     """Q5: only when the client chooses "block" (setting), and only at 100%."""
     return get_settings().billing_storage_block_at_limit and storage(db, organization_id).full
+
+
+# --- sessions -------------------------------------------------------------------------------------
+
+def session_limit(db: Session, organization_id: uuid.UUID) -> int | None:
+    """Active browser sessions allowed per user (Researcher 1, others 3, Q8). Per person like seats, so
+    the largest of the organisation's subscriptions applies. None = no limit, including while
+    enforcement is off and for an organisation without a subscription."""
+    if not get_settings().billing_enforcement_enabled:
+        return None
+    values = [ledger.effective_limits(db, item)["session_limit"] for item in subscriptions(db, organization_id)]
+    return _combine(values, max)

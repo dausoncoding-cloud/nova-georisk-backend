@@ -112,6 +112,19 @@ class Settings(BaseSettings):
     # Q7: days an Expired or Cancelled organisation keeps viewing and downloads; None = no limit until decided.
     billing_view_grace_days: int | None = None
 
+    # --- Sessions, devices and login history (plan section 6) ---
+    # Local city-level GeoIP file (.mmdb, for example DB-IP Lite); unset = no locations. Never an online service.
+    geoip_database_path: str | None = None
+    # Full IP addresses are kept this long for security, then removed; city and country stay.
+    session_ip_retention_days: int = 30
+    # Q9: how long login history is kept; None = until the client decides.
+    session_history_retention_days: int | None = None
+    # Proxies whose X-Forwarded-For entries are trusted (the nginx containers on the Docker network).
+    session_trusted_proxy_cidrs: list[str] = ["127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12",
+                                              "192.168.0.0/16", "fc00::/7"]
+    # "Last active" on the device list is updated at most this often per session.
+    session_last_seen_interval_seconds: int = 300
+
     @property
     def allowed_cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]

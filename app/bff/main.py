@@ -13,6 +13,7 @@ import uuid
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 from sqlalchemy.orm import Session
@@ -38,7 +39,8 @@ from app.core.http import (
     unhandled_exception_handler,
     validation_exception_handler,
 )
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
+from app.services.sessions.tracking import SessionTracker, get_session_tracker
 from app.schemas.errors import ErrorEnvelope
 from app.schemas.auth import AuthConfigResponse, BrowserSessionResponse
 
@@ -74,12 +76,25 @@ def _session_token(request: Request) -> str:
     return token
 
 
+def _signed_out_notice(tracker: SessionTracker, token: str) -> str | None:
+    try:
+        return tracker.ended_notice(token)
+    except Exception:  # tracking must never change how authentication behaves
+        logger.warning("Session notice lookup failed")
+        return None
+
+
 def get_current_session(
     request: Request,
     store: SessionStore = Depends(get_session_store),
+    tracker: SessionTracker = Depends(get_session_tracker),
 ) -> BrowserSession:
-    session = store.get(_session_token(request))
+    token = _session_token(request)
+    session = store.get(token)
     if session is None:
+        notice = _signed_out_notice(tracker, token)
+        if notice:
+            raise PublicAPIError(401, "session_ended", notice)
         raise HTTPException(status_code=401, detail="Session is invalid or expired.")
     return session
 
@@ -115,6 +130,7 @@ def auth_config() -> AuthConfigResponse:
 def session_info(
     request: Request,
     store: SessionStore = Depends(get_session_store),
+    tracker: SessionTracker = Depends(get_session_tracker),
 ) -> BrowserSessionResponse:
     token = request.cookies.get(settings.session_cookie_name)
     session = store.get(token) if token else None
@@ -125,6 +141,7 @@ def session_info(
             "organization": None,
             "roles": [],
             "csrf_token": None,
+            "signed_out_notice": _signed_out_notice(tracker, token) if token else None,
         }
     return {
         "authenticated": True,
@@ -204,6 +221,7 @@ async def callback(
     provider: OIDCProvider = Depends(get_oidc_provider),
     state_store: OIDCStateStore = Depends(get_oidc_state_store),
     session_store: SessionStore = Depends(get_session_store),
+    tracker: SessionTracker = Depends(get_session_tracker),
     db: Session = Depends(get_db),
 ) -> Response:
     if error:
@@ -245,6 +263,7 @@ async def callback(
         db.rollback()
         raise PublicAPIError(403, exc.code, exc.message) from exc
 
+    session_ref = uuid.uuid4()
     browser_session = new_browser_session(
         user_id=resolved.user.id,
         organization_id=resolved.organization.id,
@@ -252,8 +271,18 @@ async def callback(
         role=OrganizationRole(resolved.membership.role.value),
         email=resolved.user.email,
         display_name=resolved.user.display_name,
+        session_ref=session_ref,
     )
     session_token = session_store.create(browser_session)
+    try:  # device list, login history and the plan's session limit (ends older sessions)
+        tracker.register_sign_in(
+            db, token=session_token, session_ref=session_ref, user_id=resolved.user.id,
+            organization_id=resolved.organization.id, user_agent_header=request.headers.get("user-agent"),
+            peer=request.client.host if request.client else None,
+            forwarded_for=request.headers.get("x-forwarded-for"))
+    except Exception:
+        logger.warning("Session tracking failed at sign-in")
+        db.rollback()
     response = RedirectResponse(transaction.return_to, status_code=302)
     response.set_cookie(
         settings.session_cookie_name,
@@ -279,9 +308,17 @@ def logout(
     request: Request,
     session: BrowserSession = Depends(get_current_session),
     store: SessionStore = Depends(get_session_store),
+    tracker: SessionTracker = Depends(get_session_tracker),
+    db: Session = Depends(get_db),
 ) -> Response:
     _require_csrf(request, session)
     store.delete(_session_token(request))
+    if session.session_ref is not None:
+        try:
+            tracker.signed_out(db, _session_token(request))
+        except Exception:
+            logger.warning("Session tracking failed at sign-out")
+            db.rollback()
     response = Response(status_code=204)
     response.delete_cookie(
         settings.session_cookie_name,
@@ -325,8 +362,14 @@ async def proxy_api(
     path: str,
     request: Request,
     session: BrowserSession = Depends(get_current_session),
+    tracker: SessionTracker = Depends(get_session_tracker),
 ) -> Response:
     _require_csrf(request, session)
+    if session.session_ref is not None:
+        try:  # "last active" on the device list, throttled in Redis
+            await run_in_threadpool(tracker.touch, SessionLocal, session.session_ref)
+        except Exception:
+            logger.warning("Session last-seen update failed")
     headers = {
         name: value
         for name, value in request.headers.items()
@@ -340,6 +383,8 @@ async def proxy_api(
             "X-Nova-Role": session.role.value,
         }
     )
+    if session.session_ref is not None:
+        headers["X-Nova-Session-Ref"] = str(session.session_ref)
     target = f"{settings.internal_api_base_url.rstrip('/')}/api/v1/{path}"
     body = await request.body()
     client = httpx.AsyncClient(timeout=httpx.Timeout(330.0, connect=10.0))

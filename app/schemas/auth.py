@@ -30,3 +30,5 @@ class BrowserSessionResponse(BaseModel):
     organization: SessionOrganization | None
     roles: list[str]
     csrf_token: str | None = Field(serialization_alias="csrfToken")
+    # Set when this browser's session was ended elsewhere (session limit, another device, NOVA ARI).
+    signed_out_notice: str | None = Field(default=None, serialization_alias="signedOutNotice")

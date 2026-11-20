@@ -22,6 +22,8 @@ class BrowserSession(BaseModel):
     email: str | None = None
     display_name: str | None = None
     csrf_token: str
+    # user_sessions.id (device list, "this device"); None for sessions created before it existed.
+    session_ref: uuid.UUID | None = None
 
 
 class SessionStore(Protocol):
@@ -115,6 +117,7 @@ def new_browser_session(
     role: OrganizationRole,
     email: str | None = None,
     display_name: str | None = None,
+    session_ref: uuid.UUID | None = None,
 ) -> BrowserSession:
     """Create application state after the verified OIDC callback succeeds."""
     return BrowserSession(
@@ -125,6 +128,7 @@ def new_browser_session(
         email=email,
         display_name=display_name,
         csrf_token=secrets.token_urlsafe(32),
+        session_ref=session_ref,
     )
 
 
