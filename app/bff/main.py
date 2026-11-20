@@ -296,6 +296,7 @@ def logout(
 _REQUEST_HEADER_ALLOWLIST = {
     "accept",
     "content-type",
+    "idempotency-key",
     "if-none-match",
     "if-range",
     "range",

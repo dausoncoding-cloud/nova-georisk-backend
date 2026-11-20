@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 from geoalchemy2.shape import to_shape
 from shapely.geometry import mapping
@@ -34,6 +34,8 @@ from app.services.source_data.readiness import SourceNotReady
 from app.services.source_data.boundaries import revalidate_boundary_aoi
 
 from app.services.tasks.execution import initialize_execution, append_event, admit_task, validate_workload
+from app.services.billing import refunds as billing_refunds
+from app.services.billing import submission as billing
 
 router = APIRouter(prefix="/analyses", tags=["Analyses"], dependencies=[Depends(verify_internal_secret)])
 
@@ -84,7 +86,10 @@ def validate_source_bindings(
 def submit_source_bound_analysis(
     payload: SourceBoundAnalysisRequest,
     db: Session = Depends(get_db), context: RequestContext = Depends(get_request_context),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> AnalysisSubmitResponse:
+    idempotency_key = billing.validate_key(idempotency_key)
+    fingerprint = billing.request_fingerprint("source-bound", payload.model_dump(mode="json"))
     bindings = _validate_source_request(payload, db, context)
     if payload.module not in EXECUTABLE_MODULES:
         raise HTTPException(status_code=422, detail="This FRRIS module has no validated source-to-formula adapter yet.")
@@ -113,8 +118,14 @@ def submit_source_bound_analysis(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     project = db.get(Project, task.project_id)
     admit_task(db, project)
+    replayed = billing.replay_or_none(db, context, idempotency_key, "source-bound", fingerprint)
+    if replayed is not None:
+        return AnalysisSubmitResponse(task=serialize_task(replayed))
+    charge = billing.SubmissionCharge.reserve(db, context, "firris")
     initialize_execution(task, db.get(AOI, task.aoi_id), context=context)
     db.add(task)
+    charge.charge(db, task)
+    billing.remember_key(db, context, idempotency_key, "source-bound", fingerprint, task)
     db.commit()
     db.refresh(task)
     from app.workers.celery_tasks import run_engine_analysis
@@ -134,6 +145,7 @@ def submit_source_bound_analysis(
         task.error_summary = "The analysis job could not be queued. Please retry."
         task.completed_at = datetime.now(timezone.utc)
         append_event(task, "failed", actor_id=context.user_id)
+        billing_refunds.refund_failed_task(db, task, cause="queue_failure")
         db.commit()
         raise HTTPException(status_code=503, detail=task.error_summary) from exc
     return AnalysisSubmitResponse(task=serialize_task(task))
@@ -234,8 +246,15 @@ def submit_analysis(
     payload: AnalysisSubmitRequest,
     db: Session = Depends(get_db),
     context: RequestContext = Depends(get_request_context),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> AnalysisSubmitResponse:
+    idempotency_key = billing.validate_key(idempotency_key)
+    fingerprint = billing.request_fingerprint("analyses", payload.model_dump(mode="json"))
     project, aoi = _authorized_submission(db, context, payload)
+    # A retried request returns the first task before re-running the (slow) preflight; rechecked under lock below.
+    replayed = billing.replay_or_none(db, context, idempotency_key, "analyses", fingerprint)
+    if replayed is not None:
+        return AnalysisSubmitResponse(task=serialize_task(replayed))
     # Server-side enforcement of the preflight blocking rules (never rely on the UI). Metadata only.
     warnings = []
     source = _gee_source(project, payload)
@@ -259,8 +278,14 @@ def submit_analysis(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     project = db.get(Project, task.project_id)
     admit_task(db, project)
+    replayed = billing.replay_or_none(db, context, idempotency_key, "analyses", fingerprint)
+    if replayed is not None:
+        return AnalysisSubmitResponse(task=serialize_task(replayed))
+    charge = billing.SubmissionCharge.reserve(db, context, project.engine_key)
     initialize_execution(task, db.get(AOI, task.aoi_id), context=context)
     db.add(task)
+    charge.charge(db, task)
+    billing.remember_key(db, context, idempotency_key, "analyses", fingerprint, task)
     db.commit()
     db.refresh(task)
 
@@ -282,6 +307,7 @@ def submit_analysis(
         task.error_summary = "The analysis job could not be queued. Please retry."
         task.completed_at = datetime.now(timezone.utc)
         append_event(task, "failed", actor_id=context.user_id)
+        billing_refunds.refund_failed_task(db, task, cause="queue_failure")
         db.commit()
         raise HTTPException(status_code=503, detail=task.error_summary) from exc
     return AnalysisSubmitResponse(task=serialize_task(task), preflight_warnings=warnings)

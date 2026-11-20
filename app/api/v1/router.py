@@ -7,6 +7,7 @@ from app.api.v1.endpoints import (
     analyses,
     aoi,
     aoi_capacity,
+    billing,
     engines,
     firas,
     ingestion,
@@ -45,3 +46,4 @@ api_router.include_router(live.router)
 
 api_router.include_router(administration.router)
 api_router.include_router(external_data.router)
+api_router.include_router(billing.router)

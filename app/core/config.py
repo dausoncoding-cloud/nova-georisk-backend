@@ -99,6 +99,15 @@ class Settings(BaseSettings):
     artifact_storage_backend: str = "filesystem"
     output_storage_dir: str = "outputs"
 
+    # --- Subscriptions and credits (docs/PLATFORM_SUBSCRIPTIONS_PLAN.md) ---
+    # Off until release Phase B: every organisation needs a subscription before this is switched on,
+    # otherwise every submission returns 402. Read and download routes are never affected.
+    billing_enforcement_enabled: bool = False
+    billing_timezone: str = "Africa/Dar_es_Salaam"
+    # Q4 (open): unused monthly credits expire at month end; top-up credits do not.
+    billing_monthly_credits_roll_over: bool = False
+    billing_top_up_credits_expire: bool = False
+
     @property
     def allowed_cors_origins(self) -> list[str]:
         return [origin.strip() for origin in self.cors_allowed_origins.split(",") if origin.strip()]
