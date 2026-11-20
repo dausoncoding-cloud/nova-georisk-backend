@@ -28,7 +28,8 @@ A **Trend analysis** option in **New analysis** (Step 4, next to the modelled ha
 2. **Change, not trend, for two points:** with n = 2 the output is called **"Change"**: Δy and %Δy, with no line fit.
 3. **Percentage change is undefined when the previous value is 0** and is shown as "undefined", never as ∞ or 0.
 4. **Trend line only with n ≥ 6 valid points:** ordinary least squares (OLS), slope with units per year (or per pass), with r, R² and p. It is drawn as a thin dashed line, marked "**visual aid; not a forecast**". With n < 6 there is no line and no statistics, and the chart says why.
-5. **Flagged points are shown but not fitted:** JRC years over 30% no-data, and passes that cover less than 70% of the area (the same 70% as the run's coverage gate).
+   - **Amendment (owner, 2026-11-20): significance.** Every fitted trend reports p and R². The line is drawn **only when p < 0.05**. Otherwise the series reads "**No statistically significant trend** (p = …, R² = …)": **no line is drawn and no slope is headlined**. Example: Rufiji annual surface water, p = 0.071 and R² = 0.12, reads as no clear trend, not "+0.083 km²/yr".
+5. **Flagged points are shown but not fitted:** JRC years over 30% no-data, and passes that cover less than 70% of the area (the same 70% as the run's coverage gate). **Amendment (2026-11-20):** they are excluded from the fit and drawn as **gaps**: the line breaks at them, and they are shown as hollow points.
 6. **Reproducible:** every value comes from stored JSON, and every series records its dataset ID, version, reduction scale, dates and the method text in provenance.
 7. **No overclaiming:**
    - JRC is surface water, not floods;
@@ -61,7 +62,12 @@ Fixed **before any Rufiji Sentinel-1 series is computed or looked at.** It is no
 - A per-scene threshold (Otsu) adapts to each scene, but it becomes unstable when a scene holds little water, as in the dry season at Rufiji. It also makes points less comparable.
 - The value was chosen before seeing any Rufiji series. The one-pass probe of 20 Nov tested access and timing only.
 
-**Sign-off:** _owner, date_ ______________________
+**Sign-off:** approved by the owner, 2026-11-20 (as written above).
+
+**Amendment 1 (owner, 2026-11-20): trend line on the Sentinel-1 series.** A trend line on the per-pass series is drawn only when the valid passes span **at least 2 years**. Otherwise the series is reported as a **Change** (first to last valid pass), with the note "**seasonal; too short for a trend**".
+
+- **Reason:** the default window gives the latest 24 passes, which at Rufiji span 0.8 years (Aug 2023 – May 2024). A line over such a window mostly reflects one wet season (the April 2024 flood), not a change over time.
+- **Scope:** annual surface water (T1) is unchanged. The significance rule (§2, rule 4) also applies whenever the 2-year condition is met.
 
 - **T3 water rule:** §3.1 above (awaiting sign-off).
 - **T3 window default:** the baseline start to the target end, capped at 24 passes. The user can change it.
