@@ -41,3 +41,10 @@ def test_rainfall_window_ends_on_the_target_last_day():
     assert ts._window(date(2024, 5, 25), 90) == (date(2024, 2, 26), date(2024, 5, 26))
     with pytest.raises(ValueError):
         ts.chirps_daily(None, date(2024, 5, 25), ts.MAX_RAIN_DAYS + 1)
+
+
+def test_flagged_points_break_the_line_into_gaps():
+    from app.services.reporting.trend_figures import segments
+    pts = [{"t": 1984 + i, "value": 1.0, "flagged": i in (2, 3)} for i in range(7)]
+    runs = segments(pts)
+    assert [[p["t"] for p in run] for run in runs] == [[1984, 1985], [1988, 1989, 1990]]

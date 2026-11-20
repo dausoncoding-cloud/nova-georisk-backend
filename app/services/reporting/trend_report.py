@@ -40,9 +40,12 @@ def trend_section(writer, output_directory: Path, record: dict[str, Any] | None,
         return {}
     writer.para("Three series describe the area over time: annual surface water since 1984 (JRC), rainfall before the "
                 "target date (CHIRPS), and SAR open water on each Sentinel-1 pass of the run's orbit. Each chart gives its "
-                f"units and source. Rules: a trend line is drawn only with at least {trends.MIN_TREND_POINTS} valid points "
-                "and is a visual aid describing the past, not a forecast; two points are reported as a change, never a trend; "
-                "flagged points are shown but not used; a percentage change from 0 is undefined.")
+                f"units and source. Rules: a trend is fitted only with at least {trends.MIN_TREND_POINTS} valid points, and "
+                f"its line is drawn only when it is statistically significant (p < {trends.SIGNIFICANCE_ALPHA:g}); otherwise "
+                f"the series reads \"{trends.NO_TREND}\" with p and R². A drawn line is a visual aid describing the past, "
+                "not a forecast. Two points are reported as a change, never a trend. The Sentinel-1 series needs passes "
+                f"spanning at least 2 years for a trend (otherwise: {trends.SEASONAL_NOTE}). Flagged points are shown "
+                "hollow, left out of the fit and break the line. A percentage change from 0 is undefined.")
     figures: dict[str, tuple[Path, str]] = {}
     series = record.get("series") or {}
 

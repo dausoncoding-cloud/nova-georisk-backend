@@ -19,6 +19,11 @@ from scipy import stats
 
 METHOD_VERSION = "frris-trend-1"
 MIN_TREND_POINTS = 6
+# Owner decision 2026-11-20: a trend line is drawn only when the fit is statistically significant (p < 0.05); otherwise
+# the series reads "No statistically significant trend" with p and R², and no line and no slope are headlined.
+SIGNIFICANCE_ALPHA = 0.05
+NO_TREND = "No statistically significant trend"
+SEASONAL_NOTE = "seasonal; too short for a trend"
 TREND_NOTE = "Trend line: ordinary least squares, a visual aid describing the past; not a forecast."
 UNDEFINED = "undefined"
 
@@ -45,8 +50,14 @@ def change(first: dict, last: dict) -> dict[str, Any]:
             "delta": last["value"] - first["value"], "percent": pct, "percent_text": UNDEFINED if pct is None else f"{pct:.1f}%"}
 
 
-def summarise(points: list[dict], *, units: str, fit_trend: bool, per: str = "year") -> dict[str, Any]:
-    """The statistics block of a series under the §2 rules. ``points`` must already be in chronological order."""
+def summarise(points: list[dict], *, units: str, fit_trend: bool, per: str = "year",
+              min_span_years: float | None = None) -> dict[str, Any]:
+    """The statistics block of a series under the §2 rules. ``points`` must already be in chronological order.
+
+    Kinds: "none" (< 2 valid points), "change" (two points, no trend fitted, too few points, or a span shorter than
+    ``min_span_years``), "no_significant_trend" (fitted, p >= SIGNIFICANCE_ALPHA or undefined: no line) and "trend"
+    (fitted and significant: the dashed line is drawn).
+    """
     valid = [p for p in points if not p.get("flagged") and p.get("value") is not None]
     n = len(valid)
     if n < 2:
@@ -63,6 +74,11 @@ def summarise(points: list[dict], *, units: str, fit_trend: bool, per: str = "ye
                 "text": (f"Change between the first and last valid points. No trend line: fewer than {MIN_TREND_POINTS} "
                          "valid points.")}
     x = np.array([_decimal_year(p["t"]) for p in valid], dtype=float)
+    span = float(x.max() - x.min())
+    if min_span_years is not None and span < min_span_years:
+        return {"kind": "change", "n_valid": n, "change": first_last, "span_years": span,
+                "text": (f"Change between the first and last valid points; {SEASONAL_NOTE} (the points span {span:.1f} "
+                         f"years; a trend line needs at least {min_span_years:g}).")}
     y = np.array([p["value"] for p in valid], dtype=float)
     if np.ptp(y) == 0:
         fit = {"slope": 0.0, "intercept": float(y[0]), "r": None, "r_squared": None, "p_value": None}
@@ -70,14 +86,21 @@ def summarise(points: list[dict], *, units: str, fit_trend: bool, per: str = "ye
         result = stats.linregress(x, y)
         fit = {"slope": float(result.slope), "intercept": float(result.intercept), "r": float(result.rvalue),
                "r_squared": float(result.rvalue ** 2), "p_value": float(result.pvalue)}
-    return {"kind": "trend", "n_valid": n, "change": first_last,
-            "trend": {**fit, "slope_units": f"{units} per {per}", "x": "decimal year", "note": TREND_NOTE},
-            "text": f"Trend line over {n} valid points ({TREND_NOTE})"}
+    trend = {**fit, "slope_units": f"{units} per {per}", "x": "decimal year", "note": TREND_NOTE,
+             "alpha": SIGNIFICANCE_ALPHA, "significant": fit["p_value"] is not None and fit["p_value"] < SIGNIFICANCE_ALPHA}
+    fit_text = ("p and R² undefined (constant values)" if fit["p_value"] is None else
+                f"p = {fit['p_value']:.3g}, R² = {fit['r_squared']:.2f}")
+    if not trend["significant"]:
+        return {"kind": "no_significant_trend", "n_valid": n, "change": first_last, "span_years": span, "trend": trend,
+                "text": f"{NO_TREND} over {n} valid points ({fit_text}); no trend line is drawn."}
+    return {"kind": "trend", "n_valid": n, "change": first_last, "span_years": span, "trend": trend,
+            "text": f"Statistically significant trend over {n} valid points ({fit_text}). {TREND_NOTE}"}
 
 
 def series_record(*, key: str, title: str, indicator: str, units: str, points: Iterable[dict], source: str,
                   method: str, caveats: list[str], fit_trend: bool, x_kind: str, per: str = "year",
-                  columns: dict[str, str] | None = None, axis_label: str | None = None) -> dict[str, Any]:
+                  columns: dict[str, str] | None = None, axis_label: str | None = None,
+                  min_span_years: float | None = None) -> dict[str, Any]:
     """One series: chronological points, flags, the statistics block and the texts every chart and table shows.
 
     Each point is {"t": year | ISO date, "value": float | None, "flagged": bool, "flag": str | None, ...extra columns}.
@@ -86,7 +109,7 @@ def series_record(*, key: str, title: str, indicator: str, units: str, points: I
     return {"key": key, "title": title, "indicator": indicator, "axis_label": axis_label or indicator, "units": units, "x": x_kind,
             "source": source, "method": method, "caveats": list(caveats), "columns": dict(columns or {}),
             "points": ordered, "n_points": len(ordered), "n_flagged": sum(1 for p in ordered if p.get("flagged")),
-            "summary": summarise(ordered, units=units, fit_trend=fit_trend, per=per)}
+            "summary": summarise(ordered, units=units, fit_trend=fit_trend, per=per, min_span_years=min_span_years)}
 
 
 def dekadal_totals(daily: list[dict], last_day: str) -> list[dict]:

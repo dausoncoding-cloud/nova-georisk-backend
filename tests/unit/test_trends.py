@@ -84,3 +84,26 @@ def test_the_record_round_trips_through_json():
     again = json.loads(json.dumps(record))
     assert again == record
     assert trends.summarise(again["points"], units="km²", fit_trend=True) == record["summary"]
+
+
+def test_a_weak_fit_reads_as_no_significant_trend_without_a_line():
+    values = [2.0, 2.8, 1.9, 2.5, 4.9, 2.2, 2.1, 3.3, 8.4, 3.7]  # noisy, R² low
+    summary = trends.summarise(_pts(values), units="km²", fit_trend=True)
+    assert summary["kind"] == "no_significant_trend" and not summary["trend"]["significant"]
+    assert summary["trend"]["p_value"] >= 0.05 and summary["text"].startswith("No statistically significant trend over 10 valid points (p = ")
+    assert "no trend line is drawn" in summary["text"]
+
+
+def test_a_significant_fit_reports_slope_p_and_r_squared():
+    summary = trends.summarise(_pts([1.0, 1.5, 2.1, 2.4, 3.2, 3.4, 4.1]), units="km²", fit_trend=True)
+    assert summary["kind"] == "trend" and summary["trend"]["significant"] and summary["trend"]["p_value"] < 0.05
+    assert summary["text"].startswith("Statistically significant trend over 7 valid points (p = ")
+
+
+def test_a_short_span_is_a_change_seasonal_too_short_for_a_trend():
+    points = [{"t": f"2023-{m:02d}-01", "value": float(m), "flagged": False} for m in range(1, 13)]  # 11 months
+    summary = trends.summarise(points, units="km²", fit_trend=True, min_span_years=2.0)
+    assert summary["kind"] == "change" and "trend" not in summary
+    assert "seasonal; too short for a trend" in summary["text"] and "span 0.9 years" in summary["text"]
+    long = [{"t": f"{2021 + i // 12}-{i % 12 + 1:02d}-01", "value": float(i), "flagged": False} for i in range(0, 36, 3)]
+    assert trends.summarise(long, units="km²", fit_trend=True, min_span_years=2.0)["kind"] == "trend"

@@ -28,6 +28,9 @@ CHIRPS_SOURCE = ("Funk, C. et al. (2015). The climate hazards infrared precipita
 S1_SOURCE = "Copernicus Sentinel-1 GRD, IW, VV (Google Earth Engine COPERNICUS/S1_GRD), the run's relative orbit."
 
 S1_NAME = f"SAR open water (VV < {ts.WATER_THRESHOLD_DB:g} dB)"
+# Plan §3.1 amendment (owner, 2026-11-20): a trend line on the per-pass series only when the passes span at least
+# 2 years; otherwise the series is a Change, "seasonal; too short for a trend".
+S1_MIN_TREND_SPAN_YEARS = 2.0
 S1_METHOD = (f"{S1_NAME}: VV backscatter after the run's {{radius}} m focal-median speckle filter; SRTM slope > "
              f"{ts.SLOPE_MAX_DEG:g}° excluded; area summed on the run's {{scale:g}} m grid. A pass covering less than "
              f"{ts.COVERAGE_MIN_PCT:g}% of the area is flagged. At most the latest {ts.MAX_PASSES} passes. Rule fixed "
@@ -119,7 +122,7 @@ def run_trend_analysis(aoi_geometry: dict, *, target_period: dict, baseline_peri
             key="sar_open_water", title=f"{S1_NAME} per Sentinel-1 pass", indicator=S1_NAME, units="km²", x_kind="date",
             axis_label="SAR open water",
             points=result["points"], source=S1_SOURCE, method=S1_METHOD.format(radius=speckle_radius_m, scale=scale),
-            caveats=S1_CAVEATS, fit_trend=True,
+            caveats=S1_CAVEATS, fit_trend=True, min_span_years=S1_MIN_TREND_SPAN_YEARS,
             columns={"water_outside_permanent_km2": "Outside JRC permanent water (km²)", "coverage_pct": "Pass coverage (%)",
                      "steep_excluded_km2": "Steep ground excluded (km²)"})
         record.update(window={"first_day": sar_first.isoformat(), "last_day": sar_last.isoformat()}, orbit=orbit,
@@ -149,6 +152,8 @@ def run_trend_analysis(aoi_geometry: dict, *, target_period: dict, baseline_peri
         "reason": None if assessed else "No trend series could be read for this run; the flood map is unaffected.",
         "method_version": trends.METHOD_VERSION, "rules": {
             "min_trend_points": trends.MIN_TREND_POINTS, "two_points": "Change, never Trend", "trend_line": trends.TREND_NOTE,
+            "significance_alpha": trends.SIGNIFICANCE_ALPHA, "not_significant": trends.NO_TREND + " (no line drawn)",
+            "sar_min_trend_span_years": S1_MIN_TREND_SPAN_YEARS,
             "percent_change_zero_previous": "undefined"},
         "options": {"rainfall_days": rainfall_days, "sar_series": {"first_day": sar_first.isoformat(),
                                                                    "last_day": sar_last.isoformat()}},

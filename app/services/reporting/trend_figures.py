@@ -28,14 +28,26 @@ def _x(series: dict, t):
     return t if series.get("x") == "year" else date.fromisoformat(str(t)[:10])
 
 
+def segments(points: list[dict]) -> list[list[dict]]:
+    """Runs of consecutive valid points: a flagged or missing point breaks the line, so it shows as a gap."""
+    runs: list[list[dict]] = [[]]
+    for point in points:
+        if point.get("flagged") or point.get("value") is None:
+            if runs[-1]:
+                runs.append([])
+        else:
+            runs[-1].append(point)
+    return [run for run in runs if run]
+
+
 def _draw(ax, series: dict[str, Any], *, colour=INK, label: str | None = None) -> None:
     points = series.get("points") or []
     valid = [p for p in points if not p.get("flagged") and p.get("value") is not None]
     flagged = [p for p in points if p.get("flagged") and p.get("value") is not None]
     marker = "o" if len(points) <= 60 else None
-    if valid:
-        ax.plot([_x(series, p["t"]) for p in valid], [p["value"] for p in valid], color=colour, lw=1.4, marker=marker,
-                ms=3.2, label=label or series.get("indicator"))
+    for index, run in enumerate(segments(points)):
+        ax.plot([_x(series, p["t"]) for p in run], [p["value"] for p in run], color=colour, lw=1.4, marker=marker,
+                ms=3.2, label=(label or series.get("indicator")) if index == 0 else None)
     if flagged:
         ax.plot([_x(series, p["t"]) for p in flagged], [p["value"] for p in flagged], ls="none", marker="o", ms=3.6,
                 mfc="white", mec=FLAG, mew=1, label="Flagged (shown, not used)")
@@ -65,8 +77,10 @@ def series_figure(series: dict[str, Any], stem: Path) -> dict[str, Path]:
         ax.set_ylabel(f"{series.get('axis_label') or series['indicator']} ({series['units']})")
         ax.set_ylim(bottom=0)
         ax.legend(loc="upper left", frameon=False)
-        fig.text(0.01, -0.06, _wrap(_statistics_line(series)), fontsize=7, ha="left", va="top")
-        fig.text(0.01, -0.14, _wrap("Source: " + series["source"]), fontsize=6.5, ha="left", va="top", color="#555")
+        statistics = _wrap(_statistics_line(series))
+        fig.text(0.01, -0.06, statistics, fontsize=7, ha="left", va="top")
+        fig.text(0.01, -0.06 - 0.055 * (statistics.count("\n") + 1) - 0.02, _wrap("Source: " + series["source"]),
+                 fontsize=6.5, ha="left", va="top", color="#555")
         fig.autofmt_xdate() if series.get("x") == "date" else None
         return _save(fig, stem)
 
@@ -90,8 +104,10 @@ def rainfall_figure(daily: dict[str, Any], dekadal: dict[str, Any], anomaly: dic
             total = "—" if anomaly.get("total_mm") is None else f"{anomaly['total_mm']:.1f} mm"
             footer = (f"{anomaly['window_days']}-day total {total}; 1991–2020 mean of the same window "
                       f"{anomaly['climatology_mean_mm']:.1f} mm; anomaly {anomaly['anomaly_text']}. " + footer)
-        fig.text(0.01, -0.03, _wrap(footer), fontsize=7, ha="left", va="top")
-        fig.text(0.01, -0.09, _wrap("Source: " + daily["source"]), fontsize=6.5, ha="left", va="top", color="#555")
+        footer = _wrap(footer)
+        fig.text(0.01, -0.03, footer, fontsize=7, ha="left", va="top")
+        fig.text(0.01, -0.03 - 0.036 * (footer.count("\n") + 1) - 0.015, _wrap("Source: " + daily["source"]),
+                 fontsize=6.5, ha="left", va="top", color="#555")
         fig.autofmt_xdate()
         return _save(fig, stem)
 
@@ -110,8 +126,13 @@ def _statistics_line(series: dict[str, Any]) -> str:
         parts.append(f"change {change['from']} → {change['to']}: {change['delta']:+.2f} {units} ({change['percent_text']})")
     if summary.get("kind") == "trend":
         fit = summary["trend"]
-        if fit.get("r_squared") is not None:
-            parts.append(f"trend {fit['slope']:+.3f} {fit['slope_units']}, R² = {fit['r_squared']:.2f}, p = {fit['p_value']:.3g}")
+        parts.append(f"statistically significant trend {fit['slope']:+.3f} {fit['slope_units']}, "
+                     f"R² = {fit['r_squared']:.2f}, p = {fit['p_value']:.3g} (dashed line; not a forecast)")
+    elif summary.get("kind") == "no_significant_trend":
+        fit = summary["trend"]
+        stats_text = ("p and R² undefined" if fit.get("p_value") is None else
+                      f"p = {fit['p_value']:.3g}, R² = {fit['r_squared']:.2f}")
+        parts.append(f"no statistically significant trend ({stats_text}); no trend line drawn")
     else:
         parts.append(summary.get("text", ""))
     return "; ".join(p for p in parts if p)
