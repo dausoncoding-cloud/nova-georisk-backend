@@ -99,6 +99,9 @@ class Settings(BaseSettings):
     # --- Output storage ---
     artifact_storage_backend: str = "filesystem"
     output_storage_dir: str = "outputs"
+    # FRRIS v1.1 exposure by administrative level: pinned, checksum-verified boundary files
+    # (scripts/fetch_reference_boundaries.py); read-only at run time.
+    reference_data_dir: str = "reference_data"
 
     # --- Subscriptions and credits (docs/PLATFORM_SUBSCRIPTIONS_PLAN.md) ---
     # Off until release Phase B: every organisation needs a subscription before this is switched on,
