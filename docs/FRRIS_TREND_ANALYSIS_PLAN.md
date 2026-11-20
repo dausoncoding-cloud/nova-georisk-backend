@@ -1,6 +1,6 @@
 # FRRIS Trend Analysis: implementation plan
 
-**Status:** plan for approval (2026-11-20). Nothing is built yet.
+**Status:** **approved by the owner (2026-11-20)**, without the T4 scatter (a later option). The Sentinel-1 water rule (§3.1) waits for the owner's sign-off before any Earth Engine code is written.
 **Basis:** remediation plan §3.2 (Trend Analysis, finding F9) and the client's *NOVA ARI – Time Series Analysis for FRRIS* definition. The client paid for Trend Analysis separately.
 **Today:** Trend Analysis does not exist (audit, 2026-11-20). The report lists it as "not included in this version". The only related code is a two-date "observed time series" kind that FRRIS runs never fill, and a source-bound "flood change" module that needs uploaded datasets and an admin JSON form.
 
@@ -14,7 +14,7 @@ A **Trend analysis** option in **New analysis** (Step 4, next to the modelled ha
 | T2 | **Rainfall** (mm; daily and 10-day totals) and **rainfall anomaly** (% of the 1991–2020 mean for the same calendar window) | CHIRPS daily (`UCSB-CHG/CHIRPS/DAILY`), already used by the run | Antecedent window, default 90 days to the target's last day | The anomaly is one value per window. Rufiji probe, 90 days to 25 May 2024: 941 mm vs a 569 mm mean, **+65.5%**. CHIRPS is ~5.5 km; the AOI mean is area-weighted |
 | T3 | **SAR open-water extent per Sentinel-1 pass** (km²) | Sentinel-1 GRD VV on the run's orbit, same AOI and grid as the run | One point per pass in a user window, at most 24 passes | Rufiji probe: 23 passes on orbit 57, Oct 2023 – Jun 2024. The water rule is fixed in advance (§3). Labelled "SAR open water", never "flood extent" and never accuracy-assessed |
 
-**Optional (T4, if time allows within the estimate):** a rainfall-vs-water scatter (T2 dekadal totals vs T3) with r, R², p and n, shown only when n ≥ 6.
+**Later option (not in this delivery; owner, 2026-11-20):** T4, a rainfall-vs-water scatter (T2 dekadal totals vs T3) with r, R², p and n, shown only when n ≥ 6. About +1 day if ordered later.
 
 **Not in scope:**
 - flood frequency, duration, depth, hazard-index, exposure or vulnerability series (they need data FRRIS does not have);
@@ -38,9 +38,32 @@ A **Trend analysis** option in **New analysis** (Step 4, next to the modelled ha
 
 ## 3. Decisions to pre-register before measuring (owner)
 
-- **T3 water rule.** The proposal is a fixed **VV < −18 dB** threshold on the speckle-filtered pass (the same filter as the run), with JRC permanent water reported separately. It is common in the SAR literature and simple to explain.
-  - Alternative: a per-pass Otsu threshold. It adapts to each scene but is less stable on scenes with little water.
-  - Fix one rule before any Rufiji result is looked at. No tuning on Rufiji.
+### 3.1 Sentinel-1 water rule (T3): proposed text for sign-off
+
+Fixed **before any Rufiji Sentinel-1 series is computed or looked at.** It is not tuned on Rufiji or any other area. A change after sign-off needs a new written rule, tested first on an area other than the one that prompted it.
+
+| Item | Rule |
+|---|---|
+| Data | `COPERNICUS/S1_GRD`, IW mode, **VV** polarisation, the run's **relative orbit and pass direction** (Rufiji: orbit 57, ascending). This is the same collection and filters as the flood run, in dB as delivered (GRD, terrain-corrected by the provider) |
+| Passes | Every pass on that orbit whose date falls in the series window (default: baseline first day to target last day; user-adjustable). If there are more than 24, the **latest 24** are used and the preflight says so. Passes on the same day are mosaicked into one point |
+| Speckle | The run's own filter: focal median, **50 m radius** (`preprocessing.apply_speckle_filter`, the run's `sar_speckle_radius_m`) |
+| **Water rule** | A pixel is **SAR open water when VV < −18 dB** (fixed threshold). Nothing else is used: no optical data, no model, no per-scene adjustment |
+| Terrain mask | Pixels with **SRTM slope > 5°** are excluded (radar shadow and layover can look like water). The excluded share is reported |
+| Grid and area | The run's grid and scale (default 30 m), the AOI only. Area is the sum of `ee.Image.pixelArea()` of water pixels, in km² |
+| Coverage | For each pass, the share of the AOI with valid data. A pass covering **< 70%** of the AOI (the run's coverage gate) is **flagged**: shown hollow, kept in the table, excluded from any trend line |
+| Permanent water | Each point also gives the water area **outside** JRC permanent water (occurrence ≥ 90%, the threshold used by the run's reference rule) as a second table column. The chart's main line is **total SAR open water** |
+| Name and caveats (on every chart, table and report section) | "**SAR open water (VV < −18 dB)**". Not the FRRIS flood map and not accuracy-assessed. It can **miss** water roughened by wind and water under vegetation or trees, and can **wrongly include** smooth dry surfaces (some sand, tarmac, very dry bare soil). Use it for change over time, not as a flood map |
+| Reproducibility | Provenance records the asset ID, orbit, pass dates and scene IDs, the threshold, the speckle radius, the slope mask, the scale and the coverage of each pass |
+
+**Why a fixed −18 dB.**
+- Calm open water has very low VV backscatter. A single fixed threshold in this range is a common, simple choice for Sentinel-1 water mapping.
+- It treats every pass the same way, so changes over time come from the scenes, not from a threshold that moves.
+- A per-scene threshold (Otsu) adapts to each scene, but it becomes unstable when a scene holds little water, as in the dry season at Rufiji. It also makes points less comparable.
+- The value was chosen before seeing any Rufiji series. The one-pass probe of 20 Nov tested access and timing only.
+
+**Sign-off:** _owner, date_ ______________________
+
+- **T3 water rule:** §3.1 above (awaiting sign-off).
 - **T3 window default:** the baseline start to the target end, capped at 24 passes. The user can change it.
 - **T2 antecedent window default:** 90 days. Options: 30, 60, 90 or 180 days.
 
@@ -123,7 +146,7 @@ A **Trend analysis** option in **New analysis** (Step 4, next to the modelled ha
 | | **Total** | **12.75 days (≈ 13 working days)** |
 | | **With 20% contingency** (Earth Engine quotas, review rounds) | **≈ 15–16 working days** |
 
-**The optional T4 scatter** adds 1 day.
+The T4 scatter is a later option (about +1 day), not in this estimate.
 
 ### Delivery date
 
