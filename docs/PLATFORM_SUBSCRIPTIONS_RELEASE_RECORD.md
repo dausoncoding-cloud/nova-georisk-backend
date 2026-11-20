@@ -159,9 +159,9 @@ Run on separate test containers (Postgres on 55442, Redis on 56479):
 
 | Suite | Result |
 |---|---|
-| Backend integration | see the M5 report (full run at the end) |
-| Backend unit | see the M5 report |
-| Frontend (`vitest run`) | see the M5 report; `tsc --noEmit` and `api:check` clean |
+| Backend integration | **250 passed** (191 before subscriptions; 59 new) |
+| Backend unit | **1307 passed** (r7 baseline 1286; 21 new) |
+| Frontend (`vitest run`) | **288 passed** (r7 baseline 273; 15 new); `tsc --noEmit` and `api:check` clean |
 
 What the subscription tests cover:
 - **Credits (M1):**
