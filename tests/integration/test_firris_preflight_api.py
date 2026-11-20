@@ -1,6 +1,6 @@
 """Plan 4.1 / 4.4 / 4.6 at the API: preflight endpoint and server-side enforcement on submit (the 4 'no imagery' cases)."""
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -181,3 +181,40 @@ def test_empty_product_list_is_refused_with_422_on_submit_and_preflight(client, 
         assert error["code"] == "validation_error"
         assert any(detail["loc"][-1] == "products" for detail in error["details"])
     assert setup.db.query(Task).count() == before
+
+
+def test_trend_analysis_preflight_counts_the_sentinel1_series_passes_and_never_blocks(client, setup, monkeypatch):
+    _availability(monkeypatch, OK)
+    calls = []
+    dates = [(date(2022, 9, 1) + timedelta(days=36 * i)).isoformat() for i in range(30)]  # latest 24 span ~2.3 years
+    monkeypatch.setattr(preflight, "trend_pass_dates", lambda aoi, orbit, first, last: calls.append((orbit, first, last)) or dates)
+    payload = _payload(setup.project, setup.aoi, ("2024-05-24", "2024-05-26"), ("2022-08-28", "2022-09-03"))
+    payload["parameters"]["workflow"]["context"] = {"trend_analysis": {"rainfall_days": 90}}
+    body = client.post("/api/v1/analyses/preflight", headers=setup.headers, json=payload).json()
+    assert body["ok"] is True and body["blocking"] == []
+    assert calls == [(57, date(2022, 8, 28), date(2024, 5, 25))]  # default window: baseline start to target last day
+    passes = body["trend_sar_passes"]
+    assert passes["count"] == 30 and passes["used"] == 24 and passes["orbit"] == 57 and passes["span_years"] > 1.9
+    codes = {w["code"] for w in body["warnings"]}
+    assert "trend_sar_passes_capped" in codes and "trend_sar_short_span" not in codes
+    # Without the option the field is absent and nothing extra is queried.
+    calls.clear()
+    plain = client.post("/api/v1/analyses/preflight", headers=setup.headers,
+                        json=_payload(setup.project, setup.aoi, ("2024-05-24", "2024-05-26"), ("2022-08-28", "2022-09-03"))).json()
+    assert plain["trend_sar_passes"] is None and calls == []
+
+
+def test_trend_analysis_preflight_short_span_and_provider_failure(client, setup, monkeypatch):
+    _availability(monkeypatch, OK)
+    payload = _payload(setup.project, setup.aoi, ("2024-05-24", "2024-05-26"), ("2022-08-28", "2022-09-03"))
+    payload["parameters"]["workflow"]["context"] = {"trend_analysis": {"sar_series": {"start": "2023-10-01", "end": "2024-06-01"}}}
+    monkeypatch.setattr(preflight, "trend_pass_dates", lambda *a: ["2023-10-10", "2024-01-14", "2024-04-19"])
+    body = client.post("/api/v1/analyses/preflight", headers=setup.headers, json=payload).json()
+    assert body["trend_sar_passes"]["last_day"] == "2024-05-31"
+    assert any(w["code"] == "trend_sar_short_span" and "seasonal" in w["message"] for w in body["warnings"])
+
+    def down(*_):
+        raise RuntimeError("provider down")
+    monkeypatch.setattr(preflight, "trend_pass_dates", down)
+    body = client.post("/api/v1/analyses/preflight", headers=setup.headers, json=payload).json()
+    assert body["ok"] is True and body["trend_sar_passes"] is None  # informational only: never blocks

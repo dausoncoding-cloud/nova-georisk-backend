@@ -1144,6 +1144,16 @@
               }
             ]
           },
+          "trend_sar_passes": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisPreflightTrendPasses"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "warnings": {
             "items": {
               "$ref": "#/components/schemas/AnalysisPreflightIssue"
@@ -1156,6 +1166,53 @@
           "ok"
         ],
         "title": "AnalysisPreflightResponse",
+        "type": "object"
+      },
+      "AnalysisPreflightTrendPasses": {
+        "description": "Trend Analysis: Sentinel-1 passes in the series window on the shared orbit (informational; never blocking).",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "first_day": {
+            "format": "date",
+            "title": "First Day",
+            "type": "string"
+          },
+          "last_day": {
+            "format": "date",
+            "title": "Last Day",
+            "type": "string"
+          },
+          "orbit": {
+            "title": "Orbit",
+            "type": "integer"
+          },
+          "span_years": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Span Years"
+          },
+          "used": {
+            "title": "Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "orbit",
+          "first_day",
+          "last_day",
+          "count",
+          "used"
+        ],
+        "title": "AnalysisPreflightTrendPasses",
         "type": "object"
       },
       "AnalysisSubmitRequest": {

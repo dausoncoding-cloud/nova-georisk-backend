@@ -255,9 +255,20 @@ class AnalysisPreflightCapacity(BaseModel):
     suggested_scale_m: float | None = None
 
 
+class AnalysisPreflightTrendPasses(BaseModel):
+    """Trend Analysis: Sentinel-1 passes in the series window on the shared orbit (informational; never blocking)."""
+    orbit: int
+    first_day: date
+    last_day: date
+    count: int
+    used: int
+    span_years: float | None = None
+
+
 class AnalysisPreflightResponse(BaseModel):
     """Metadata-only availability check (plan items 4.1, 4.4, 4.6). Never creates a task or result."""
     ok: bool
+    trend_sar_passes: AnalysisPreflightTrendPasses | None = None
     target: AnalysisPreflightPeriod | None = None
     baseline: AnalysisPreflightPeriod | None = None
     shared_relative_orbits: list[int] = Field(default_factory=list)
