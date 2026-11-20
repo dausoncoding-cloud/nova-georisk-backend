@@ -26,7 +26,9 @@ from app.models.platform import OrganizationEngineEntitlement, OrganizationSubsc
 from app.models.task import Task
 from app.services.billing import ledger
 
-NO_CREDITS = "No credits left. Contact your administrator or NOVA ARI to top up."
+# Wording from docs/design/subscriptions/NOVA-GeoRisk_Subscription_limit_reached.png.
+NO_CREDITS = ("Your monthly analysis allowance has been reached. New analyses are paused until renewal; "
+              "you can still view and download your results.")
 STATUS_MESSAGES = {
     "subscription_required": "This organisation has no subscription for this system. Contact NOVA ARI.",
     "subscription_suspended": "Account suspended: contact NOVA ARI.",

@@ -129,6 +129,21 @@ def test_submission_charges_one_credit_in_the_same_transaction(client, db_sessio
     assert summary["credits"] == {"period": ledger.period_of(), "granted": 2, "top_ups": 0, "used": 1,
                                         "remaining": 1, "available": 2, "used_percent": 50.0, "level": None}
     assert summary["can_submit"] is True and summary["plan_name"] == "Researcher"
+    # Fields the "My subscription" board shows (docs/design/subscriptions/).
+    assert (summary["monthly_price"], summary["currency"], summary["seats_used"]) == (150000, "TZS", 1)
+    assert summary["limits"] == {"seat_limit": 1, "monthly_credits": 2, "storage_bytes": 2_000_000_000,
+                                 "session_limit": 1}
+    assert summary["top_up"] == {"credits": 10, "price": 100000, "currency": "TZS"}
+    assert summary["warning_levels"] == [75, 90] and summary["renews_on"] is not None
+    rows = client.get("/api/v1/billing/ledger", headers=t.headers).json()["items"]
+    charge_row = next(row for row in rows if row["kind"] == "charge")
+    assert (charge_row["project_name"], charge_row["aoi_name"]) == ("Billing", "Area")
+    assert next(row for row in rows if row["kind"] == "monthly_grant")["plan_name"] == "Researcher"
+    plans = client.get("/api/v1/billing/plans", params={"family": "frris_wrris"}, headers=t.headers).json()["plans"]
+    assert [p["name"] for p in plans] == ["Researcher", "Professional", "Academic / Department", "Institutional",
+                                          "Enterprise", "Enterprise Plus"]
+    assert plans[2]["monthly_price"] == 750000 and plans[-1]["monthly_price"] is None
+    assert client.get("/api/v1/billing/plans", params={"family": "other"}, headers=t.headers).status_code == 422
 
 
 def test_no_credits_is_a_hard_stop_on_new_analyses_only(client, db_session, enforced):
@@ -137,7 +152,8 @@ def test_no_credits_is_a_hard_stop_on_new_analyses_only(client, db_session, enfo
     blocked = client.post("/api/v1/analyses", headers=t.headers, json=_payload(t, depth=6.0))
     assert blocked.status_code == 402
     assert blocked.json()["error"]["code"] == "credits_exhausted"
-    assert blocked.json()["detail"] == "No credits left. Contact your administrator or NOVA ARI to top up."
+    assert blocked.json()["detail"] == ("Your monthly analysis allowance has been reached. New analyses are paused "
+                                        "until renewal; you can still view and download your results.")
     assert len(_tasks(db_session, t)) == 1 and len(_entries(db_session, t.sub, "charge")) == 1
     # Reading continues: task list, task detail, archive, summary and ledger.
     task_id = _tasks(db_session, t)[0].id

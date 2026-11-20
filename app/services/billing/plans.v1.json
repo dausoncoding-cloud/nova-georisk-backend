@@ -52,7 +52,7 @@
       },
       {
         "key": "frris_wrris.academic",
-        "name": "Academic",
+        "name": "Academic / Department",
         "monthly_price": 750000,
         "seat_limit": 10,
         "monthly_credits": 75,
@@ -120,7 +120,7 @@
       },
       {
         "key": "megis.academic",
-        "name": "Academic",
+        "name": "Academic / Department",
         "monthly_price": 1000000,
         "seat_limit": 10,
         "monthly_credits": 100,
@@ -163,5 +163,6 @@
         "sort_order": 6
       }
     ]
-  }
+  },
+  "design_source": "docs/design/subscriptions/ (boards 13-14)"
 }

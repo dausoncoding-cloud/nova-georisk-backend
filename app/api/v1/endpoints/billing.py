@@ -12,10 +12,14 @@ from app.core.entitlements import require_active_membership
 from app.core.http import PublicAPIError
 from app.core.security import RequestContext, get_request_context, verify_internal_secret
 from app.db.session import get_db
+from app.models.aoi import AOI
 from app.models.billing import CreditLedgerEntry
+from app.models.identity import OrganizationMembership
 from app.models.platform import BillingPlan, OrganizationSubscription
+from app.models.project import Project
+from app.models.task import Task
 from app.schemas.billing import (BillingSummaryResponse, CreditSummary, LedgerEntryResponse, LedgerPage,
-                                 SubscriptionSummary)
+                                 PlanCatalogueResponse, PlanLimits, PlanOption, SubscriptionSummary, TopUpOffer)
 from app.services.billing import catalogue, ledger
 from app.services.billing import submission as billing
 
@@ -38,11 +42,22 @@ def _summary(db: Session, subscription: OrganizationSubscription) -> Subscriptio
     if code is None and usage.remaining <= 0:
         code = "credits_exhausted"
     message = billing.NO_CREDITS if code == "credits_exhausted" else billing.STATUS_MESSAGES.get(code)
+    price = catalogue.current_price(db, subscription.plan_key) if subscription.plan_key else None
+    seats_used = db.query(OrganizationMembership).filter(
+        OrganizationMembership.organization_id == subscription.organization_id,
+        OrganizationMembership.status == "active").count()
+    top_up = None
+    if price is not None and price.top_up_credit_price is not None:
+        top_up = TopUpOffer(credits=catalogue.TOP_UP_PACK_CREDITS, currency=price.currency,
+                            price=catalogue.TOP_UP_PACK_CREDITS * price.top_up_credit_price)
     return SubscriptionSummary(
         id=subscription.id, family=subscription.family, plan_key=subscription.plan_key,
         plan_name=plan.name if plan else None, status=subscription.status.value,
         status_label=STATUS_LABELS[subscription.status.value], starts_at=subscription.starts_at,
         ends_at=subscription.ends_at, engines=catalogue.family_engines(subscription.family),
+        currency=price.currency if price else "TZS", monthly_price=price.monthly_price if price else None,
+        limits=PlanLimits(**ledger.effective_limits(db, subscription)), seats_used=seats_used,
+        renews_on=ledger.renews_on(subscription), warning_levels=list(ledger.WARNING_LEVELS), top_up=top_up,
         credits=CreditSummary(period=usage.period, granted=usage.granted, top_ups=usage.top_ups, used=usage.used,
                               remaining=usage.remaining, available=usage.available,
                               used_percent=usage.used_percent, level=usage.level),
@@ -84,7 +99,41 @@ def get_ledger(
             OrganizationSubscription.family == family)
     total = query.count()
     rows = query.order_by(CreditLedgerEntry.created_at.desc(), CreditLedgerEntry.id).offset(offset).limit(limit).all()
-    return LedgerPage(items=[LedgerEntryResponse(
-        id=row.id, created_at=row.created_at, period=row.period, kind=row.kind, bucket=row.bucket, amount=row.amount,
-        balance_after=row.balance_after, task_id=row.task_id, reason=row.reason) for row in rows],
-        total=total, limit=limit, offset=offset)
+    # Names for the activity column, read only through this organisation's own projects.
+    task_ids = {row.task_id for row in rows if row.task_id}
+    names = {
+        task_id: (project_name, aoi_name)
+        for task_id, project_name, aoi_name in db.query(Task.id, Project.name, AOI.name)
+        .join(Project, Project.id == Task.project_id).outerjoin(AOI, AOI.id == Task.aoi_id)
+        .filter(Task.id.in_(task_ids), Project.organization_id == context.organization_id)
+    } if task_ids else {}
+    plan_names = {plan.key: plan.name for plan in db.query(BillingPlan)}
+    items = []
+    for row in rows:
+        project_name, aoi_name = names.get(row.task_id, (None, None))
+        plan_key = (row.metadata_json or {}).get("plan_key") if row.kind == "monthly_grant" else None
+        items.append(LedgerEntryResponse(
+            id=row.id, created_at=row.created_at, period=row.period, kind=row.kind, bucket=row.bucket,
+            amount=row.amount, balance_after=row.balance_after, task_id=row.task_id, reason=row.reason,
+            project_name=project_name, aoi_name=aoi_name, plan_name=plan_names.get(plan_key)))
+    return LedgerPage(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get("/plans", response_model=PlanCatalogueResponse)
+def get_plan_catalogue(
+    family: str = Query(..., pattern="^(frris_wrris|megis)$"),
+    db: Session = Depends(get_db), context: RequestContext = Depends(get_request_context),
+) -> PlanCatalogueResponse:
+    """The plan table on "My subscription" (prices are public list prices, not organisation data)."""
+    _require_member(db, context)
+    plans = db.query(BillingPlan).filter(BillingPlan.family == family, BillingPlan.status == "active") \
+        .order_by(BillingPlan.sort_order).all()
+    options = []
+    for plan in plans:
+        price = catalogue.current_price(db, plan.key)
+        options.append(PlanOption(
+            key=plan.key, family=family, name=plan.name, is_custom=plan.is_custom,
+            currency=price.currency if price else "TZS", monthly_price=price.monthly_price if price else None,
+            limits=PlanLimits(seat_limit=plan.seat_limit, monthly_credits=plan.monthly_credits,
+                              storage_bytes=plan.storage_bytes, session_limit=plan.session_limit)))
+    return PlanCatalogueResponse(family=family, plans=options)

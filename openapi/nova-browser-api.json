@@ -4490,6 +4490,17 @@
             "title": "Amount",
             "type": "integer"
           },
+          "aoi_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aoi Name"
+          },
           "balance_after": {
             "title": "Balance After",
             "type": "integer"
@@ -4515,6 +4526,28 @@
           "period": {
             "title": "Period",
             "type": "string"
+          },
+          "plan_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Name"
+          },
+          "project_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Name"
           },
           "reason": {
             "anyOf": [
@@ -4549,7 +4582,10 @@
           "amount",
           "balance_after",
           "task_id",
-          "reason"
+          "reason",
+          "project_name",
+          "aoi_name",
+          "plan_name"
         ],
         "title": "LedgerEntryResponse",
         "type": "object"
@@ -5297,6 +5333,132 @@
           "baseline_period"
         ],
         "title": "OverviewHeadline",
+        "type": "object"
+      },
+      "PlanCatalogueResponse": {
+        "properties": {
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "plans": {
+            "items": {
+              "$ref": "#/components/schemas/PlanOption"
+            },
+            "title": "Plans",
+            "type": "array"
+          }
+        },
+        "required": [
+          "family",
+          "plans"
+        ],
+        "title": "PlanCatalogueResponse",
+        "type": "object"
+      },
+      "PlanLimits": {
+        "properties": {
+          "monthly_credits": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Credits"
+          },
+          "seat_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seat Limit"
+          },
+          "session_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Limit"
+          },
+          "storage_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Bytes"
+          }
+        },
+        "required": [
+          "seat_limit",
+          "monthly_credits",
+          "storage_bytes",
+          "session_limit"
+        ],
+        "title": "PlanLimits",
+        "type": "object"
+      },
+      "PlanOption": {
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "is_custom": {
+            "title": "Is Custom",
+            "type": "boolean"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/PlanLimits"
+          },
+          "monthly_price": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Price"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "family",
+          "name",
+          "is_custom",
+          "currency",
+          "monthly_price",
+          "limits"
+        ],
+        "title": "PlanOption",
         "type": "object"
       },
       "PrPoint": {
@@ -7634,6 +7796,10 @@
           "credits": {
             "$ref": "#/components/schemas/CreditSummary"
           },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
           "ends_at": {
             "anyOf": [
               {
@@ -7662,6 +7828,20 @@
             "title": "Id",
             "type": "string"
           },
+          "limits": {
+            "$ref": "#/components/schemas/PlanLimits"
+          },
+          "monthly_price": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Price"
+          },
           "plan_key": {
             "anyOf": [
               {
@@ -7684,6 +7864,22 @@
             ],
             "title": "Plan Name"
           },
+          "renews_on": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Renews On"
+          },
+          "seats_used": {
+            "title": "Seats Used",
+            "type": "integer"
+          },
           "starts_at": {
             "anyOf": [
               {
@@ -7703,6 +7899,23 @@
           "status_label": {
             "title": "Status Label",
             "type": "string"
+          },
+          "top_up": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TopUpOffer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warning_levels": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Warning Levels",
+            "type": "array"
           }
         },
         "required": [
@@ -7715,6 +7928,13 @@
           "starts_at",
           "ends_at",
           "engines",
+          "currency",
+          "monthly_price",
+          "limits",
+          "seats_used",
+          "renews_on",
+          "warning_levels",
+          "top_up",
           "credits",
           "can_submit",
           "block_code",
@@ -8020,6 +8240,29 @@
           "end"
         ],
         "title": "TemporalCoverage",
+        "type": "object"
+      },
+      "TopUpOffer": {
+        "properties": {
+          "credits": {
+            "title": "Credits",
+            "type": "integer"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "price": {
+            "title": "Price",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "credits",
+          "price",
+          "currency"
+        ],
+        "title": "TopUpOffer",
         "type": "object"
       },
       "ValidationDashboard": {
@@ -9804,6 +10047,100 @@
           }
         },
         "summary": "Get Ledger",
+        "tags": [
+          "Billing"
+        ]
+      }
+    },
+    "/api/v1/billing/plans": {
+      "get": {
+        "description": "The plan table on \"My subscription\" (prices are public list prices, not organisation data).",
+        "operationId": "get_plan_catalogue_api_v1_billing_plans_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "family",
+            "required": true,
+            "schema": {
+              "pattern": "^(frris_wrris|megis)$",
+              "title": "Family",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanCatalogueResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authorization failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Get Plan Catalogue",
         "tags": [
           "Billing"
         ]

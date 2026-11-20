@@ -76,3 +76,19 @@ def seed_catalogue(db: Session, catalogue: dict | None = None) -> SeedReport:
                 report.prices.append(key)
     db.flush()
     return report
+
+
+TOP_UP_PACK_CREDITS = 10
+
+
+def current_price(db: Session, plan_key: str, at=None) -> BillingPlanPrice | None:
+    """Newest price version already in effect (versions are append-only)."""
+    from datetime import datetime, timezone
+
+    at = at or datetime.now(timezone.utc)
+    return (
+        db.query(BillingPlanPrice)
+        .filter(BillingPlanPrice.plan_key == plan_key, BillingPlanPrice.effective_from <= at)
+        .order_by(BillingPlanPrice.version.desc())
+        .first()
+    )

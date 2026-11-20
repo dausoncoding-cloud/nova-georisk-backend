@@ -107,6 +107,28 @@ def effective_monthly_credits(db: Session, subscription: OrganizationSubscriptio
     return (plan.monthly_credits if plan and plan.monthly_credits is not None else 0)
 
 
+def effective_limits(db: Session, subscription: OrganizationSubscription) -> dict:
+    """Plan limits with the subscription's per-contract overrides applied (None = not set)."""
+    plan = _plan(db, subscription)
+
+    def pick(override, name):
+        return override if override is not None else (getattr(plan, name) if plan else None)
+
+    return {
+        "seat_limit": pick(subscription.seat_limit_override, "seat_limit"),
+        "monthly_credits": pick(subscription.monthly_credits_override, "monthly_credits"),
+        "storage_bytes": pick(subscription.storage_bytes_override, "storage_bytes"),
+        "session_limit": pick(subscription.session_limit_override, "session_limit"),
+    }
+
+
+def renews_on(subscription: OrganizationSubscription, at: datetime | None = None) -> datetime | None:
+    if not is_current(subscription, at):
+        return None
+    start = period_start(next_period(period_of(at)))
+    return subscription.ends_at if subscription.ends_at is not None and subscription.ends_at < start else start
+
+
 def refund_on_data_failure(db: Session, subscription: OrganizationSubscription) -> bool:
     if subscription.refund_on_data_failure_override is not None:
         return subscription.refund_on_data_failure_override

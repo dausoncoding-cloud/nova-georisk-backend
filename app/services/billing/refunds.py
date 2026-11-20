@@ -19,7 +19,7 @@ from app.services.billing import ledger
 logger = logging.getLogger(__name__)
 
 QUEUE_FAILURE_REASON = "The analysis could not be queued, so it was not charged."
-DATA_FAILURE_REASON = "The analysis stopped for a data reason (satellite coverage or availability)."
+DATA_FAILURE_REASON = "Analysis stopped (not enough valid satellite data)."
 
 
 def is_data_failure(error: BaseException) -> bool:
