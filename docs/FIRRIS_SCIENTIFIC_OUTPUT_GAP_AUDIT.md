@@ -1,0 +1,416 @@
+# FIRRIS Scientific Output Quality & Requirement Gap Audit
+
+**Status:** Phase 1 deliverable — audit only. No code, configuration, database or production change was made.
+**Date:** 2026-11-07 (Africa/Nairobi)
+**Backend audited:** `nova-georisk-backend` at `2eafee7` (includes `41a7fa2` management, `97fbf9d` GEE band/mask fix)
+**Frontend audited:** `nova-georisk-frontend` at `d082746` (includes `c22c2b7` management UI)
+
+This audit answers one question: *can a professional flood-mapping client obtain, understand and use FIRRIS scientific outputs today?* It does not re-audit security, deployment or administration, which are already accepted and are preserved.
+
+---
+
+## 0. Scope, sources and what this audit could not do
+
+### Sources audited
+
+| Source | Used for |
+|---|---|
+| `0 - … Universal Satellite Image Analysis Workflow & Sampling Strategy.docx` | Workflow steps 1–26, sampling (5,000 samples, 70/30), accuracy list, exports, archive |
+| `1 - … FIRAS.docx` | Modules 1–11, correlation/MLR, regression and classification validation, model-performance maps, classification-module outputs (confusion products, ROC, PR, threshold, imbalance) |
+| `FLOOD - Common Flood Maps Used in Flood Analysis and Modeling.docx` | The 12 flood map products, their legends and colours, recommended NOVA-FIRAS legend set |
+| `Essentials of the Map.docx` | 13 mandatory cartographic elements; datum vs CRS vs projection distinction |
+| `NOVA ARI - TIME SERIES ANALYSIS FOR FRRIS WRRIS MEGIS.pdf` | **Definition of Trend Analysis** (line graph, X = time), comparison (bar), relationship (scatter, r, R², p, n), FRRIS indicator tables |
+| `NOVAREX - NOVAGeoRisk Systems Subscription Fee.pdf` | Read; commercial/SaaS only. **Out of scope** for this sprint per client instruction. |
+| Both repositories: engine, GEE pipeline, workflow, validation, cartography, reporting, result API serializers, OpenAPI (78 browser paths), React results/analysis/task UI, existing docs and tests | Implementation status |
+
+### Limitations of this audit (stated so nothing below is over-read)
+
+1. **Client benchmark papers not available.** `LST Research Paper - Makunga et al.pdf` and `Burned Area Mapping - Paper - Makunga et al.pdf` were **not** provided in this environment. Presentation benchmarks below use the four requirement documents, the time-series specification and standard remote-sensing practice. Section 9 lists what will be compared once the papers are supplied.
+2. **Production packages not inspected.** `Ugalla_48833e0c_FIRRIS.zip` and the Mindu package were not available here. "Production evidence" entries are inferred from the code that produced them (`2eafee7`) and from the repository's own production reports.
+3. **No GEE, server or database access.** One finding (F1) should be confirmed with a single read-only Earth Engine call before any code change (Section 2, F1, "Verification").
+4. **Tests not executed here.** Backend (627 test functions) and frontend suites require `rasterio`, GDAL and `node_modules`, which are not installed in this audit environment and could not be installed. Phase 4 must run them on the development machine or server.
+
+### Status vocabulary
+
+`PASS` = the client can obtain, understand and use the output professionally (not merely "an artifact exists").
+`PARTIAL` · `MISSING` · `BLOCKED_BY_EXTERNAL_DATA` · `NOT_APPLICABLE` · `NEEDS_SCIENTIFIC_REVIEW`.
+Severity: **CRITICAL** (undermines scientific credibility of every result) · **HIGH** (client-visible quality failure) · **MEDIUM** · **LOW**.
+Type: bug · missing feature · hidden existing feature · presentation problem · scientific dependency · unsupported claim · future enhancement.
+
+---
+
+## 1. Executive summary
+
+The engineering platform is real and substantial: authenticated multi-role access, AOI import, GEE acquisition with strict band/mask/grid identity checks, fail-closed quality gates, geodesic area accounting, provenance with checksums, protected downloads, execution archives, and a broad formula library that matches the FIRAS document. None of that needs redesign.
+
+The client's complaint is nonetheless **valid, and in two respects more serious than "presentation"**:
+
+1. **FIRRIS can currently only analyse land that was historically surface water** (F1). The JRC Global Surface Water *occurrence* layer is used without unmasking, and every pixel must have a valid value in every band. JRC occurrence has no value where water was never observed, so dry land is excluded as "no data". This is the most likely cause of the client's failed AOI, of the full-Ugalla 0.66% "static support", and of the repository's own record of a "static 14-cell ceiling" out of 48,573 cells. Every successful production run (Nairobi Dam, Mindu Reservoir, Ugalla "mapped water unit") is inside a water body. A flood-mapping system that cannot map normally dry land is not yet fit for a flood client.
+2. **The accuracy numbers measure label reproduction, not flood accuracy** (F2). Training and test labels are generated by a fixed rule (`SAR change ≤ −1.5 dB AND slope < 15° AND JRC occurrence < 90%`), and `sar_change` and `slope` are themselves model inputs. A Random Forest can reproduce that rule almost perfectly, so high OA, Kappa and AUC are expected regardless of real-world flood accuracy. The system's internal text says "pseudo-label"; the client-facing presentation does not make the consequence clear. Showing a polished ROC curve on top of this without reframing would make the outputs *more* misleading, not less.
+
+Beyond those two, most of what the client asked for is a mix of **hidden existing work** and **presentation failure**:
+
+- **ROC, PR, Average Precision, threshold sweeps, confusion counts, per-class metrics, Kappa, MCC and balanced accuracy are already computed** for every run, with CSV data and SVG plots in the package. The UI shows them only as a nested key/value dump; the plots are minimal ReportLab drawings with no diagonal reference, no AUC annotation and no prevalence baseline.
+- **Cartographic exports already have** a neatline, legend, true-north arrow, geodesic scale bar, labelled graticule, CRS/datum/projection lines and provenance hashes. They lack the AOI outline, context imagery, a real locator inset, a no-data legend entry, a permanent-water class and a location/date subtitle, and they **stretch the raster to a fixed frame**, which distorts geometry (F5).
+- **Reports are machine dumps.** The "complete evidence report" (PDF/DOCX/XLSX) is flattened JSON (`per_scene_lineage.sentinel_2_target.scenes[0]…`); the summary PDF titles the project and AOI by UUID and labels flood-extent statistics "Flood Risk Index Summary". No report contains a map or a figure.
+- **Trend Analysis, Water Delineation and AOI preflight do not exist.** All three are implementable from provider data already used by the pipeline. None should be faked from the current two-date design.
+
+Details and the full requirement matrix follow. The remediation plan (`FIRRIS_SCIENTIFIC_OUTPUT_REMEDIATION_PLAN.md`) is the next deliverable.
+
+---
+
+## 2. Critical and high-severity findings (with evidence)
+
+### F1 — JRC occurrence masking excludes all never-water land · CRITICAL · bug / scientific dependency · NEEDS_SCIENTIFIC_REVIEW (high confidence)
+
+**Evidence**
+- `app/services/gee/firris_pipeline.py:228–232`: `# Do not use the screening helper's historical unmask(0): unknown is nodata.` then `water = original_water.select("occurrence").clip(aoi)` and `label = screen_binary_flood_extent(sar_change, slope, water)`. The label inherits JRC's mask.
+- `firris_pipeline.py:286` and `firris_contracts.py:assess_pixels`: a pixel is valid only if **every** band (features + `source_sar_*` + `label`) is unmasked.
+- `docs/FIRRIS_SCIENTIFIC_VALIDATION_01.md` (Bundles 2–4): original AOI "scientifically inadmissible under the unchanged JRC mask policy"; "a static **14-cell ceiling**" against 34,002 cells needed for 70% coverage.
+- Full Ugalla preflight: JRC/SRTM static support 28,535 / 4,345,380 cells (0.6567%) for a national park that is overwhelmingly land.
+- All accepted production AOIs are water bodies: Nairobi Dam, Mindu Reservoir (OSM way 23786171), "Ugalla River — mapped water unit 6124756".
+
+**Why it is wrong.** In JRC GSW, a masked `occurrence` pixel inside the product's coverage means "water was never detected in 1984–2021" — i.e. occurrence = 0%, the *most* relevant land for detecting new flooding. Treating it as unknown removes exactly the pixels a flood map exists to classify.
+
+**Correct direction (no gate weakened).** Distinguish *outside JRC coverage* (true no-data) from *never water* (0%). Candidate approaches for review: `occurrence.unmask(0)` restricted to the JRC data footprint (e.g. via the `max_extent` band or `JRC/GSW1_4/MonthlyHistory` explicit 0 = no data / 1 = not water / 2 = water encoding). The 70% coverage gate, class-support gate and all other controls remain unchanged; they will simply be evaluated over land correctly.
+
+**Verification before coding (one read-only GEE call).** For a known land AOI, compare `occurrence.mask()` with `max_extent.mask()` and with `MonthlyHistory` coverage. Expected: `occurrence` masked on land, `max_extent` = 0 there. Record the result in the remediation plan.
+
+**Consequence if confirmed.** The client's "~5% failure" AOI, full-Ugalla static support, and AOI selection constraints should all be re-evaluated. Full Ugalla would then likely be limited by compute capacity alone (Section I).
+
+### F2 — Accuracy, Kappa and ROC-AUC are computed against labels derived from model inputs · CRITICAL · unsupported claim (presentation) / scientific dependency
+
+**Evidence**
+- `screening_pipeline.py:screen_binary_flood_extent`: label = `change_db ≤ −1.5` AND `slope < 15` AND `occurrence < 90`.
+- `firris_pipeline.py:DEFAULT_FEATURES` includes `sar_change` and `slope`.
+- `workflow.py`: hold-out is a random pixel split of the same scene (`train_test_split_stratified`), so spatial autocorrelation further inflates metrics.
+- The code records the limitation correctly in provenance (`"SAR screening pseudo-labels share event information with model features; metrics are not authoritative flood accuracy."`), and the compliance matrix row U26 notes "pseudo-label leakage". The client-facing Validation tab, PDF "Classification Validation" table and Overview do not make the consequence visible.
+
+**What the metrics actually measure.** *Agreement between the Random Forest map and the SAR screening rule on held-out pixels of the same scene* ("label-reproduction agreement"). That is a legitimate internal consistency check; it is not map accuracy.
+
+**Required direction.**
+1. Rename and reframe every accuracy surface (UI, PDF, figures) as "Internal agreement with SAR screening labels (not independent accuracy)", with the reference basis and n on every table and figure.
+2. Provide a genuine independent accuracy path, which the platform can already host through the External Data Manager: an analyst-interpreted reference sample from very-high-resolution imagery or field GPS points, Copernicus EMS / UNOSAT event delineations, or the Global Flood Database (`GLOBAL_FLOOD_DB/MODIS_EVENTS/V1`, 2000–2018, 250 m, MODIS-based and therefore independent of the Sentinel-1 rule). Only metrics against such references may be called "accuracy assessment" without qualification.
+3. Scientific review of whether `sar_change`/`slope` should remain model features while also defining labels (leakage removal changes what the model is; it is not a cosmetic fix).
+
+### F3 — The "flood" results delivered so far are not demonstrably flood events · HIGH · NEEDS_SCIENTIFIC_REVIEW
+
+- Ugalla: target 2020-09-21→23, baseline 2019-09-28→29; Mindu: target 2021-07, baseline 2020-06/07. Both are **dry-season** windows in their regions, compared year-on-year, inside mapped water bodies.
+- Because of F1, only historically-wet pixels are analysed, and the label excludes only occurrence ≥ 90%. "Classified flooded" therefore means "a seasonal-water pixel whose VV backscatter dropped ≥ 1.5 dB relative to the same season last year". Plausible drivers include water-level change, wind-roughness differences on open water, wetland vegetation or soil-moisture change, and mixed pixels — not necessarily flooding. The Mindu report already acknowledges this ("Reservoir-level/vegetation/mixed-pixel changes can contribute").
+- "Ugalla: 53.10% of valid area flooded" will not survive expert scrutiny without event context.
+
+**Direction.** Until event attribution exists, label the product "SAR-detected surface-water increase relative to baseline (flood-candidate)" rather than "Flood Extent". Choose the Phase 5 acceptance run on a **documented flood event over normally dry land** (requires F1), with a pre-event baseline weeks — not a year — earlier, and with an independent reference if one exists (F2.2).
+
+### F4 — Validation rasters are exported with the wrong nodata and without the valid mask · HIGH · bug
+
+`app/platform/engines/firris.py:427–430` writes `validation_confusion` and `validation_accuracy` with `nodata=0`, and `workflow.py` builds them over the full grid:
+- `accuracy_map` encodes **0 = incorrect**, so every misclassified cell becomes *nodata* in the GeoTIFF — the error map hides the errors.
+- Cells outside the valid mask have label 0 and prediction 0, so they are written as "correct" (accuracy) and "TN" (confusion code 2).
+
+Fix: mask both with `valid_mask`, use a nodata value outside the code range (e.g. 255), document codes (TP=1, TN=2, FP=3, FN=4; agreement 0/1), add regression tests. Scientific values elsewhere are unaffected.
+
+### F5 — Cartographic map sheets distort geometry and omit key context · HIGH · bug + presentation problem
+
+`app/services/maps/cartography.py:_paint_raster` resizes the raster to a fixed 1365 × 1055 px frame regardless of AOI shape (`Image.resize(size, NEAREST)`), and `_pixel()` maps bounds linearly onto that frame. Any AOI whose aspect ratio differs from the frame is stretched; the scale bar is computed horizontally only, so vertical distances are wrong. Also missing from the sheet: AOI outline, background context (imagery or basemap), a real locator inset (current inset is a lat/lon grid with a dot), a no-data legend entry, source attribution, baseline dates and a location subtitle. "Acquisition: not supplied" is printed even though exact scene acquisition times exist in provenance (`per_scene_lineage.*.scenes[].acquired_at_utc`). Details in matrix rows A01–A21.
+
+### F6 — ROC, PR and the full accuracy suite exist but are hidden · HIGH · hidden existing feature
+
+`app/services/validation/diagnostics.py:binary_diagnostics` computes ROC (`roc_curve`), PR (`precision_recall_curve`), AP, a full threshold sweep, Brier score, per-class and macro/weighted precision/recall/F1. `write_diagnostic_artifacts` writes CSVs and SVGs. The frontend renders `validation_dashboard` through `DeliveredMetadata` inside a collapsed disclosure — no chart, no matrix. The plots themselves lack the 1:1 diagonal, AUC/AP annotations, prevalence baseline, axis limits [0,1] and equal aspect expected in a publication figure.
+
+### F7 — Reports are engineering dumps, not client deliverables · HIGH · presentation problem / mislabel
+
+- `report_builder.py`: project and AOI shown as UUIDs (`str(context.project_id)`), heading "Flood Risk Index Summary" over flood-extent/score statistics (no FRI is computed), "Classification Validation" table with no reference-basis caveat, no figures, no maps, no executive summary.
+- `complete_report.py`: every provenance leaf as a line of text in PDF/DOCX/XLSX.
+Retain the complete report as an audit appendix; add a proper scientific output report (Section K).
+
+### F8 — "Flood Probability" names a classifier vote fraction · HIGH · unsupported claim
+
+The product is Random Forest class-membership score for reproducing the screening rule. The legend correctly says "Conditional classifier class score (not AEP)", but the layer title, map title and product label say "Flood Probability", and the FLOOD document defines "Flood Inundation Probability Map" as an annual-probability/return-period product. Rename client-facing labels to "Model confidence score (Random Forest vote fraction)"; keep the API key for compatibility.
+
+### F9 — No Trend Analysis · HIGH · missing feature (provider data available; not blocked)
+
+The time-series specification defines Trend Analysis as a **line graph with X = time and Y = a flood/climate indicator**, with Δy, %Δy (zero-denominator rule) and an optional linear trend line that is "primarily a visual trend indicator". The current workflow is a single target vs a single baseline, i.e. two points: a change, not a trend. The only time-series code path (`evidence.py`, `change_statistics`) is not populated by the satellite workflow. Provider data that would support a genuine series: Sentinel-1 per-acquisition water extent (2014–), `JRC/GSW1_4/MonthlyHistory` / `YearlyHistory` water extent (1984–2021), CHIRPS daily rainfall and its climatology (anomaly), ERA5-Land soil moisture. Matrix rows B01–B09.
+
+### F10 — No Water Delineation product · HIGH · missing feature (partly hidden data)
+
+MNDWI is already computed from the Sentinel-2 target composite and held as a feature array; target VV backscatter is already exported as a COG; JRC occurrence is acquired but used only inside the label and not exported. None of this becomes a water map or water metrics. The FLOOD document's Flood Extent legend requires a separate **Permanent water** class. Matrix rows C01–C07 and the terminology table in Section 5.
+
+### F11 — No pre-submission AOI preflight · HIGH · missing feature
+
+All rejections (capacity, coverage, missing orbit match, cloud, class support) happen after queueing, during acquisition, and surface as raw `ValueError` text in `error_summary`. Scene discovery and static checks already exist as functions (`scene_qa.inspect_collection`, `inspect_static_image`, `assess_pixels`) and were run manually for every production case in the validation reports. Matrix rows H01–H06.
+
+---
+
+## 3. Requirement matrix
+
+Column key: **Req** · **Source** · **Status** · **Backend capability** · **Frontend visibility** · **Production evidence** · **Sci. dep.** (scientific dependency) · **Ext. data** · **Gap** · **Sev.** · **Recommended action** · **Type**.
+
+Production evidence codes: **U** = Ugalla `48833e0c`, **M** = Mindu `3e84090d`; "code" = produced by the code at `2eafee7` (package not inspected in this audit).
+
+### A. Map quality (Essentials of the Map; Common Flood Maps legends; master prompt §9A)
+
+| ID | Req | Source | Status | Backend capability | Frontend visibility | Production evidence | Sci. dep. | Ext. data | Gap | Sev. | Recommended action | Type |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| A01 | Map title + subtitle | Essentials #1 | PARTIAL | `cartography._render`: title = product key in title case | Same metadata in viewer header | U, M (code) | – | – | No AOI/location, no date, no product meaning | HIGH | Title "Flood-candidate surface-water increase — {AOI name}, {country}"; subtitle with target/baseline dates and sensor | presentation |
+| A02 | Map frame / neatline | Essentials #2 | PASS | Drawn | n/a | code | – | – | – | – | Keep | – |
+| A03 | Legend | Essentials #3; FLOOD §1 legend | PARTIAL | Product legend from metadata | Viewer legend shown | code | – | – | No no-data entry; no permanent-water class; "Not classified as flooded" painted green over open water | HIGH | Class scheme per FLOOD §1 (flooded / permanent water / not flooded / no data) once F1/C03 available | presentation |
+| A04 | North arrow | Essentials #4 | PASS | True north derived from CRS | Static "N↑" overlay | code | – | – | – | – | Keep | – |
+| A05 | Scale bar | Essentials #5 | PARTIAL | Geodesic bar at bar latitude | Leaflet ScaleControl | code | – | – | Bar correct only horizontally because raster is stretched (A13) | HIGH | Fix after A13 | bug |
+| A06 | Inset / locator map | Essentials #6 | PARTIAL | Schematic lat/lon grid with dot | – | code | – | Provider/public: FAO GAUL in GEE or bundled Natural Earth (public domain) | Reads as placeholder; no country/region outlines | MEDIUM | Country/region locator with AOI marker | presentation |
+| A07 | Coordinates / graticule | Essentials #7, #11 | PASS | Labelled graticule | Cursor coordinates | code | – | – | – | – | Keep | – |
+| A08 | Datum / CRS / projection | Essentials #8–10 | PASS | Separate lines, derived from raster CRS | Metadata tab | code | – | – | – | – | Keep | – |
+| A09 | Date | Essentials #12 | PARTIAL | Target period printed; "Acquisition: not supplied" | Target period only | code | – | – | Baseline period and actual scene acquisition times omitted though present in provenance | MEDIUM | Print baseline + target windows and actual S1/S2 acquisition dates | bug / presentation |
+| A10 | Author / map producer | Essentials #13 | PARTIAL | "Producer: NOVA GeoRisk" | – | code | – | – | No organisation/analyst | LOW | Producer = organisation; analyst optional | presentation |
+| A11 | AOI boundary on exported map | Prompt §9A | MISSING | Not drawn on sheet | Drawn in viewer (dashed white) | – | – | – | Export and UI inconsistent | HIGH | Overlay AOI outline | missing feature |
+| A12 | Context: basemap / true-colour imagery | Prompt §9A | MISSING (export) / PARTIAL (UI) | Not rendered; S2 composite built but RGB not exported | OSM/CARTO tiles; no imagery | – | – | Provider: S2 composite already acquired | Floating raster on white | HIGH | Export S2 true-colour (B4/B3/B2) composite as context layer and map background | missing feature |
+| A13 | Geometric fidelity (aspect ratio) | Cartographic standard | MISSING | Raster stretched to fixed frame | Viewer correct | code | – | – | Distortion for non-matching AOI shapes | HIGH | Fit bounds into frame preserving aspect (latitude-corrected for EPSG:4326) | bug |
+| A14 | No-data visualisation | FLOOD §1 legend (white/black) | PARTIAL | Transparent | Transparent | code | – | – | Indistinguishable from outside-AOI/background | MEDIUM | Hatched or grey no-data with legend entry; distinguish outside-AOI | presentation |
+| A15 | Source attribution | Prompt §9A | MISSING (sheet) | In provenance only | – | – | – | – | No "Contains modified Copernicus Sentinel data [year]", JRC, CHIRPS, SRTM credits | MEDIUM | Credits line on every sheet and figure | presentation |
+| A16 | Export resolution / print quality | Doc 0 step 25 | PARTIAL | 2200×1550 PNG; PDF is that bitmap at ~144 dpi | – | code | – | – | Below 300 dpi print; text not vector | MEDIUM | Vector PDF (text/legend vector, raster embedded at native/300 dpi) | presentation |
+| A17 | Flood Extent class scheme | FLOOD §1, "Recommended Standard" | PARTIAL | Binary 0/1 only | Binary | U, M | F1 | – | Permanent water not separated | HIGH | Add permanent-water class from JRC (C03) | missing feature |
+| A18 | Model score map legend | FLOOD §5 | PARTIAL | 4-class palette, caption "not AEP" | Same | code | F2 | – | Title "Flood Probability" contradicts caption (F8) | HIGH | Rename (F8); continuous colour ramp with labelled colour bar | unsupported claim |
+| A19 | UI ↔ export consistency | Prompt §9A | PARTIAL | – | – | – | – | – | AOI/basemap only in UI; class labels differ ("flooded" vs "Classified flooded (1)") | LOW | Single label dictionary used by both | presentation |
+| A20 | Accuracy / confusion / misclassification maps | FIRAS model-performance maps 7–8; outputs §4 | PARTIAL | GeoTIFF exports with F4 bug; no sheet; no viewer layer | Download only | code | F2 | – | Buggy and hidden | HIGH | Fix F4; render confusion map (TP/TN/FP/FN) with legend as an "agreement map" | bug / hidden existing feature |
+| A21 | Change detection map + area change | Doc 0 step 19 | PARTIAL | Baseline/target VV COGs exported; change used as feature | Download only | code | – | – | No before/after water maps, no area change / % change table | MEDIUM | Baseline-water vs target-water maps and change table (after C01–C03) | missing feature |
+
+### B. Trend Analysis (Time-series specification; Doc 0 step 23 "time series")
+
+| ID | Req | Source | Status | Backend capability | Frontend visibility | Production evidence | Sci. dep. | Ext. data | Gap | Sev. | Recommended action | Type |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| B01 | Line graph: flood/water extent vs time | TS §FRRIS-1 row 1 | MISSING | Two-date workflow only | "No observed time series" | None | Fixed, reproducible per-date water definition (C02) | Provider: Sentinel-1 | No series | HIGH | Per-acquisition SAR water extent over a user window (bounded count), same AOI/grid/method | missing feature |
+| B02 | Historical water-extent trend | TS row 1; FIRAS 1.8 "Historical Flood Occurrence" | MISSING | – | – | None | Clarify that JRC = surface water, not flood inventory | Provider: `JRC/GSW1_4/MonthlyHistory`, `YearlyHistory` (1984–2021) | Not used | HIGH | Annual/monthly water-area series with no-data fraction per step | missing feature |
+| B03 | Rainfall time series | TS row 11 | PARTIAL | CHIRPS daily pinned and verified for target window, then summed | Sum only, in metadata | U, M (daily scenes in provenance) | – | Provider: CHIRPS | Series discarded | MEDIUM | Emit daily series + antecedent window (e.g. 30/60/90 days) | hidden existing feature |
+| B04 | Rainfall anomaly (%) | TS row 12 | MISSING | – | – | – | Climatology period choice | Provider: CHIRPS 1991–2020 | – | MEDIUM | Anomaly vs stated climatology | missing feature |
+| B05 | Soil moisture, ET, LST, SPI, SPEI series | TS rows 13–17 | MISSING | – | – | – | SPI timescale; SPEI needs PET | Provider: ERA5-Land, MODIS; SPEI partially | – | LOW | Future enhancement; SPI from CHIRPS first | future enhancement |
+| B06 | Frequency, duration, depth, FHI/FRI/exposure/vulnerability/resilience series | TS rows 2–10 | BLOCKED_BY_EXTERNAL_DATA | Products exist only via source-bound modules | – | – | Each product's own inputs | Gauges, inventories, surveys (Section J) | – | – | Do not emulate | scientific dependency |
+| B07 | Bar charts by period/category | TS §2 | PARTIAL | Class-area series | Bars labelled 1, 2, 3; no axis titles or category names | U, M | – | – | Not readable | MEDIUM | Proper bar charts: category labels, units, logical class order (TS developer rule) | presentation |
+| B08 | Scatter driver vs response with r, R², p, n | TS §3 | MISSING | Correlation/MLR libraries exist (`statistics/`) | – | – | Requires ≥ several dated pairs | Follows B01/B03 | – | MEDIUM | Enable only when n meets a stated minimum; otherwise show points only | missing feature |
+| B09 | Δy, %Δy, zero-denominator rule, chronological order, optional trend line | TS §1 | MISSING | – | – | – | – | – | – | MEDIUM | Implement with unit tests (incl. y₀ = 0) | missing feature |
+
+### C. Water Delineation (client feedback; FLOOD §1 permanent water; FIRAS NDWI/wetland/reservoir variables)
+
+| ID | Req | Source | Status | Backend capability | Frontend visibility | Production evidence | Sci. dep. | Ext. data | Gap | Sev. | Recommended action | Type |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| C01 | Observed open water, optical (target date) | Client; FIRAS NDWI | MISSING | MNDWI feature array in memory for every run | – | U, M (MNDWI in samples.csv) | Threshold (MNDWI > 0 vs Otsu) and cloud-masked gaps | Provider (already acquired) | Not delivered | HIGH | Water/non-water/no-data raster + area metrics, method stated | hidden existing feature |
+| C02 | Observed water, SAR (target and baseline) | FLOOD §1 SAR method | MISSING | Target and baseline VV COGs exported | Download only | U, M | Threshold method (Otsu vs fixed dB), incidence/speckle | Provider (already acquired) | Not delivered | HIGH | SAR water maps for both dates → enables change and B01 | hidden existing feature |
+| C03 | Permanent vs seasonal water | FLOOD §1 legend | MISSING | JRC used inside label only | – | – | Thresholds (e.g. occurrence ≥ 90 / seasonality = 12) | Provider: JRC GSW | Not exported | HIGH | Add JRC occurrence/seasonality to export stack (after F1) | missing feature |
+| C04 | Historical water occurrence map | FIRAS 1.8 (closest) | MISSING | – | – | – | Label as surface-water occurrence, not flood history | Provider: JRC | – | MEDIUM | Occurrence % map with colour bar | missing feature |
+| C05 | Water delineation metrics | Client | MISSING | Area engine reusable (`raster_area_statistics`) | – | – | – | – | – | HIGH | Water area (m²/ha/km²), valid area, % of valid and of AOI, permanent/seasonal split, no-data area, sensor/date/method | missing feature |
+| C06 | Flood water defined as event water outside normal water | FLOOD §1 | NEEDS_SCIENTIFIC_REVIEW | Label = backscatter drop rule, not "water at event" | – | U, M | Definition choice | – | Current product is change-based, not water-state-based | HIGH | Review: flood = (event water) ∧ ¬(permanent/reference water) | scientific dependency |
+| C07 | Do not relabel flood extent as water delineation | Prompt §9C | – | – | – | – | – | – | – | – | Kept separate in all labels | – |
+
+### D. Accuracy Assessment (Doc 0 step 20; FIRAS "Classification Model Validation")
+
+| ID | Req | Source | Status | Backend capability | Frontend visibility | Production evidence | Sci. dep. | Ext. data | Gap | Sev. | Recommended action | Type |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| D01 | Confusion matrix (raw) | FIRAS §1; outputs §2 | PARTIAL | TP/TN/FP/FN computed; plotted as a bar chart | Nested key/value | U (325/368 support), M | F2 | – | No 2×2 matrix table | HIGH | 2×2 table with row/column totals, UA/PA in margins (standard RS layout) | hidden existing feature |
+| D02 | Normalised confusion matrix + heatmap | FIRAS outputs §2 | MISSING | – | – | – | – | – | – | MEDIUM | Row-normalised heatmap figure | missing feature |
+| D03 | OA, precision/UA, recall/PA, specificity, F1, omission, commission, Kappa, balanced accuracy, MCC, error rate, prevalence | FIRAS §2–16 | PARTIAL | All computed exactly per FIRAS formulas (`classification_metrics.py`, tests) | Raw keys, unformatted | U, M | **F2** | – | Correct maths; misleading framing | CRITICAL (framing) | Formatted table with n, reference basis, and doc interpretation bands | unsupported claim / presentation |
+| D04 | IoU / Jaccard | Prompt §9D | MISSING | – | – | – | – | – | – | LOW | TP/(TP+FP+FN), tested | missing feature |
+| D05 | Kappa / AUC interpretation bands | FIRAS §11–12 | PARTIAL | `kappa_label()`, `auc_label()` exist | Not shown | – | F2 | – | Hidden | LOW | Show with the F2 caveat | hidden existing feature |
+| D06 | Class-wise accuracy | FIRAS outputs §1 | PARTIAL | `per_class`, macro, weighted computed | Nested dump | U, M | F2 | – | Hidden | MEDIUM | Per-class table | hidden existing feature |
+| D07 | Reference basis disclosed with every metric | Prompt §9D, §4 | PARTIAL | Limitation in provenance | Overview "Independent validation: Not supplied" (key absent in workflow summary) | U, M | – | – | Disclosure not adjacent to numbers; Overview wording wrong | HIGH | "Reference: SAR screening pseudo-labels, same scene, n = …; independent validation: not performed" | bug / presentation |
+| D08 | Label/feature independence | Scientific validity | NEEDS_SCIENTIFIC_REVIEW | Labels derived from `sar_change`, `slope` (also features) | – | U, M | **Core** | Independent reference for true accuracy | Metrics measure rule reproduction | CRITICAL | F2 actions 1–3 | scientific dependency |
+| D09 | Spatially independent hold-out | FIRAS map 15 (CV fold map) | NEEDS_SCIENTIFIC_REVIEW | Random pixel split | – | U, M | Spatial blocking scheme | – | Autocorrelation inflates metrics | MEDIUM | Spatial block split option; fold map | future enhancement |
+| D10 | Regression validation (R², RMSE, MAE, NSE …) | FIRAS regression section | NOT_APPLICABLE (satellite output) | Implemented for source-bound continuous products | – | – | – | Continuous observations | No continuous observed target in the satellite workflow | – | Keep for depth/stage products when external data exist | – |
+| D11 | Sample size 5,000; 70/30; ≥30 per class | Doc 0 step 14 | PARTIAL | Requested 5,000; small AOIs exhaust valid cells (U ≈ 693 valid samples, ≈ 208 test) | n not shown beside metrics | U, M | – | – | Small test sets undisclosed | MEDIUM | Show requested vs used n, train/test n per class | presentation |
+| D12 | Omission / commission error maps | FIRAS outputs §4 | PARTIAL | Confusion raster (with F4 bug) | – | code | F2 | – | – | MEDIUM | Derive FN (omission) and FP (commission) layers from fixed confusion map | bug / hidden existing feature |
+| D13 | Uncertainty / confidence map | FIRAS maps 9–10 | NEEDS_SCIENTIFIC_REVIEW | Score raster only | – | U, M | Vote fraction is not calibrated uncertainty | – | – | LOW | Optional "classification margin" with explicit definition; no uncertainty claim | future enhancement |
+| D14 | Model comparison chart | FIRAS outputs §5 | PARTIAL | Computed when comparison algorithms are requested | Not selectable in production UI | – | F2 | – | – | LOW | Future | future enhancement |
+| D15 | Feature importance | FIRAS correlation/driver outputs | PARTIAL | Native RF importances stored | Metadata dump | U, M | Will expose F2 (expect `sar_change`/`slope` to dominate) | – | Hidden | MEDIUM | Bar chart with caveat | hidden existing feature |
+
+### E. ROC and PR curves
+
+| ID | Req | Source | Status | Backend capability | Frontend visibility | Production evidence | Sci. dep. | Ext. data | Gap | Sev. | Recommended action | Type |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| E01 | ROC curve | Doc 0 step 20; FIRAS §12 | PARTIAL | `roc_curve` on hold-out scores; CSV + bare SVG | None in UI; file in Data & Files | code | **F2** | – | Hidden; figure lacks diagonal, AUC, n, reference basis | HIGH | Publication-style ROC (diagonal, AUC with n_pos/n_neg, marked operating point at 0.5) in UI, PDF, PNG; titled as internal agreement | hidden existing feature |
+| E02 | AUC | FIRAS §12 | PARTIAL | Rank-sum AUC, unit-tested | Raw key | U, M | F2 | – | Expected ≈ 1 by construction | HIGH | Show only with F2 framing; add bootstrap CI if review agrees | unsupported claim |
+| E03 | PR curve + AP | FIRAS outputs §5 | PARTIAL | Computed; SVG | None | code | F2 | – | No prevalence baseline line | MEDIUM | PR figure with baseline = prevalence | hidden existing feature |
+| E04 | Threshold diagnostics | FIRAS outputs §5 | PARTIAL | Full sweep CSV; F1-vs-threshold SVG | None | code | – | – | Hidden | LOW | Table/figure; explicitly "no policy threshold selected" | hidden existing feature |
+| E05 | ROC per class, micro/macro average | FIRAS outputs §3 | NOT_APPLICABLE | Binary classifier | – | – | – | – | Per-class ROC is the mirror image for binary; micro/macro apply to multiclass hazard products, which are external-data dependent | – | State explicitly in report | – |
+| E06 | ROC from data that supports it | Prompt §9E | PARTIAL | Scores + binary labels exist | – | – | **F2** | Independent reference for true ROC | Supports *agreement* ROC only | CRITICAL | Same as F2 | scientific dependency |
+
+### F. Statistical metrics presentation
+
+| ID | Req | Source | Status | Backend capability | Frontend visibility | Production evidence | Sci. dep. | Ext. data | Gap | Sev. | Recommended action | Type |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| F01 | Classified area in m², ha, km² (geodesic) | Doc 0 step 21 | PARTIAL | Ellipsoidal per-row cell area; correct | Raw floats ("18.222223425540246") | U 32.7329 ha, M 8.9660 ha | – | – | Unformatted, raw keys ("flood_extent · flooded") | MEDIUM | Formatted values, sensible significant figures, plain labels | presentation |
+| F02 | AOI area vs valid area vs excluded area | Prompt §9F | PARTIAL | AOI area on AOI; valid area in result; `missing_cells_by_band` in quality | Partial | U 83.90% valid | – | – | No single breakdown with reasons (cloud, SAR, static) | HIGH | Area-accounting table: AOI, valid, excluded by reason | presentation |
+| F03 | % of valid and % of AOI | Prompt §9F | PARTIAL | % of valid only | % of valid | U 53.10% | – | – | Denominator ambiguity | MEDIUM | Show both, labelled | presentation |
+| F04 | Observed vs predicted naming | Prompt §9F | PARTIAL | Mixed terms ("observed_label" = pseudo-label) | Mixed | – | F2 | – | "Observed" implies ground truth | MEDIUM | "Screening label" vs "model classification" everywhere | unsupported claim |
+| F05 | Units on every number | Prompt §9F | PARTIAL | Units in metadata | Heuristic; many "Unavailable (not supplied)" | – | – | – | Noise | MEDIUM | Explicit unit dictionary | presentation |
+| F06 | Reproducible from archive | Doc 0 step 26 | PASS | Checksums, split fingerprints, provenance | Execution tab | U, M | – | – | – | – | Keep | – |
+| F07 | Per-class statistics | Doc 0 step 21 | PASS | Class areas incl. zero-cell classes | Table | U, M | – | – | – | – | Keep, reformat | – |
+| F08 | Quality-gate summary | Prompt §16 | PARTIAL | All values recorded | Key dump | U, M | – | – | Not readable | HIGH | Gate table: metric, threshold, observed, pass/fail | presentation |
+
+### G. Results page information architecture
+
+| ID | Question the client must answer quickly | Status | Current behaviour | Gap | Sev. | Recommended action | Type |
+|---|---|---|---|---|---|---|---|
+| G01 | What happened? | MISSING | Heading "flood mapping" | No headline | HIGH | One-sentence finding with value, denominator, dates, product meaning | presentation |
+| G02 | Where? | PARTIAL | AOI name | No country/region, no locator | MEDIUM | Location line + locator | presentation |
+| G03 | How much? | PARTIAL | First 3 class rows | Raw numbers | MEDIUM | Key figures panel | presentation |
+| G04 | On what dates? | PARTIAL | Target window | Baseline and scene dates hidden | MEDIUM | Both windows + scene acquisitions | presentation |
+| G05 | What data? | PARTIAL | Provenance dump | Not readable | MEDIUM | Data-sources table (dataset, ID, dates, resolution, licence/credit) | presentation |
+| G06 | How reliable? | PARTIAL | "Quality gate: passed" | Over-reassuring given F2 | HIGH | Reliability panel: gates passed + validation level ("internal agreement only") | unsupported claim |
+| G07 | Limitations? | PARTIAL | First 3 generic limitations | Run-specific limits missing (F3) | MEDIUM | Run-specific limitations first | presentation |
+| G08 | Professional downloads? | PARTIAL | 50+ technical artifacts ("validation threshold_f1_plot") | No curated client set | HIGH | "Client deliverables" group: report PDF, map PDFs/PNGs, statistics XLSX, GIS package | presentation |
+| G09 | Reproduce / audit? | PASS | Execution archive, provenance, hashes | – | – | Keep | – |
+| G10 | Seven-tab structure | PASS (structure) | Overview · Maps · Metrics · Data & Files · Validation · Execution · Metadata | Content, not structure, is the problem | – | Keep tabs; rename "Validation" → "Accuracy assessment"; add water/trend content under Maps/Metrics rather than new tabs | – |
+
+### H. AOI preflight
+
+| ID | Req | Status | Backend capability | Gap | Sev. | Recommended action | Type |
+|---|---|---|---|---|---|---|---|
+| H01 | Size / capacity estimate before submit | MISSING | Guards fire during acquisition (`band_export` 512 MiB) | Wasted queue slot; late failure | HIGH | Grid-cell and byte estimate from AOI bounds + scale, same thresholds | missing feature |
+| H02 | Static source coverage | MISSING | `inspect_static_image`, `assess_pixels` | Dominated by F1 | HIGH | Preflight after F1 fix | missing feature |
+| H03 | Imagery availability (S2 cloud & degraded MSI, S1 matching orbit both periods, CHIRPS daily completeness) | MISSING | `scene_qa.inspect_collection` | Manual today | HIGH | Read-only discovery endpoint returning candidate dates | missing feature |
+| H04 | Class-support estimate | MISSING | – | – | MEDIUM | Server-side label count at coarse scale (indicative only) | missing feature |
+| H05 | Human-readable failures, no stack traces | PARTIAL | Raw `ValueError` text in `error_summary` | Technical wording, no suggested action | HIGH | Failure code → plain explanation + next step; full text kept in archive | presentation |
+| H06 | External-data requirement notice | PARTIAL | Non-satellite products not selectable | – | LOW | Explain why in UI | presentation |
+
+### I. Large-area analysis
+
+| ID | Req | Source | Status | Notes | Sev. | Recommended action | Type |
+|---|---|---|---|---|---|---|---|
+| I01 | Full-park / large AOI | Doc 0 "Additional capabilities: scalable cloud processing" | NEEDS_SCIENTIFIC_REVIEW → then future scope | Full Ugalla failed static support (likely F1) **and** capacity (~7.53 M cells, ~632 MiB vs 512 MiB guard and 512 MiB worker). After F1, capacity remains. Tiling alone does not create a supported tiled science pipeline (sampling, model, metrics must be defined across tiles). | MEDIUM | Re-run full-Ugalla *preflight* after F1; treat large-area execution (server-side reduction or GEE batch export + tiling) as a separately scoped capability. Do not raise memory limits as the fix. | future enhancement |
+
+### J. External-data-dependent products (FLOOD maps 2–12; FIRAS modules 1–11)
+
+| ID | Product | Status | Exact missing input | Provider can supply? | Institutional / field data required? | Note |
+|---|---|---|---|---|---|---|
+| J01 | Flood depth | BLOCKED_BY_EXTERNAL_DATA | Water-surface elevation (hydraulic model or surveyed marks) on same vertical datum as DEM | No (DEM yes, WSE no) | Yes | Source-bound path exists |
+| J02 | Flood velocity | BLOCKED_BY_EXTERNAL_DATA | Discharge and cross-sections / 2-D model output | No | Yes | |
+| J03 | Flood hazard (depth × velocity) | BLOCKED_BY_EXTERNAL_DATA | J01 + J02 | No | Yes | |
+| J04 | Inundation probability / AEP | BLOCKED_BY_EXTERNAL_DATA | Multi-year event series or hydrologic frequency model | Partly (long SAR/JRC series give empirical frequency of *surface water*, not AEP) | Yes for AEP | Never relabel classifier score (F8) |
+| J05 | Frequency / return period | BLOCKED_BY_EXTERNAL_DATA | Annual peak discharge series (n years) | No | Yes | |
+| J06 | Duration | BLOCKED_BY_EXTERNAL_DATA | ≥3 regular timestamped extents | Partly (S1 revisit, after B01) | Possibly | Becomes PARTIAL once B01 exists |
+| J07 | Exposure | BLOCKED_BY_EXTERNAL_DATA | Population/buildings/roads/facilities | Partly (WorldPop, GHSL, OSM) | Recommended for decisions | Needs scientific sign-off on substitutes |
+| J08 | Vulnerability (EWM, Option 2) | BLOCKED_BY_EXTERNAL_DATA | Census/survey indicators by spatial unit | No | Yes | |
+| J09 | Risk FRI = H × E × FII | BLOCKED_BY_EXTERNAL_DATA | H, E, FII | No | Yes | |
+| J10 | Susceptibility | BLOCKED_BY_EXTERNAL_DATA (provider variant NEEDS_SCIENTIFIC_REVIEW) | Soil texture, rainfall, drainage, LULC, DEM | Largely (SRTM, CHIRPS, ESA WorldCover, HydroSHEDS, OpenLandMap soil) | For gauge-based FHI terms | Possible provider-only variant; weighting choice must be documented |
+| J11 | Hazard zonation | BLOCKED_BY_EXTERNAL_DATA | J01–J06 | No | Yes | |
+| J12 | Insecurity, resilience (CPC, EWE, KF, DRE, RC) | BLOCKED_BY_EXTERNAL_DATA | Community surveys | No | Yes | |
+| J13 | Rainfall IDW / kriging surfaces + geostatistical plots | BLOCKED_BY_EXTERNAL_DATA | Gauge records with coordinates | No (CHIRPS is gridded, not gauges) | Yes | Code exists |
+| J14 | River stage maps / exceedance | BLOCKED_BY_EXTERNAL_DATA | Stage records, flood stage thresholds | No | Yes | Code exists |
+| J15 | Peak discharge / flood frequency | BLOCKED_BY_EXTERNAL_DATA | Streamflow records | No | Yes | |
+| J16 | Historical flood occurrence (inventory) | BLOCKED_BY_EXTERNAL_DATA | Dated flood polygons/points | Partly (Global Flood Database 2000–2018) | Preferred | Not the same as JRC water occurrence |
+| J17 | Correlation matrix, heatmap, MLR | BLOCKED_BY_EXTERNAL_DATA | Time- or unit-indexed series for all variables | Partly | Yes for hydrological variables | Libraries exist |
+| J18 | Real-time nowcasting / alerts | BLOCKED_BY_EXTERNAL_DATA + future scope | IoT/gauge streams, operational agreements | No | Yes | Out of current scope |
+| J19 | DSS KPI dashboard | BLOCKED_BY_EXTERNAL_DATA | The indices above | No | Yes | |
+
+### K. Reporting and export
+
+| ID | Req | Source | Status | Gap | Sev. | Recommended action | Type |
+|---|---|---|---|---|---|---|---|
+| K01 | PDF report | Doc 0 step 24 | PARTIAL | UUID titles, "Flood Risk Index Summary" mislabel, no figures/maps, no narrative | HIGH | Scientific output report: summary, study area, data, method, maps, area tables, water/trend, accuracy (framed per F2), limitations, provenance appendix | presentation / mislabel |
+| K02 | Word report | Doc 0 step 24 | PARTIAL | Flattened lines | MEDIUM | Same content as K01 | presentation |
+| K03 | Excel | Doc 0 step 24 | PARTIAL | Raw dumps; useful sheets exist | MEDIUM | Curated sheets with units and definitions | presentation |
+| K04 | CSV | Doc 0 step 24 | PASS | – | – | Keep | – |
+| K05 | GeoTIFF/COG, GeoJSON, KML, GPKG, Shapefile | Doc 0 step 25 | PASS | – | – | Keep | – |
+| K06 | JPEG map export | Doc 0 step 25 | MISSING | – | LOW | Add alongside PNG | missing feature |
+| K07 | Downloadable figures (ROC, PR, confusion, charts) | Prompt §16 | PARTIAL | SVG only, minimal styling | MEDIUM | PNG (300 dpi) + SVG, consistent style | presentation |
+| K08 | Complete evidence report | Existing | PARTIAL | Machine dump presented as a report | MEDIUM | Keep as "Audit appendix"; not the client report | presentation |
+
+---
+
+## 4. External-data dependency register (summary)
+
+| Needed for | Input | Free provider source available | Must come from client / institutions |
+|---|---|---|---|
+| Independent accuracy (F2) | Reference flood/no-flood sample | Global Flood Database (2000–2018), Copernicus EMS / UNOSAT products for activated events | Field GPS points; analyst interpretation of very-high-resolution imagery; national disaster agency polygons |
+| Depth, velocity, hazard, zonation | WSE, discharge, cross-sections | No | Hydrological/hydraulic agencies, surveys |
+| AEP, return period | Long discharge or event series | No | Basin water boards |
+| Exposure | Population, buildings, infrastructure | WorldPop, GHSL, OSM (substitutes, need sign-off) | Census, cadastral, utility data |
+| Vulnerability, insecurity, resilience | Survey indicators | No | Field surveys |
+| Rainfall surfaces from gauges | Station records | No (CHIRPS is gridded) | Meteorological agency |
+
+The External Data Manager (upload, validation, versioning, approval) is the correct channel for every client/institutional input above; no additional platform is needed to receive them.
+
+---
+
+## 5. Water terminology the outputs must use
+
+| Term | Definition for FIRRIS outputs | Data that can support it today | Currently produced? |
+|---|---|---|---|
+| Permanent water | Water present in (almost) all valid observations of the reference period | JRC occurrence ≥ threshold or seasonality = 12 months | No (used internally only) |
+| Seasonal water | Water present in some months of a normal year | JRC seasonality 1–11 / occurrence below permanent threshold | No |
+| Historical water occurrence | % of valid observations 1984–2021 with water | JRC occurrence | No |
+| Observed water (date-specific) | Water detected on the analysis date by a stated sensor/method | Sentinel-2 MNDWI; Sentinel-1 VV thresholding | No (arrays exist) |
+| Flood water | Observed water during the event that is not normal/permanent water | Observed water (event) minus reference water | No — current product is a backscatter-change rule (C06) |
+| Model-classified flood (current) | Pixels the Random Forest assigns to the SAR screening-label class | Current `flood_extent` | Yes — should be named "flood-candidate (model-classified)" |
+| Model confidence score (current) | Random Forest vote fraction for that class | Current `flood_probability` | Yes — must not be called probability (F8) |
+
+---
+
+## 6. Client expectation vs source documents
+
+| Topic | Documents say | Client expects | Resolution |
+|---|---|---|---|
+| Trend Analysis | Time-series spec: line graph, X = time; trend line optional and visual | "Missing" | Documents are the source of truth; implement B01–B03, B09 from provider data. Do not draw trends from two dates. |
+| Water Delineation | Not named; FLOOD §1 requires a permanent-water class; FIRAS lists NDWI, wetland, reservoir | Map + metrics | Supported indirectly; implement C01–C05 with Section 5 terminology. |
+| ROC | Doc 0 and FIRAS list ROC/AUC (and PR) | Curves visible | Exists in backend; expose with F2 framing. Micro/macro ROC not applicable to binary output. |
+| Accuracy assessment | FIRAS: classification metrics against "observed flood extent maps or historical flood records" | Complete assessment | Current reference is SAR pseudo-labels, not observed maps. Full compliance requires an independent reference (F2.2). |
+| Large-area analysis | Doc 0 lists scalable cloud processing as an additional capability | Full-park runs | Separate capability after F1 re-evaluation (I01). |
+| Map elements | Essentials: 13 elements incl. inset and author | Professional maps | 7 of 13 met (frame, north arrow, coordinates, datum, CRS, projection, graticule); 6 partial (title, legend, scale bar, inset, date, author). Fix A01, A03, A05, A06, A09, A10, plus AOI outline (A11) and geometry (A13). |
+
+---
+
+## 7. Controls that must be preserved (and are not touched by any recommendation)
+
+Degraded-MSI = 0% policy; cloud ≤ 20%; valid coverage ≥ 70%; minimum class support; exact band identity/order; validity masks; matching relative orbit; grid compatibility; 512 MiB export/memory guards; protected downloads; organisation scoping; role controls; audit logs; provenance and archive integrity; hardened Docker packaging.
+
+F1 is not a weakening: it corrects the meaning of a mask so the existing 70% coverage gate is computed over the right pixels. It still requires scientific sign-off and a before/after comparison on the existing production AOIs (which are inside JRC water extent and should be essentially unchanged).
+
+---
+
+## 8. Six-point summary
+
+### 1. Genuinely complete
+- Authentication, roles, organisation scoping, protected downloads, audit trails, TLS, hardened packaging, admin panel and External Data Manager (out of scope here, preserved).
+- GEE acquisition with scene pinning, exact band identity, validity masks, grid checks, fail-closed quality gates.
+- Geodesic area accounting with explicit valid-cell denominators; per-class areas.
+- FIRAS classification formulas (OA, UA/PA, F1, Kappa, MCC, balanced accuracy, omission/commission, prevalence) and AUC — mathematically correct and tested.
+- GIS exports (COG/GeoTIFF/GeoJSON/KML/GPKG/Shapefile), provenance, checksums, execution archive, reproducibility.
+- Map sheet elements: neatline, north arrow, graticule, CRS/datum/projection lines.
+
+### 2. Incomplete
+- Cartographic maps (A01, A03, A05, A06, A09–A17, A20–A21).
+- Accuracy presentation (D01–D07, D11, D15), ROC/PR figures (E01–E04).
+- Statistics presentation (F01–F05, F08), Results page (G01–G08), reports (K01–K03, K07).
+- Trend Analysis (B01–B04, B07–B09), Water Delineation (C01–C05), AOI preflight (H01–H06).
+
+### 3. Scientifically blocked or under review
+- **Under review, blocking credibility:** F1 (JRC mask), F2/D08/E06 (label circularity), F3 (event attribution), C06 (flood definition), D09 (spatial hold-out).
+- **Blocked by external data:** J01–J19, B06; true independent accuracy assessment (needs reference data).
+
+### 4. Presentation/UI only (no scientific change)
+A01–A03, A06, A09–A12, A14–A16, A19, D01–D03 (framing), D05–D07, D11, D15, E01, E03, E04, F01–F05, F08, G01–G08, H05, K01–K03, K07, and renaming per F8. The ROC/PR/confusion work is *exposure* of existing computations.
+
+### 5. Must be fixed before returning the system to the client
+1. **F1** JRC never-water masking — verify, fix, sign off, re-run preflights (client AOI, full Ugalla).
+2. **F2** Reframe every accuracy/ROC surface as internal agreement with pseudo-labels; show n and reference basis; offer the independent-reference path.
+3. **F4** Validation raster nodata/mask bug.
+4. **F8** Rename "Flood Probability" in all client-facing labels.
+5. **F5** Map geometry (aspect), AOI outline, context imagery, no-data and permanent-water legend classes, dates, attribution, locator.
+6. **F6** Accuracy assessment presentation: 2×2 confusion matrix, metrics table, ROC and PR figures (UI + PDF + PNG).
+7. **F10** Water delineation map and metrics (optical MNDWI and SAR, permanent/seasonal from JRC).
+8. **F9** Trend Analysis from provider data per the time-series specification (at minimum JRC historical water-extent series and CHIRPS rainfall series; S1 per-date extent series if review approves the water definition).
+9. **F7** Scientific output report (PDF/DOCX) with maps and figures; curated client-deliverables download group; readable Results page headline and quality-gate table.
+10. **F11** AOI preflight with plain-language reasons.
+11. **F3** Phase 5 acceptance run on a documented flood event over normally dry land, with an independent reference if obtainable.
+
+### 6. Explicitly future scope
+Large-area/tiled execution (I01); SPEI, ET, LST series (B05); spatial-block cross-validation and fold maps (D09); uncertainty layers (D13); model comparison UI (D14); provider-only susceptibility variant (J10, after sign-off); real-time nowcasting/alerts (J18); subscription, credits and multi-tenant commercial features (excluded by client instruction).
+
+---
+
+## 9. Pending inputs
+
+| Input | Why it matters | Who |
+|---|---|---|
+| `LST Research Paper - Makunga et al.pdf`, `Burned Area Mapping - Paper - Makunga et al.pdf` | Benchmark for figure layout, legend style, confusion-matrix and ROC presentation, table formatting, map composition. Will be compared against A- and K-rows and figure specs before implementation of F5–F7 is finalised. | Client |
+| Read-only GEE confirmation of JRC masking (F1) | Converts F1 from high-confidence to confirmed | Development team (GEE credentials on server) |
+| The client's failed AOI geometry and request | Confirms whether F1 explains the client-visible failure | Client / production database (read-only) |
+| Any independent flood reference for a candidate acceptance event | Enables genuine accuracy assessment (F2.2) | Client / national agencies / Copernicus EMS / UNOSAT |
+| Scientific sign-off owner | F1, F2.3, C06, water thresholds | Client's scientific lead |
