@@ -356,3 +356,5 @@ A fresh-session independent review follows. Each finding from the self-review, a
 | 6 | `GET /billing/summary`'s write was undocumented | Documented in the endpoint, the console router and §3 "Writes on GET" | — |
 | 7 | Owner decision: admin reasons are internal | The customer ledger returns a fixed `label` per entry type ("Monthly allowance", "Analysis", "Top-up", "Credits added by NOVAREX", "Credit adjustment by NOVAREX", "Plan change", "Top-up reversed", "Refund · …" from the recorded cause), never the reason. The console ledger (`AdminLedgerEntry`) and the audit log keep it. Payments already hide admin notes, and requests return no close reason. | `test_admin_reasons_never_reach_customers` (owner and viewer, every customer endpoint) |
 
+**Full suites after 5.1** (branch heads; `origin/main` `e969ff3` unchanged, so no rebase or re-chain was needed): backend integration **260 passed**, backend unit **1311 passed**, frontend **288 passed**; `tsc --noEmit` and `api:check` clean.
+
