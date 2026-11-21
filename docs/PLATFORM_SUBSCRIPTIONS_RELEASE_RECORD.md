@@ -305,19 +305,19 @@ The app itself is reached only through `app.novageorisk.com` (gateway, BFF).
 
 **Rollback:** set `BILLING_ENFORCEMENT_ENABLED=false` and restart. Nothing is lost.
 
-### 4.4 Open client questions: where each answer goes
+### 4.4 Client questions: all decided on 2026-11-21 (details in section 6)
 
-| Question | Configured in | Default until answered |
+| Question | Decision (2026-11-21) | Where it lives |
 |---|---|---|
-| Q1 Researcher credits | Plans and pricing > Change limits (or the plan data for new installs) | 10 |
-| Q2 MEGIS top-up price | Plans and pricing > Change price (top-up per credit) | none (no top-ups) |
-| Q3 refund on data failure | Plan limit `refund_on_data_failure`, or a per-contract value | off |
-| Q4 roll-over / top-up expiry | `BILLING_MONTHLY_CREDITS_ROLL_OVER`, `BILLING_TOP_UP_CREDITS_EXPIRE` | no / no |
-| Q5 storage at 100% | `BILLING_STORAGE_BLOCK_AT_LIMIT` | warn only |
-| Q6 receipts / VAT | not built (out of v1) | — |
-| Q7 viewing grace | `BILLING_VIEW_GRACE_DAYS` | unset (viewing never closes) |
-| Q8 sessions above Researcher | Plan `session_limit` | 3 |
-| Q9 login-history retention | `SESSION_HISTORY_RETENTION_DAYS` | kept |
+| Q1 Researcher credits and top-up prices | 10 credits/month at TZS 150,000. Top-up: Researcher 10 credits = TZS 150,000; other FRRIS/WRRIS plans 10 credits = TZS 100,000 | `plans.v2.json` (per-plan `top_up_credit_price`), applied by `billing.cli apply-catalogue` |
+| Q2 MEGIS top-up price | TZS 25,000 per credit (10 credits = TZS 250,000), **pending final client confirmation** | `plans.v2.json` family price; later changes via Plans and pricing |
+| Q3 refund on data failure | ON | `plans.v2.json` `refund_on_data_failure: true`; a contract can still switch it off |
+| Q4 roll-over / top-up expiry | Unused monthly credits expire at month end; top-ups do not | `BILLING_MONTHLY_CREDITS_ROLL_OVER=false` (default, unchanged), `BILLING_TOP_UP_CREDITS_EXPIRE=false` |
+| Q5 storage | Warn at 90% and 100%; at 100% new analyses stop until space is freed or added; viewing and downloads always allowed. "Free up space" and "Request extra storage" (price per GB TBD) | `BILLING_STORAGE_BLOCK_AT_LIMIT=true`, `BILLING_STORAGE_WARNING_PERCENTS=[90]`; `storage_extra_gb_price` in `plans.v2.json` (null) |
+| Q6 receipts / VAT | PDF payment receipt for every recorded payment (Abliner-settled included), "Payment receipt – not a TRA fiscal receipt"; test payments in a TEST series. Seller identity and VAT mode are settings (default VAT none) | `SELLER_LEGAL_NAME`, `SELLER_TIN`, `SELLER_ADDRESS`, `SELLER_LOGO_PATH`, `SELLER_VAT_MODE`, `SELLER_VAT_RATE_PERCENT` |
+| Q7 expiry | New analyses stop; view/download for 2 days, then access closes; Renew plan (Mobile Money too); top-ups only with an active plan | `BILLING_VIEW_GRACE_DAYS=2`; the `sweep-statuses --apply` cron closes access |
+| Q8 sessions | 1 active session per user on **all** plans (Internal included); a new sign-in ends the old one with the existing notice | `plans.v2.json` `session_limit: 1` |
+| Q9 IP retention | 30 days agreed; privacy notice on the sign-in page and under "Your sessions" | `SESSION_IP_RETENTION_DAYS=30` (unchanged); login-history retention stays `SESSION_HISTORY_RETENTION_DAYS` (unset, kept) |
 
 ### 4.5 Known limits and later options
 
@@ -371,3 +371,64 @@ A fresh-session independent review follows. Each finding from the self-review, a
 - On `api.novageorisk.com` it serves `/health` from the API, sends `/auth/*` and `/api/*` to the **BFF** (not to the API), redirects `/auth/login` and everything else to the app host, and returns 404 for `/outputs/`.
 - So the statement in §1 step 1a that this host "never served `/auth/*` through the BFF" does not hold for production. The r8 edge change must be made to the live file, not by copying the repo file. See `docs/FRRIS_PRODUCTION_DEPLOY_RECORD_R8.md` when it exists.
 
+
+
+## 6. Client decisions on the open questions (2026-11-21), branch `feat/subscription-client-decisions`
+
+Built on top of `feat/abliner-payments` (it touches the same payment files). **Merge order: v1.1 → Abliner → this
+branch.** If the Abliner review changes that branch, this one is rebased onto it. Not merged, not deployed.
+
+### 6.1 What changed
+
+- **Data, not code.** `plans.v2.json` holds Q1, Q2, Q3, Q8 and `storage_extra_gb_price` (null). `plans.v1.json` stays frozen: the migrations seed it.
+  - `billing.cli apply-catalogue` brings a v1 database to v2: new price versions (source `plans.v2.json`) and plan-limit edits, audited as `plan.price` and `plan.limits` with actor `operator command: apply-catalogue`.
+  - It is a dry run unless `--apply`, and a second run changes nothing.
+  - Price edits made in the console after the v1 seed would be overwritten by `--apply`, so read the dry run first.
+- **Q5:**
+  - `GET /billing/storage` lists the results that hold files, largest first.
+  - `POST /billing/storage/results/{id}/delete-files`:
+    - for owners and admins, with project access and engine entitlement;
+    - the user types the first 8 characters of the result ID;
+    - files are removed only inside the artifact root;
+    - the result record, summary and provenance stay;
+    - audited as `storage.files_deleted`, with the customer as actor.
+  - Request kind `storage`, in whole GB.
+  - The 100% block applies to new analyses while enforcement is on; viewing and downloads are never blocked.
+- **Q6:**
+  - Tables `payment_receipts` and `receipt_counters` (migration `e8a0c2d4f6b1`).
+  - A receipt is issued in the payment's own transaction, using a locked counter, so there are no gaps. Existing payments are numbered in recording order by the migration. Reversals get no receipt; the reversed payment's receipt is drawn "REVERSED". Test payments use the `TEST-` series.
+  - The seller identity is frozen on the receipt the first time it is drawn (a write on GET). Receipts are refused (503 `receipts_not_configured`) until `SELLER_LEGAL_NAME` is set.
+  - With VAT "exclusive", Mobile Money offers add 18%. A manually recorded payment keeps the list price as `expected_amount`.
+- **Q7:**
+  - The summary gains `access_ends_at`.
+  - Top-up offers and requests return `plan_not_active` unless the plan is active.
+  - A renewal payment (manual or Abliner) reactivates the plan and reopens access closed by the grace sweep.
+- **Q8:** with enforcement on, every plan allows one session. With enforcement off, today's behaviour is unchanged (no limit).
+- **Q9:** the notice text is "For security we record sign-ins (device, approximate location and IP address). IP addresses are deleted after 30 days."
+
+### 6.2 Security-review rows (new)
+
+| # | File | What | Failure behaviour |
+|---|---|---|---|
+| C1 | `app/api/v1/endpoints/billing.py` `delete_result_files`; `app/services/billing/storage.py` | Deletes customer files: role (owner/admin), organisation match, `require_project_access`, `require_engine_entitlement`, typed confirmation, row lock, artifact-root containment per file (a path outside is skipped and logged; tested), audit row | 403 / 404 / 409 / 422; 503 if a file cannot be removed |
+| C2 | `GET /billing/payments/{id}/receipt`, `GET /platform-admin/payments/{id}/receipt`; `app/services/billing/receipts.py` | Owner/admin of the payment's organisation, or platform admin. PDF with `no-store`, `nosniff`, attachment. Never prints admin notes or reasons. | 403 / 404 / 503 |
+| C3 | `app/services/billing/payments.py` `_insert_payment` +1 line | Issues the receipt in the same transaction (counter row lock). | A failure rolls back the payment |
+| C4 | `app/core/config.py` | Seller and VAT settings; `billing_storage_block_at_limit` default true; `billing_view_grace_days` default 2; validated VAT mode and storage percents | Invalid settings refuse to start |
+
+No change to the BFF, the gateway, auth or sessions code. The session limit change is data.
+
+### 6.3 Turn-on checklist additions (after the Abliner checklist)
+
+1. Deploy and migrate: `alembic upgrade head` runs `e8a0c2d4f6b1`, which numbers the existing payments' receipts.
+2. `python -m app.services.billing.cli apply-catalogue`: read the dry run. Expect:
+   - Researcher top-up 15,000 per credit;
+   - MEGIS 25,000 per credit;
+   - `refund_on_data_failure` true;
+   - `session_limit` 1 on every plan.
+
+   Then run it again with `--apply`.
+3. Set the seller settings on the server, then restart `api`: `SELLER_LEGAL_NAME`, `SELLER_TIN`, `SELLER_ADDRESS`, optionally `SELLER_LOGO_PATH` (a PNG or JPEG readable by the API container), and `SELLER_VAT_MODE` (`none` unless told otherwise). Download one receipt from the console to check it. Changing the seller later (for example to NOVAREX Ltd) is the same step; receipts already drawn keep the old seller.
+4. The `sweep-statuses --apply` cron must run at least hourly, because the 2-day grace is enforced by the sweep.
+5. **Sessions:** with enforcement on, one session per user on every plan, the Internal plan included. Tell the team: signing in on a phone ends the laptop session.
+6. **Storage:** at 100% new analyses stop (with enforcement on). Tell customers near their limit before Phase B, and point them to "Free up space" and "Request extra storage".
+7. **Still open:** the final MEGIS price (Q2), and the price per extra GB (Q5b; NOVA ARI quotes until it is set in the plans file).
