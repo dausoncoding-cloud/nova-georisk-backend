@@ -74,6 +74,11 @@ def _errors(db: Session):
         raise PublicAPIError(exc.status, exc.code, exc.message) from exc
 
 
+def _overrides(value) -> dict | None:
+    """Only the override fields the admin sent (null clears one)."""
+    return value.model_dump(exclude_unset=True) if value is not None else None
+
+
 def _key(value: str | None) -> str:
     if not value or not 8 <= len(value) <= 128:
         raise PublicAPIError(422, "idempotency_key_required", "Send an Idempotency-Key header (8-128 characters).")
@@ -145,7 +150,7 @@ def add_customer(body: AddCustomerRequest, db: Session = Depends(get_db),
     with _errors(db):
         organization, subscription, owner = actions.add_customer(
             db, name=body.name, slug=body.slug, family=body.family, plan_key=body.plan_key, reason=body.reason,
-            actor=admin.actor, starts_at=body.starts_at, ends_at=body.ends_at, overrides=body.overrides,
+            actor=admin.actor, starts_at=body.starts_at, ends_at=body.ends_at, overrides=_overrides(body.overrides),
             owner_issuer=body.owner_issuer, owner_subject=body.owner_subject, owner_email=body.owner_email,
             owner_name=body.owner_name)
         db.commit()
@@ -234,7 +239,7 @@ def add_subscription(organization_id: uuid.UUID, body: AddSubscriptionRequest, d
     with _errors(db):
         subscription = actions.add_subscription(
             db, organization_id, family=body.family, plan_key=body.plan_key, reason=body.reason, actor=admin.actor,
-            starts_at=body.starts_at, ends_at=body.ends_at, overrides=body.overrides)
+            starts_at=body.starts_at, ends_at=body.ends_at, overrides=_overrides(body.overrides))
         db.commit()
     return CustomerCreated(organization_id=organization_id, subscription_id=subscription.id, owner_user_id=None)
 
@@ -275,7 +280,7 @@ def change_plan(subscription_id: uuid.UUID, body: PlanChangeRequest, db: Session
                 admin: AdminContext = Depends(require_platform_admin)) -> CustomerRowResponse:
     _subscription(db, subscription_id)
     with _errors(db):
-        actions.change_plan(db, subscription_id, plan_key=body.plan_key, overrides=body.overrides, reason=body.reason,
+        actions.change_plan(db, subscription_id, plan_key=body.plan_key, overrides=_overrides(body.overrides), reason=body.reason,
                             actor=admin.actor)
         db.commit()
     return _row(next(row for row in overview.customer_rows(db) if row.subscription_id == subscription_id))

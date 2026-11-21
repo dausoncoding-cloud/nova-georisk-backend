@@ -5,8 +5,9 @@ import uuid
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
+from app.services.billing.bounds import INTEGER_BOUNDS
 from app.schemas.billing import LedgerPage, PaymentResponse, PlanLimits, SubscriptionSummary
 
 
@@ -124,8 +125,22 @@ class AdminLoginPage(BaseModel):
     location_attribution: str | None
 
 
-Overrides = dict[Literal["monthly_credits_override", "seat_limit_override", "storage_bytes_override",
-                         "session_limit_override", "refund_on_data_failure_override"], int | bool | None]
+def _bounded(name: str):
+    low, high = INTEGER_BOUNDS[name]
+    return Field(default=None, ge=low, le=high)
+
+
+class Overrides(BaseModel):
+    """Per-contract values (security review L2): typed per field, bounded, no booleans for numbers. Only the
+    fields sent are changed; send null to clear one (the plan's value applies again)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    monthly_credits_override: StrictInt | None = _bounded("monthly_credits")
+    seat_limit_override: StrictInt | None = _bounded("seat_limit")
+    storage_bytes_override: StrictInt | None = _bounded("storage_bytes")
+    session_limit_override: StrictInt | None = _bounded("session_limit")
+    refund_on_data_failure_override: StrictBool | None = None
 
 
 class AddSubscriptionRequest(BaseModel):
@@ -252,11 +267,13 @@ class PriceChangeRequest(BaseModel):
 
 
 class LimitChangeRequest(BaseModel):
-    seat_limit: int | None = None
-    monthly_credits: int | None = None
-    storage_bytes: int | None = None
-    session_limit: int | None = None
-    refund_on_data_failure: bool | None = None
+    model_config = ConfigDict(extra="forbid")
+
+    seat_limit: StrictInt | None = _bounded("seat_limit")
+    monthly_credits: StrictInt | None = _bounded("monthly_credits")
+    storage_bytes: StrictInt | None = _bounded("storage_bytes")
+    session_limit: StrictInt | None = _bounded("session_limit")
+    refund_on_data_failure: StrictBool | None = None
     # Which of the fields above to apply (so a limit can also be set to "no limit").
     fields: list[Literal["seat_limit", "monthly_credits", "storage_bytes", "session_limit",
                          "refund_on_data_failure"]] = Field(min_length=1)

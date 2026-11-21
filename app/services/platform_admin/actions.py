@@ -19,7 +19,7 @@ from app.models.platform import (BillingPlan, EntitlementStatus, OrganizationEng
                                  SubscriptionStatus)
 from app.models.platform_admin import SecurityAlert
 from app.models.sessions import UserSession
-from app.services.billing import audit, catalogue, ledger
+from app.services.billing import audit, bounds, catalogue, ledger
 from app.services.sessions import tracking
 
 SLUG = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,62}[a-z0-9])$")
@@ -32,6 +32,19 @@ class ActionError(ValueError):
     def __init__(self, code: str, message: str, status: int = 422):
         super().__init__(message)
         self.code, self.message, self.status = code, message, status
+
+
+def _checked_overrides(overrides: dict | None) -> dict:
+    """Same rules as the API schema, for every caller (security review L2)."""
+    checked = {}
+    for name, value in (overrides or {}).items():
+        if name not in OVERRIDES:
+            raise ActionError("override_invalid", f"Unknown override: {name}")
+        problem = bounds.check(name, value)
+        if problem:
+            raise ActionError("override_invalid", problem)
+        checked[name] = value
+    return checked
 
 
 def _plan_for(db: Session, family: str, plan_key: str) -> BillingPlan:
@@ -88,9 +101,7 @@ def add_subscription(
     subscription = OrganizationSubscription(
         organization_id=organization_id, family=family, plan_key=plan_key, status=SubscriptionStatus.ACTIVE,
         starts_at=starts_at or now, ends_at=ends_at, status_changed_at=now, source="nova_ari_console")
-    for name, value in (overrides or {}).items():
-        if name not in OVERRIDES:
-            raise ActionError("override_invalid", f"Unknown override: {name}")
+    for name, value in _checked_overrides(overrides).items():
         setattr(subscription, name, value)
     db.add(subscription)
     db.flush()
@@ -160,11 +171,7 @@ def change_plan(
     if plan_key is not None and plan_key != subscription.plan_key:
         _plan_for(db, subscription.family, plan_key)
         subscription.plan_key = plan_key
-    for name, value in (overrides or {}).items():
-        if name not in OVERRIDES:
-            raise ActionError("override_invalid", f"Unknown override: {name}")
-        if value is not None and name != "refund_on_data_failure_override" and int(value) < 0:
-            raise ActionError("override_invalid", f"{name} cannot be negative.")
+    for name, value in _checked_overrides(overrides).items():
         setattr(subscription, name, value)
     current = _subscription_view(subscription)
     if current == previous:
@@ -261,10 +268,11 @@ def update_plan_limits(db: Session, plan_key: str, *, changes: dict, reason: str
     for name, value in changes.items():
         if name not in PLAN_LIMITS:
             raise ActionError("limit_invalid", f"Unknown limit: {name}")
-        if name == "refund_on_data_failure":
-            value = bool(value)
-        elif value is not None and int(value) < 0:
-            raise ActionError("limit_invalid", f"{name} cannot be negative.")
+        if name == "refund_on_data_failure" and value is None:
+            raise ActionError("limit_invalid", "refund_on_data_failure must be true or false.")
+        problem = bounds.check(name, value)
+        if problem:
+            raise ActionError("limit_invalid", problem)
         setattr(plan, name, value)
     current = {name: getattr(plan, name) for name in PLAN_LIMITS}
     if current == previous:

@@ -449,3 +449,42 @@ def test_a_slow_or_down_redis_never_delays_a_request(client, db_session, monkeyp
     monkeypatch.setattr(counters, "_sync_client", down)
     assert client.get("/api/v1/billing/summary", headers=t.headers).status_code == 200
     counters.record_download(t.org.id, 100)
+
+
+# --- security review L2: typed, bounded overrides and limits ----------------------------------------
+
+def test_overrides_and_limits_are_typed_and_bounded(client, db_session, monkeypatch):
+    from app.services.platform_admin import actions as console_actions
+
+    admin = _admin(db_session)
+    t = _tenant(db_session, "pa-bounds")
+    sub = f"{BASE}/subscriptions/{t.sub.id}/plan"
+    bad = [{"monthly_credits_override": -1}, {"seat_limit_override": True}, {"seat_limit_override": 0},
+           {"session_limit_override": 0}, {"monthly_credits_override": 10**12}, {"storage_bytes_override": 10**15},
+           {"monthly_credits_override": "5"}, {"refund_on_data_failure_override": 1}, {"unknown_override": 3}]
+    for overrides in bad:
+        response = client.post(sub, headers=admin.headers, json={"overrides": overrides, "reason": "bounds"})
+        assert response.status_code == 422, (overrides, response.text)
+        created = client.post(f"{BASE}/customers", headers=admin.headers, json={
+            "name": "Bounds Org", "slug": "bounds-org", "family": "frris_wrris", "plan_key": "frris_wrris.custom",
+            "overrides": overrides, "reason": "bounds"})
+        assert created.status_code == 422, (overrides, created.text)
+    ok = client.post(sub, headers=admin.headers, json={"overrides": {"seat_limit_override": 3, "refund_on_data_failure_override": True},
+                                                       "reason": "Contract terms"})
+    assert ok.status_code == 200 and ok.json()["users_limit"] == 3
+    db_session.refresh(t.sub)
+    assert (t.sub.seat_limit_override, t.sub.refund_on_data_failure_override, t.sub.monthly_credits_override) == (3, True, None)
+    cleared = client.post(sub, headers=admin.headers, json={"overrides": {"seat_limit_override": None}, "reason": "Back to plan"})
+    assert cleared.status_code == 200 and cleared.json()["users_limit"] == 1  # only the field sent changed
+    db_session.refresh(t.sub)
+    assert t.sub.refund_on_data_failure_override is True
+    for body in ({"seat_limit": 0, "fields": ["seat_limit"]}, {"monthly_credits": True, "fields": ["monthly_credits"]},
+                 {"session_limit": 1000, "fields": ["session_limit"]}, {"storage_bytes": -1, "fields": ["storage_bytes"]}):
+        response = client.patch(f"{BASE}/plans/frris_wrris.researcher/limits", headers=admin.headers, json={**body, "reason": "x"})
+        assert response.status_code == 422, (body, response.text)
+    # The services apply the same rules to every caller, not only the API.
+    for overrides in ({"monthly_credits_override": True}, {"seat_limit_override": -2}, {"session_limit_override": 0}):
+        with pytest.raises(console_actions.ActionError):
+            console_actions.change_plan(db_session, t.sub.id, plan_key=None, overrides=overrides, reason="x",
+                                        actor=admin_actor(admin))
+        db_session.rollback()
