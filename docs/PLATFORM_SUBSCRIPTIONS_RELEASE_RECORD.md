@@ -316,7 +316,7 @@ The app itself is reached only through `app.novageorisk.com` (gateway, BFF).
 | Q5 storage | Warn at 90% and 100%; at 100% new analyses stop until space is freed or added; viewing and downloads always allowed. "Free up space" and "Request extra storage" (price per GB TBD) | `BILLING_STORAGE_BLOCK_AT_LIMIT=true`, `BILLING_STORAGE_WARNING_PERCENTS=[90]`; `storage_extra_gb_price` in `plans.v2.json` (null) |
 | Q6 receipts / VAT | PDF payment receipt for every recorded payment (Abliner-settled included), "Payment receipt – not a TRA fiscal receipt"; test payments in a TEST series. Seller identity and VAT mode are settings (default VAT none) | `SELLER_LEGAL_NAME`, `SELLER_TIN`, `SELLER_ADDRESS`, `SELLER_LOGO_PATH`, `SELLER_VAT_MODE`, `SELLER_VAT_RATE_PERCENT` |
 | Q7 expiry | New analyses stop; view/download for 2 days, then access closes; Renew plan (Mobile Money too); top-ups only with an active plan | `BILLING_VIEW_GRACE_DAYS=2`; the `sweep-statuses --apply` cron closes access |
-| Q8 sessions | 1 active session per user on **all** plans (Internal included); a new sign-in ends the old one with the existing notice | `plans.v2.json` `session_limit: 1` |
+| Q8 sessions | 1 active session per user on all customer plans; a new sign-in ends the old one with the existing notice. The Internal plan keeps 3 (owner, 2026-11-21) | `plans.v2.json` `session_limit: 1` (Internal: 3) |
 | Q9 IP retention | 30 days agreed; privacy notice on the sign-in page and under "Your sessions" | `SESSION_IP_RETENTION_DAYS=30` (unchanged); login-history retention stays `SESSION_HISTORY_RETENTION_DAYS` (unset, kept) |
 
 ### 4.5 Known limits and later options
@@ -403,7 +403,7 @@ branch.** If the Abliner review changes that branch, this one is rebased onto it
   - The summary gains `access_ends_at`.
   - Top-up offers and requests return `plan_not_active` unless the plan is active.
   - A renewal payment (manual or Abliner) reactivates the plan and reopens access closed by the grace sweep.
-- **Q8:** with enforcement on, every plan allows one session. With enforcement off, today's behaviour is unchanged (no limit).
+- **Q8:** with enforcement on, every customer plan allows one session; the Internal plan allows 3. With enforcement off, today's behaviour is unchanged (no limit).
 - **Q9:** the notice text is "For security we record sign-ins (device, approximate location and IP address). IP addresses are deleted after 30 days."
 
 ### 6.2 Security-review rows (new)
@@ -424,11 +424,11 @@ No change to the BFF, the gateway, auth or sessions code. The session limit chan
    - Researcher top-up 15,000 per credit;
    - MEGIS 25,000 per credit;
    - `refund_on_data_failure` true;
-   - `session_limit` 1 on every plan.
+   - `session_limit` 1 on every customer plan, 3 on Internal.
 
    Then run it again with `--apply`.
 3. Set the seller settings on the server, then restart `api`: `SELLER_LEGAL_NAME`, `SELLER_TIN`, `SELLER_ADDRESS`, optionally `SELLER_LOGO_PATH` (a PNG or JPEG readable by the API container), and `SELLER_VAT_MODE` (`none` unless told otherwise). Download one receipt from the console to check it. Changing the seller later (for example to NOVAREX Ltd) is the same step; receipts already drawn keep the old seller.
 4. The `sweep-statuses --apply` cron must run at least hourly, because the 2-day grace is enforced by the sweep.
-5. **Sessions:** with enforcement on, one session per user on every plan, the Internal plan included. Tell the team: signing in on a phone ends the laptop session.
+5. **Sessions:** with enforcement on, one session per user on every customer plan; the Internal plan keeps 3.
 6. **Storage:** at 100% new analyses stop (with enforcement on). Tell customers near their limit before Phase B, and point them to "Free up space" and "Request extra storage".
 7. **Still open:** the final MEGIS price (Q2), and the price per extra GB (Q5b; NOVA ARI quotes until it is set in the plans file).
