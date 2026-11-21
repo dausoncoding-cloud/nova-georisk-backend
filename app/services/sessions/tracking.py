@@ -129,7 +129,7 @@ class SessionTracker:
                                  kind="new_device", created_at=now,
                                  detail={"browser": device.browser, "os": device.os, "device_type": device.device_type,
                                          "city": record.city, "country": record.country}))
-        drop_expired_ips(db, now=now)
+        # IP retention is the daily purge cron's job (Phase A); sign-in no longer scans the table (review 5).
         db.flush()
         limit = limits.session_limit(db, organization_id)
         ended_hashes = self._client.eval(

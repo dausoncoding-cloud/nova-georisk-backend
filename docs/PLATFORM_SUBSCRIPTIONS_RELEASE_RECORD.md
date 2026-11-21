@@ -23,7 +23,7 @@ The read endpoints (`/billing/*`) work either way. Switching it on before steps 
    ```
    python -m app.services.sessions.cli purge --apply
    ```
-   - It removes IP addresses older than `SESSION_IP_RETENTION_DAYS` (30). Sign-in also removes them, but only for users who sign in.
+   - It removes IP addresses older than `SESSION_IP_RETENTION_DAYS` (30). It is the only thing that does: sign-in no longer purges (independent review 5), so the cron is required.
    - **Q9 goes to the client:** is keeping the full IP address for 30 days (and city-level location, if the GeoIP file is installed) acceptable under their privacy policy? 30 days stays the default until they answer.
 2. **Seed the catalogue** (idempotent; it only adds missing rows):
    `python -m app.services.billing.cli seed`
@@ -82,7 +82,7 @@ The read endpoints (`/billing/*`) work either way. Switching it on before steps 
      - Without it, locations are simply blank.
      - The lookup is local only; no IP address is sent anywhere.
      - Refresh the file monthly.
-   - **Retention.** Full IP addresses are removed after 30 days (`SESSION_IP_RETENTION_DAYS`), at every sign-in and by the daily purge cron set up in step 1b (Phase A).
+   - **Retention.** Full IP addresses are removed after 30 days (`SESSION_IP_RETENTION_DAYS`) by the daily purge cron set up in step 1b (Phase A).
    - **Login history** is kept until Q9 sets `SESSION_HISTORY_RETENTION_DAYS`.
    - **Proxy addresses.** If the Docker network is not in `SESSION_TRUSTED_PROXY_CIDRS` (the private ranges by default), set it; otherwise locations show the proxy.
    - **Existing sessions.** Sessions created before this release have no device row. They keep working until they expire (8 h) and are not counted toward the limit.

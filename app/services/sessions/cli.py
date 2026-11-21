@@ -2,7 +2,7 @@
 
     python -m app.services.sessions.cli purge [--apply]
 
-Removes full IP addresses older than SESSION_IP_RETENTION_DAYS (30; sign-in also does this) and,
+Removes full IP addresses older than SESSION_IP_RETENTION_DAYS (30; this command is the only purge, run it daily) and,
 once Q9 sets SESSION_HISTORY_RETENTION_DAYS, deletes older login history. Dry run unless --apply.
 """
 from __future__ import annotations

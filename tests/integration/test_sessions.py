@@ -204,7 +204,7 @@ def test_location_is_offline_and_full_ips_are_dropped_after_30_days(db_session, 
     assert (old.city, old.country_code, old.ip_address) == ("Dar es Salaam", "TZ", "41.59.10.20")
     _, new_ref = _sign_in(db_session, store, tracker, t, forwarded="10.1.1.1")
     db_session.refresh(old)
-    assert old.ip_address is None and old.city == "Dar es Salaam"  # the next sign-in drops IPs older than 30 days
+    assert old.ip_address == "41.59.10.20"  # sign-in does not purge (independent review 5); the daily cron does
     new = db_session.get(UserSession, new_ref)
     assert new.ip_address == "10.1.1.1" and new.city is None  # private address: no lookup
     stale = UserSession(id=uuid.uuid4(), user_id=t.user.id, organization_id=t.org.id, session_hash=uuid.uuid4().hex * 2,
@@ -214,10 +214,13 @@ def test_location_is_offline_and_full_ips_are_dropped_after_30_days(db_session, 
     db_session.add(stale)
     db_session.commit()
     from app.services.sessions.cli import purge
-    assert purge(db_session, apply=False)["ip_addresses"] == 1
-    assert purge(db_session, apply=True)["ip_addresses"] == 1
+    assert purge(db_session, apply=False)["ip_addresses"] == 2  # the 31-day sign-in and the 40-day row
+    assert purge(db_session, apply=True)["ip_addresses"] == 2
     db_session.refresh(stale)
+    db_session.refresh(old)
     assert stale.ip_address is None and stale.city == "Dar es Salaam"
+    assert old.ip_address is None and old.city == "Dar es Salaam"
+    assert db_session.get(UserSession, new_ref).ip_address == "10.1.1.1"  # recent: kept
 
 
 def test_oidc_callback_records_the_device_and_applies_the_limit(db_session, stack, monkeypatch):
