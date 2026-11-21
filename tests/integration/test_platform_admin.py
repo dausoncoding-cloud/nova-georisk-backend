@@ -300,6 +300,19 @@ def test_payments_page_and_audit_log_filters(client, db_session):
 
 # --- usage ------------------------------------------------------------------------------------------
 
+def _wait_for_counts(redis_client, key, organization_id, **expected):
+    import time
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        values = redis_client.hgetall(key)
+        seen = {metric: sum(int(v) for f, v in values.items() if f.endswith(f"|{organization_id}|{metric}"))
+                for metric in expected}
+        if seen == expected:
+            return
+        time.sleep(0.02)
+    raise AssertionError(f"usage counters did not reach {expected}: {seen}")
+
+
 @pytest.fixture()
 def usage_redis(redis_client, monkeypatch):
     import redis.asyncio as redis_asyncio
@@ -308,6 +321,7 @@ def usage_redis(redis_client, monkeypatch):
     monkeypatch.setattr(get_settings(), "usage_counting_enabled", True)
     monkeypatch.setattr(counters, "buffer_key", lambda: key)
     monkeypatch.setattr(counters, "_sync_client", lambda: redis_client)
+    monkeypatch.setattr(counters, "_flush_client", lambda: redis_client)
     url = redis_client.connection_pool.connection_kwargs
     monkeypatch.setattr(counters, "_async_client", lambda: redis_asyncio.Redis(
         host=url["host"], port=url["port"], db=url["db"], decode_responses=True))
@@ -338,6 +352,7 @@ def test_api_requests_downloads_and_data_processed(client, db_session, usage_red
     assert client.get(f"{product}/map", headers=t.headers).status_code == 200  # preview: not counted
     client.get("/api/v1/billing/summary", headers=t.headers)
     client.get(f"{BASE}/overview", headers=admin.headers)  # the console's own requests are not counted
+    _wait_for_counts(redis_client, key, t.org.id, api_requests=5, downloads=1)  # counters write in the background
     detail = client.get(f"{BASE}/customers/{t.org.id}", headers=admin.headers).json()  # flushes the buffer
     usage = detail["usage"]
     assert usage["downloads"] == 1 and usage["download_bytes"] == 1500
@@ -357,6 +372,7 @@ def test_usage_counting_never_breaks_a_request(client, db_session, monkeypatch):
 
     monkeypatch.setattr(counters, "_async_client", broken)
     monkeypatch.setattr(counters, "_sync_client", broken)
+    monkeypatch.setattr(counters, "_flush_client", broken)
     t = _tenant(db_session, "pa-usage-down")
     assert client.get("/api/v1/billing/summary", headers=t.headers).status_code == 200
     counters.record_download(t.org.id, 10)
@@ -382,3 +398,54 @@ def test_go_live_grace_stops_the_overdue_burst(db_session, monkeypatch):
                                  actor=admin_actor(_admin(db_session)), key="golive-pay-1")
     assert overview.payment_overdue(db_session, t.sub, plan, today=today + timedelta(days=37)) is False
     assert overview.payment_overdue(db_session, t.sub, plan, today=today + timedelta(days=38)) is True
+
+
+
+# --- security review L1 / L7 ------------------------------------------------------------------------
+
+def test_non_ascii_internal_secret_header_is_a_plain_404_not_a_500(client, monkeypatch):
+    monkeypatch.setattr(get_settings(), "usage_counting_enabled", True)
+    response = client.get("/api/v1/no-such-route", headers={"X-Internal-Secret": "s\u00e9cret".encode("latin-1"),
+                                                            "X-Nova-Organization-Id": str(uuid.uuid4())})
+    assert response.status_code == 404
+
+
+def test_a_slow_or_down_redis_never_delays_a_request(client, db_session, monkeypatch):
+    import asyncio
+    import time
+
+    monkeypatch.setattr(get_settings(), "usage_counting_enabled", True)
+
+    class SlowAsync:
+        async def hincrby(self, *_args):
+            await asyncio.sleep(3)
+
+    class SlowSync:
+        def pipeline(self):
+            return self
+
+        def hincrby(self, *_args):
+            return self
+
+        def expire(self, *_args):
+            return self
+
+        def execute(self):
+            time.sleep(3)
+
+    t = _tenant(db_session, "pa-slow-redis")
+    monkeypatch.setattr(counters, "_async_client", lambda: SlowAsync())
+    started = time.monotonic()
+    assert client.get("/api/v1/billing/summary", headers=t.headers).status_code == 200
+    assert time.monotonic() - started < 1.5
+    started = time.monotonic()
+    counters.record_download(t.org.id, 100, client=SlowSync())
+    assert time.monotonic() - started < 0.05
+
+    def down():
+        raise ConnectionError("redis down")
+
+    monkeypatch.setattr(counters, "_async_client", down)
+    monkeypatch.setattr(counters, "_sync_client", down)
+    assert client.get("/api/v1/billing/summary", headers=t.headers).status_code == 200
+    counters.record_download(t.org.id, 100)

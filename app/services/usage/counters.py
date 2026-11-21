@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import logging
 import secrets
+import threading
 import uuid
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from functools import lru_cache
 
@@ -25,6 +27,13 @@ logger = logging.getLogger(__name__)
 
 METRICS = ("api_requests", "downloads", "download_bytes")
 BUFFER_TTL_SECONDS = 40 * 24 * 3600
+# A slow or unreachable Redis must never delay a request (security review L7): short timeouts, and writes
+# happen off the request path (a background task for API requests, a small worker pool for downloads).
+REDIS_TIMEOUT_SECONDS = 0.05
+_MAX_PENDING_DOWNLOADS = 1000
+_download_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="usage-counter")
+_pending_downloads = 0
+_pending_lock = threading.Lock()
 
 
 def buffer_key() -> str:
@@ -44,7 +53,16 @@ def _sync_client():
     import redis
 
     return redis.Redis.from_url(get_settings().redis_url, decode_responses=True,
-                                socket_connect_timeout=0.5, socket_timeout=0.5)
+                                socket_connect_timeout=REDIS_TIMEOUT_SECONDS, socket_timeout=REDIS_TIMEOUT_SECONDS)
+
+
+@lru_cache
+def _flush_client():
+    """Off the request path (console reads, cron), so it may wait longer than the counters."""
+    import redis
+
+    return redis.Redis.from_url(get_settings().redis_url, decode_responses=True,
+                                socket_connect_timeout=2, socket_timeout=5)
 
 
 @lru_cache
@@ -52,13 +70,34 @@ def _async_client():
     import redis.asyncio as redis_asyncio
 
     return redis_asyncio.Redis.from_url(get_settings().redis_url, decode_responses=True,
-                                        socket_connect_timeout=0.5, socket_timeout=0.5)
+                                        socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
+                                        socket_timeout=REDIS_TIMEOUT_SECONDS)
 
 
 def record_download(organization_id: uuid.UUID | None, size_bytes: int | None, client=None) -> None:
-    """One protected file delivered to an organisation member (full file, not a byte range)."""
-    if organization_id is None or not get_settings().usage_counting_enabled:
-        return
+    """One protected file delivered to an organisation member (full file, not a byte range). Returns at once:
+    the Redis write runs in a small worker pool and is dropped when Redis is backed up. Never raises."""
+    global _pending_downloads
+    try:
+        if organization_id is None or not get_settings().usage_counting_enabled:
+            return
+        with _pending_lock:
+            if _pending_downloads >= _MAX_PENDING_DOWNLOADS:
+                return
+            _pending_downloads += 1
+        future = _download_pool.submit(_write_download, organization_id, size_bytes, client)
+        future.add_done_callback(_download_done)
+    except Exception:
+        logger.debug("Usage counter unavailable (download)")
+
+
+def _download_done(_future) -> None:
+    global _pending_downloads
+    with _pending_lock:
+        _pending_downloads = max(0, _pending_downloads - 1)
+
+
+def _write_download(organization_id: uuid.UUID, size_bytes: int | None, client=None) -> None:
     try:
         client = client or _sync_client()
         pipe = client.pipeline()
@@ -96,7 +135,7 @@ def flush(db: Session, client=None) -> int:
     if not get_settings().usage_counting_enabled:
         return 0
     try:
-        client = client or _sync_client()
+        client = client or _flush_client()
         snapshot_key = f"{buffer_key()}:flush:{secrets.token_hex(6)}"
         try:
             client.rename(buffer_key(), snapshot_key)
