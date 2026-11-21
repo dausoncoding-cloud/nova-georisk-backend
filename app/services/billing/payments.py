@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.models.billing import PAYMENT_METHODS, ConsoleRequestKey, CreditLedgerEntry, Payment
 from app.models.platform import OrganizationSubscription, SubscriptionStatus
-from app.services.billing import audit, catalogue, ledger, statuses
+from app.services.billing import audit, catalogue, ledger, receipts, statuses
 
 MAX_TOP_UP_CREDITS = 10_000
 MAX_AMOUNT = 10_000_000_000  # TZS; a guard against a mistyped amount, far above any plan price
@@ -100,6 +100,7 @@ def _insert_payment(db: Session, payment: Payment) -> None:
             db.flush()
     except IntegrityError as exc:
         raise _key_reused() from exc
+    receipts.issue(db, payment)  # Q6: in the payment's own transaction, so numbers have no gaps
 
 
 def _replay(db: Session, key: str, subscription_id: uuid.UUID, purpose: str, fingerprint: str) -> PaymentResult | None:

@@ -5,7 +5,9 @@ admins only. Nothing here writes billing data: payments, top-ups and status chan
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+import uuid
+
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -25,7 +27,7 @@ from app.schemas.billing import (Allowance, BillingSummaryResponse, CreditSummar
                                  TopUpOffer)
 from app.models.platform_admin import SubscriptionRequest
 from app.services.billing import requests as billing_requests
-from app.services.billing import catalogue, ledger, limits
+from app.services.billing import catalogue, ledger, limits, receipts
 from app.services.billing.labels import customer_label
 from app.services.billing import submission as billing
 
@@ -183,12 +185,29 @@ def get_payments(
         Payment.organization_id == context.organization_id, Payment.reverses_payment_id.isnot(None))}
     families = dict(db.query(OrganizationSubscription.id, OrganizationSubscription.family).filter(
         OrganizationSubscription.organization_id == context.organization_id))
-    return PaymentPage(items=[PaymentResponse(
+    numbers = receipts.numbers(db, [row.id for row in rows])
+    return PaymentPage(items=[PaymentResponse(receipt_number=numbers.get(row.id),
         id=row.id, created_at=row.created_at, paid_on=row.paid_on, family=families.get(row.subscription_id),
         purpose=row.purpose, amount=row.amount, currency=row.currency, method=row.method, reference=row.reference,
         credits=row.credits, covers_from=row.covers_from, covers_until=row.covers_until,
         reverses_payment_id=row.reverses_payment_id, reversed=row.id in reversed_ids) for row in rows],
         total=total, limit=limit, offset=offset)
+
+
+@router.get("/payments/{payment_id}/receipt", response_class=Response,
+            responses={200: {"content": {"application/pdf": {}}, "description": "The payment receipt (PDF)."}})
+def get_payment_receipt(payment_id: uuid.UUID, db: Session = Depends(get_db),
+                        context: RequestContext = Depends(get_request_context)) -> Response:
+    """Q6: the PDF receipt of one of this organisation's payments (owners and admins). The first download freezes
+    the seller identity onto the receipt (a write on GET)."""
+    membership = _require_member(db, context)
+    if membership.role.value not in {OrganizationRole.OWNER.value, OrganizationRole.ADMIN.value}:
+        raise PublicAPIError(403, "billing_role_required", "Only organisation owners and admins can see payments.")
+    payment = db.get(Payment, payment_id)
+    receipt = receipts.for_payment(db, payment_id) if payment is not None else None
+    if payment is None or payment.organization_id != context.organization_id or receipt is None:
+        raise PublicAPIError(404, "receipt_not_found", "Receipt not found.")
+    return receipts.response(db, receipt)
 
 
 def _require_billing_role(db: Session, context: RequestContext):

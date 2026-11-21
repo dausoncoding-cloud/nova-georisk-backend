@@ -136,6 +136,8 @@ class PaymentResponse(BaseModel):
     covers_until: date | None
     reverses_payment_id: uuid.UUID | None
     reversed: bool
+    # Q6: "R-000123", "TEST-000001" for a test payment; None for a reversal (no receipt).
+    receipt_number: str | None = None
 
 
 class PaymentPage(BaseModel):
