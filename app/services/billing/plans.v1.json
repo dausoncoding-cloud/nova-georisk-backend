@@ -1,0 +1,195 @@
+{
+  "version": 1,
+  "currency": "TZS",
+  "source": "Client subscription brief, 2026-11-20 (docs/PLATFORM_SUBSCRIPTIONS_PLAN.md section 2)",
+  "open_questions": {
+    "Q1": "frris_wrris.researcher monthly_credits is 10; the client may choose 20.",
+    "Q2": "MEGIS top_up_credit_price is null (top-ups unavailable) until the client sets it (25,000 or 15,000 TZS proposed).",
+    "Q3": "refund_on_data_failure is false on every plan until the client confirms.",
+    "Q8": "session_limit is 3 for plans above Researcher (proposal)."
+  },
+  "families": {
+    "frris_wrris": {
+      "name": "FRRIS and WRRIS",
+      "engines": [
+        "firris"
+      ],
+      "top_up_credit_price": 10000,
+      "note": "WRRIS has no engine key in app/platform/registry.py yet; add it here when it exists."
+    },
+    "megis": {
+      "name": "MEGIS",
+      "engines": [
+        "megis"
+      ],
+      "top_up_credit_price": null
+    }
+  },
+  "refund_on_data_failure": false,
+  "plans": {
+    "frris_wrris": [
+      {
+        "key": "frris_wrris.researcher",
+        "name": "Researcher",
+        "monthly_price": 150000,
+        "seat_limit": 1,
+        "monthly_credits": 10,
+        "storage_bytes": 2000000000,
+        "session_limit": 1,
+        "is_custom": false,
+        "sort_order": 1
+      },
+      {
+        "key": "frris_wrris.professional",
+        "name": "Professional",
+        "monthly_price": 300000,
+        "seat_limit": 5,
+        "monthly_credits": 30,
+        "storage_bytes": 5000000000,
+        "session_limit": 3,
+        "is_custom": false,
+        "sort_order": 2
+      },
+      {
+        "key": "frris_wrris.academic",
+        "name": "Academic / Department",
+        "monthly_price": 750000,
+        "seat_limit": 10,
+        "monthly_credits": 75,
+        "storage_bytes": 7000000000,
+        "session_limit": 3,
+        "is_custom": false,
+        "sort_order": 3
+      },
+      {
+        "key": "frris_wrris.institutional",
+        "name": "Institutional",
+        "monthly_price": 1500000,
+        "seat_limit": 25,
+        "monthly_credits": 150,
+        "storage_bytes": 10000000000,
+        "session_limit": 3,
+        "is_custom": false,
+        "sort_order": 4
+      },
+      {
+        "key": "frris_wrris.enterprise",
+        "name": "Enterprise",
+        "monthly_price": 2500000,
+        "seat_limit": 50,
+        "monthly_credits": 250,
+        "storage_bytes": 12000000000,
+        "session_limit": 3,
+        "is_custom": false,
+        "sort_order": 5
+      },
+      {
+        "key": "frris_wrris.custom",
+        "name": "Enterprise Plus",
+        "monthly_price": null,
+        "seat_limit": null,
+        "monthly_credits": null,
+        "storage_bytes": 15000000000,
+        "session_limit": 3,
+        "is_custom": true,
+        "sort_order": 6
+      },
+      {
+        "key": "frris_wrris.internal",
+        "name": "Internal",
+        "monthly_price": null,
+        "seat_limit": null,
+        "monthly_credits": null,
+        "storage_bytes": null,
+        "session_limit": null,
+        "is_custom": false,
+        "is_internal": true,
+        "unlimited_credits": true,
+        "sort_order": 99
+      }
+    ],
+    "megis": [
+      {
+        "key": "megis.researcher",
+        "name": "Researcher",
+        "monthly_price": 250000,
+        "seat_limit": 1,
+        "monthly_credits": 10,
+        "storage_bytes": 2000000000,
+        "session_limit": 1,
+        "is_custom": false,
+        "sort_order": 1
+      },
+      {
+        "key": "megis.professional",
+        "name": "Professional",
+        "monthly_price": 500000,
+        "seat_limit": 5,
+        "monthly_credits": 50,
+        "storage_bytes": 5000000000,
+        "session_limit": 3,
+        "is_custom": false,
+        "sort_order": 2
+      },
+      {
+        "key": "megis.academic",
+        "name": "Academic / Department",
+        "monthly_price": 1000000,
+        "seat_limit": 10,
+        "monthly_credits": 100,
+        "storage_bytes": 7000000000,
+        "session_limit": 3,
+        "is_custom": false,
+        "sort_order": 3
+      },
+      {
+        "key": "megis.institutional",
+        "name": "Institutional",
+        "monthly_price": 2000000,
+        "seat_limit": 25,
+        "monthly_credits": 200,
+        "storage_bytes": 10000000000,
+        "session_limit": 3,
+        "is_custom": false,
+        "sort_order": 4
+      },
+      {
+        "key": "megis.enterprise",
+        "name": "Enterprise",
+        "monthly_price": 3500000,
+        "seat_limit": 50,
+        "monthly_credits": 350,
+        "storage_bytes": 12000000000,
+        "session_limit": 3,
+        "is_custom": false,
+        "sort_order": 5
+      },
+      {
+        "key": "megis.custom",
+        "name": "Enterprise Custom",
+        "monthly_price": null,
+        "seat_limit": null,
+        "monthly_credits": null,
+        "storage_bytes": 15000000000,
+        "session_limit": 3,
+        "is_custom": true,
+        "sort_order": 6
+      },
+      {
+        "key": "megis.internal",
+        "name": "Internal",
+        "monthly_price": null,
+        "seat_limit": null,
+        "monthly_credits": null,
+        "storage_bytes": null,
+        "session_limit": null,
+        "is_custom": false,
+        "is_internal": true,
+        "unlimited_credits": true,
+        "sort_order": 99
+      }
+    ]
+  },
+  "design_source": "docs/design/subscriptions/ (boards 13-14)",
+  "internal_plans_note": "'<family>.internal' is for NOVAREX's own organisation and the team's test organisation: unlimited credits, no seat, storage or session limit, not sold, never listed to customers. Assigned only by the backfill command or the NOVA ARI console."
+}

@@ -1,12 +1,16 @@
 """Aggregates all v1 endpoint routers. New endpoint modules register here."""
 from fastapi import APIRouter
 
+from app.api.admin_platform.router import router as admin_platform_router
+
 from app.api.v1.endpoints import (
     administration,
     external_data,
     analyses,
     aoi,
     aoi_capacity,
+    account_sessions,
+    billing,
     engines,
     firas,
     ingestion,
@@ -45,3 +49,7 @@ api_router.include_router(live.router)
 
 api_router.include_router(administration.router)
 api_router.include_router(external_data.router)
+api_router.include_router(billing.router)
+api_router.include_router(account_sessions.router)
+api_router.include_router(account_sessions.org_router)
+api_router.include_router(admin_platform_router)

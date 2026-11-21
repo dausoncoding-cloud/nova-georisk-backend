@@ -1,7 +1,7 @@
 """Internal service authentication and trusted BFF principal context."""
 from __future__ import annotations
 
-import secrets
+import hmac
 import uuid
 from dataclasses import dataclass
 from enum import Enum
@@ -15,11 +15,20 @@ from app.core.config import get_settings
 internal_secret_header = APIKeyHeader(name="X-Internal-Secret", auto_error=False)
 
 
+def secret_matches(supplied: str, configured: str) -> bool:
+    """Constant-time compare on bytes. secrets.compare_digest raises TypeError on non-ASCII str, which turned
+    a non-ASCII header into a 500; header values arrive latin-1 decoded, so this compares the bytes sent."""
+    try:
+        return hmac.compare_digest(supplied.encode("latin-1", "replace"), configured.encode("utf-8"))
+    except Exception:
+        return False
+
+
 async def verify_internal_secret(x_internal_secret: str | None = Security(internal_secret_header)) -> None:
     settings = get_settings()
     supplied = x_internal_secret or ""
     configured = settings.internal_api_secret or ""
-    if not configured or not secrets.compare_digest(supplied, configured):
+    if not configured or not secret_matches(supplied, configured):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing X-Internal-Secret header.",

@@ -18,6 +18,7 @@ from app.services.access_management import audit,authorize
 from app.api.v1.endpoints.source_data import _authorize
 from app.services.external_data import MAX_UPLOAD_BYTES,EXTENSIONS,inspect_upload,scan,path_for,bytes_for,validate_record,view,metadata_bytes,is_source_checkout
 from app.core.artifact_storage import require_artifact_storage_ready, artifact_root, ArtifactStorageError
+from app.services.usage.counters import record_download
 from app.services.source_data.bindings import MODULE_SOURCE_ROLES,OPTIONAL_SOURCE_ROLES
 from app.services.source_data.readiness import load_registered_source,SourceNotReady
 
@@ -175,6 +176,7 @@ def versions(project_id:uuid.UUID,dataset_id:uuid.UUID,db:Session=Depends(get_db
 @router.get('/{dataset_id}/download', response_class=FileResponse, responses={200:{'content':{'application/octet-stream':{'schema':{'type':'string','format':'binary'}}}}})
 def download(project_id:uuid.UUID,dataset_id:uuid.UUID,db:Session=Depends(get_db),context:RequestContext=Depends(get_request_context)):
     record=record_for(db,context,project_id,dataset_id);bytes_for(record)
+    record_download(context.organization_id,record.size_bytes)  # subscriptions M4: downloads
     return FileResponse(path_for(record),filename=f'dataset-{record.id}-v{record.version}{EXTENSIONS[record.format]}',media_type='application/octet-stream',headers={'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'})
 
 

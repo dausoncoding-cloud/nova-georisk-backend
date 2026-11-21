@@ -5,7 +5,7 @@ import uuid
 from copy import deepcopy
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,8 @@ from app.models.result import Result
 from app.models.task import Task
 from app.models.task import TaskStatus, TaskType
 from app.schemas.common import TaskPage, TaskStatusResponse, TaskArchiveResponse
+from app.services.billing import refunds as billing_refunds
+from app.services.billing import submission as billing
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"], dependencies=[Depends(verify_internal_secret)])
 
@@ -126,7 +128,10 @@ def retry_task(
     task_id: uuid.UUID,
     db: Session = Depends(get_db),
     context: RequestContext = Depends(get_request_context),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> TaskStatusResponse:
+    idempotency_key = billing.validate_key(idempotency_key)
+    fingerprint = billing.request_fingerprint("retry", str(task_id))
     original = db.query(Task).filter(Task.id == task_id).populate_existing().with_for_update().first()
     if original is None:
         raise HTTPException(status_code=404, detail="Task not found.")
@@ -150,11 +155,17 @@ def retry_task(
         input_params=deepcopy(original.input_params),
     )
     admit_task(db, original.project)
+    replayed = billing.replay_or_none(db, context, idempotency_key, "retry", fingerprint)
+    if replayed is not None:
+        return serialize_task(replayed)
+    charge = billing.SubmissionCharge.reserve(db, context, retried.engine_key)
     initialize_execution(retried, db.get(AOI, retried.aoi_id), context=context, retry_of=original.id)
     if execution_record(original) is None:
         initialize_execution(original, db.get(AOI, original.aoi_id))
     append_event(original, "retry_created", actor_id=context.user_id)
     db.add(retried)
+    charge.charge(db, retried)
+    billing.remember_key(db, context, idempotency_key, "retry", fingerprint, retried)
     db.commit()
     db.refresh(retried)
     try:
@@ -182,6 +193,7 @@ def retry_task(
         retried.error_summary = "The retry could not be queued. Please retry later."
         retried.completed_at = datetime.now(timezone.utc)
         append_event(retried, "failed", actor_id=context.user_id)
+        billing_refunds.refund_failed_task(db, retried, cause="queue_failure")
         db.commit()
         raise HTTPException(status_code=503, detail=retried.error_summary) from exc
     return serialize_task(retried)

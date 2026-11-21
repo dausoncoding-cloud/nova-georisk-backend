@@ -168,6 +168,7 @@ def test_bff_reports_unauthenticated_session_safely(browser_session_client):
         "organization": None,
         "roles": [],
         "csrfToken": None,
+        "signedOutNotice": None,
     }
 
 

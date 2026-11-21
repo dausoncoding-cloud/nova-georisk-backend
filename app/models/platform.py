@@ -5,7 +5,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -57,6 +57,21 @@ class BillingPlan(TimestampMixin, Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
     metadata_json: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
+    # Subscriptions (docs/PLATFORM_SUBSCRIPTIONS_PLAN.md section 2). Seeded from
+    # app/services/billing/plans.v1.json; NULL limits on a custom plan come from the subscription.
+    family: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    is_custom: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    seat_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    monthly_credits: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    storage_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    session_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    refund_on_data_failure: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    # Internal plan (NOVAREX and the team's test organisation): not sold, hidden from customers.
+    is_internal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    unlimited_credits: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
 
 
 class BillingPlanEngine(Base):
@@ -89,6 +104,24 @@ class OrganizationSubscription(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     external_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
     external_reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
     metadata_json: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
+    # Subscriptions: one per organisation per plan family; per-contract overrides beat plan limits.
+    family: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    monthly_credits_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    seat_limit_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    storage_bytes_override: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    session_limit_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    refund_on_data_failure_override: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # When `status` last changed (the Expired/Cancelled viewing grace counts from here).
+    status_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    plan: Mapped[BillingPlan | None] = relationship()
+
+    __table_args__ = (
+        Index(
+            "uq_subscription_org_family", "organization_id", "family", unique=True,
+            postgresql_where=text("family IS NOT NULL"),
+        ),
+    )
 
 
 class OrganizationEngineEntitlement(UUIDPrimaryKeyMixin, TimestampMixin, Base):

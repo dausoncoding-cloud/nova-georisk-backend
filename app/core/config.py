@@ -7,6 +7,7 @@ never touches `os.environ` directly. Values map 1:1 onto `.env.example`.
 from functools import lru_cache
 from pathlib import PurePosixPath, PureWindowsPath
 import uuid
+from datetime import date
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -98,6 +99,43 @@ class Settings(BaseSettings):
     # --- Output storage ---
     artifact_storage_backend: str = "filesystem"
     output_storage_dir: str = "outputs"
+
+    # --- Subscriptions and credits (docs/PLATFORM_SUBSCRIPTIONS_PLAN.md) ---
+    # Off until release Phase B: every organisation needs a subscription before this is switched on,
+    # otherwise every submission returns 402. Read and download routes are never affected.
+    billing_enforcement_enabled: bool = False
+    billing_timezone: str = "Africa/Dar_es_Salaam"
+    # Q4 (open): unused monthly credits expire at month end; top-up credits do not.
+    billing_monthly_credits_roll_over: bool = False
+    billing_top_up_credits_expire: bool = False
+    # Q5: at 100% storage, block new analyses (True) or only warn (False, until the client decides).
+    billing_storage_block_at_limit: bool = False
+    # Q7: days an Expired or Cancelled organisation keeps viewing and downloads; None = no limit until decided.
+    billing_view_grace_days: int | None = None
+
+    # --- Sessions, devices and login history (plan section 6) ---
+    # Local city-level GeoIP file (.mmdb, for example DB-IP Lite); unset = no locations. Never an online service.
+    geoip_database_path: str | None = None
+    # Full IP addresses are kept this long for security, then removed; city and country stay.
+    session_ip_retention_days: int = 30
+    # Q9: how long login history is kept; None = until the client decides.
+    session_history_retention_days: int | None = None
+    # Proxies whose X-Forwarded-For entries are trusted (the nginx containers on the Docker network).
+    session_trusted_proxy_cidrs: list[str] = ["127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12",
+                                              "192.168.0.0/16", "fc00::/7"]
+    # "Last active" on the device list is updated at most this often per session.
+    session_last_seen_interval_seconds: int = 300
+
+    # --- NOVA ARI console (plan section 8) ---
+    # "Payment overdue": an active, sold subscription whose recorded plan payments end more than this many
+    # days ago (or that started this long ago with no plan payment).
+    billing_payment_overdue_grace_days: int = 7
+    # Go-live grace: periods are only judged from this date (set in the turn-on checklist), so customers
+    # backfilled without payment records are not all flagged at once. None = no go-live grace.
+    billing_overdue_grace_from: date | None = None
+    billing_expiring_soon_days: int = 7
+    # API-request and download counters (Redis buffer, flushed to Postgres). Tests switch this off.
+    usage_counting_enabled: bool = True
 
     @property
     def allowed_cors_origins(self) -> list[str]:
