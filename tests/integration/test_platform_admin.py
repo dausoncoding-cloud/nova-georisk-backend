@@ -15,7 +15,7 @@ from app.models.platform import EntitlementStatus, OrganizationEngineEntitlement
 from app.models.platform_admin import OrganizationUsageDaily, PlatformAdmin, SecurityAlert
 from app.models.result import Result
 from app.models.sessions import UserSession
-from app.services.billing import ledger, payments
+from app.services.billing import catalogue, ledger, payments
 from app.services.platform_admin import access, overview
 from app.services.sessions.tracking import get_session_tracker
 from app.services.usage import counters
@@ -545,3 +545,113 @@ def test_non_ascii_internal_secret_is_refused_not_a_500(client):
                                                                "X-Nova-Organization-Id": str(uuid.uuid4()),
                                                                "X-Nova-Role": "owner"})
     assert response.status_code == 401
+
+
+# --- independent review 1, 3, 4: one key namespace, validated keys, races --------------------------
+
+def test_console_keys_use_the_submission_rule_and_one_namespace(client, db_session):
+    admin = _admin(db_session)
+    t = _tenant(db_session, "pa-namespace")
+    path = f"{BASE}/subscriptions/{t.sub.id}"
+    top_up = {"purpose": "top_up", "amount": 100_000, "method": "cash", "credits": 10, "paid_on": date.today().isoformat()}
+    for bad in ("short", "has space in it", "x" * 129, "semi;colon-key"):
+        response = client.post(f"{path}/payments", headers={**admin.headers, "Idempotency-Key": bad}, json=top_up)
+        assert response.status_code == 422 and response.json()["error"]["code"] == "idempotency_key_invalid", bad
+    key = {"Idempotency-Key": "console-key-0001"}
+    first = client.post(f"{path}/payments", headers={**admin.headers, **key}, json=top_up)
+    assert first.status_code == 201
+    # The same key for any other console action is a 409, not a second write.
+    for url, body in ((f"{path}/credits", {"credits": 5, "reason": "Pilot"}),
+                      (f"{path}/adjustments", {"amount": 1, "bucket": "top_up", "reason": "Fix"}),
+                      (f"{BASE}/payments/{first.json()['payment']['id']}/reverse", {"reason": "Bounced"}),
+                      (f"{path}/payments", {**top_up, "purpose": "plan_period", "covers_from": date.today().isoformat(),
+                                             "covers_until": date.today().isoformat()})):
+        response = client.post(url, headers={**admin.headers, **key}, json=body)
+        assert response.status_code == 409 and response.json()["error"]["code"] == "request_key_reused", url
+    credits_key = {"Idempotency-Key": "console-key-0002"}
+    assert client.post(f"{path}/credits", headers={**admin.headers, **credits_key}, json={"credits": 5, "reason": "Pilot"}).status_code == 201
+    assert client.post(f"{path}/payments", headers={**admin.headers, **credits_key}, json=top_up).status_code == 409
+    assert client.post(f"{path}/adjustments", headers={**admin.headers, **credits_key},
+                       json={"amount": 1, "bucket": "top_up", "reason": "Fix"}).status_code == 409
+    assert db_session.query(Payment).count() == 1
+
+
+def _parallel(engine, work):
+    import threading
+    from sqlalchemy.orm import sessionmaker
+
+    Session = sessionmaker(bind=engine)
+    barrier, outcomes = threading.Barrier(2), []
+
+    def run(index):
+        session = Session()
+        try:
+            barrier.wait()
+            outcomes.append(("ok", work(session, index)))
+            session.commit()
+        except Exception as exc:  # noqa: BLE001 - the outcome is what the test checks
+            session.rollback()
+            outcomes.append((type(exc).__name__, getattr(exc, "code", str(exc))))
+        finally:
+            session.close()
+
+    threads = [threading.Thread(target=run, args=(index,)) for index in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(30)
+    return outcomes
+
+
+def test_parallel_payments_with_one_key_never_500(engine, db_session):
+    admin = _admin(db_session)
+    a = _tenant(db_session, "pa-race-a")
+    b = _tenant(db_session, "pa-race-b")
+    actor = admin_actor(admin)
+
+    def pay(subscriptions):
+        def work(session, index):
+            return payments.record_top_up_payment(session, subscriptions[index], credits=10, amount=100_000, method="cash",
+                                                  paid_on=date.today(), actor=actor, key="admin:race-key-1").replayed
+        return work
+
+    # One key, two different subscriptions at the same moment: one payment, the other a clean 409.
+    outcomes = _parallel(engine, pay([a.sub.id, b.sub.id]))
+    assert sorted(kind for kind, _ in outcomes) == ["PaymentError", "ok"], outcomes
+    assert [code for kind, code in outcomes if kind == "PaymentError"] == ["request_key_reused"]
+    # The same key and the same request twice at the same moment: one payment, the other a replay.
+    outcomes = _parallel(engine, lambda session, index: payments.record_top_up_payment(
+        session, a.sub.id, credits=10, amount=100_000, method="cash", paid_on=date.today(), actor=actor,
+        key="admin:race-key-2").replayed)
+    assert sorted(outcomes) == [("ok", False), ("ok", True)], outcomes
+    db_session.expire_all()
+    assert db_session.query(Payment).filter(Payment.idempotency_key.in_(["admin:race-key-1", "admin:race-key-2"])).count() == 2
+
+
+def test_parallel_top_up_requests_never_500(engine, db_session, monkeypatch):
+    from app.models.platform_admin import SubscriptionRequest
+    from app.services.billing import requests as billing_requests
+
+    catalogue.seed_catalogue(db_session)
+    t = _tenant(db_session, "pa-race-requests")
+
+    def ask(session, index):
+        return billing_requests.create(session, organization_id=t.org.id, user_id=t.user.id, subscription_id=t.sub.id,
+                                       kind="top_up").existing
+
+    outcomes = _parallel(engine, ask)
+    assert sorted(outcomes) == [("ok", False), ("ok", True)], outcomes
+    # Force the check-then-insert race deterministically: the "is one open?" check misses the committed request.
+    real = billing_requests._open_request
+    calls = {"n": 0}
+
+    def miss_first(session, subscription_id, kind):
+        calls["n"] += 1
+        return None if calls["n"] == 1 else real(session, subscription_id, kind)
+
+    monkeypatch.setattr(billing_requests, "_open_request", miss_first)
+    created = billing_requests.create(db_session, organization_id=t.org.id, user_id=t.user.id, subscription_id=t.sub.id,
+                                      kind="top_up")
+    assert created.existing is True  # the unique index caught it; no IntegrityError reached the caller
+    db_session.commit()
+    assert db_session.query(SubscriptionRequest).filter_by(subscription_id=t.sub.id, status="open").count() == 1

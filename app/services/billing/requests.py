@@ -7,6 +7,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.platform import BillingPlan, OrganizationSubscription
@@ -44,17 +45,28 @@ def create(db: Session, *, organization_id: uuid.UUID, user_id: uuid.UUID, subsc
             raise RequestError("plan_invalid", "Choose another plan for this system.")
     else:
         raise RequestError("kind_invalid", "Unknown request.")
-    open_request = (db.query(SubscriptionRequest)
-                    .filter(SubscriptionRequest.subscription_id == subscription.id, SubscriptionRequest.kind == kind,
-                            SubscriptionRequest.status == "open").one_or_none())
+    open_request = _open_request(db, subscription.id, kind)
     if open_request is not None:
         return Created(open_request, existing=True)
     request = SubscriptionRequest(organization_id=organization_id, subscription_id=subscription.id, kind=kind,
                                   plan_key=plan_key, credits=credits, requested_by_user_id=user_id,
                                   note=(note or "").strip()[:1000] or None, status="open")
-    db.add(request)
-    db.flush()
+    try:  # two parallel requests: the unique open-request index decides, the loser gets the winner's request
+        with db.begin_nested():
+            db.add(request)
+            db.flush()
+    except IntegrityError:
+        winner = _open_request(db, subscription.id, kind)
+        if winner is None:
+            raise
+        return Created(winner, existing=True)
     return Created(request, existing=False)
+
+
+def _open_request(db: Session, subscription_id: uuid.UUID, kind: str) -> SubscriptionRequest | None:
+    return (db.query(SubscriptionRequest)
+            .filter(SubscriptionRequest.subscription_id == subscription_id, SubscriptionRequest.kind == kind,
+                    SubscriptionRequest.status == "open").populate_existing().one_or_none())
 
 
 def close(db: Session, request_id: uuid.UUID, *, outcome: str, reason: str, actor: audit.Actor) -> SubscriptionRequest:

@@ -177,6 +177,20 @@ class Payment(UUIDPrimaryKeyMixin, Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
 
 
+class ConsoleRequestKey(Base):
+    """One shared namespace for the NOVA ARI console's Idempotency-Keys (independent review 3). Every console
+    write (plan payment, top-up payment, reversal, added credits, adjustment) claims its key here first, in the
+    same transaction: the same key for a different action or a different request is a 409, and two parallel
+    claims of one key are serialised by the primary key (independent review 4)."""
+
+    __tablename__ = "console_request_keys"
+
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    request_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+
+
 class PlatformAudit(UUIDPrimaryKeyMixin, Base):
     """Every NOVA ARI action on a customer account (plan section 8): who, what, which organisation,
     before and after, and a required reason. Operator commands record `actor_label` and no user."""

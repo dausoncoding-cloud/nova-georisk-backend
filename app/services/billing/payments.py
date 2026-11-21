@@ -17,9 +17,10 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.billing import PAYMENT_METHODS, CreditLedgerEntry, Payment
+from app.models.billing import PAYMENT_METHODS, ConsoleRequestKey, CreditLedgerEntry, Payment
 from app.models.platform import OrganizationSubscription, SubscriptionStatus
 from app.services.billing import audit, catalogue, ledger, statuses
 
@@ -72,6 +73,35 @@ def _key_reused() -> PaymentError:
     return PaymentError("request_key_reused", "This request key was already used for a different request.", 409)
 
 
+def _claim(db: Session, key: str, action: str, fingerprint: str) -> bool:
+    """Claim the key in the shared console namespace (independent review 3-4). Returns True when this exact
+    request already claimed it (a replay), False when it is newly claimed. A different action or request is a
+    409. A parallel claim waits on the primary key; the loser sees the winner's row, never a 500."""
+    existing = db.query(ConsoleRequestKey).filter(ConsoleRequestKey.key == key).one_or_none()
+    if existing is None:
+        try:
+            with db.begin_nested():
+                db.add(ConsoleRequestKey(key=key, action=action, request_sha256=fingerprint))
+                db.flush()
+            return False
+        except IntegrityError:
+            existing = (db.query(ConsoleRequestKey).filter(ConsoleRequestKey.key == key)
+                        .populate_existing().one())
+    if existing.action != action or existing.request_sha256 != fingerprint:
+        raise _key_reused()
+    return True
+
+
+def _insert_payment(db: Session, payment: Payment) -> None:
+    """Belt and braces under the claim: a duplicate idempotency_key is a 409, never a 500 (independent review 4)."""
+    try:
+        with db.begin_nested():
+            db.add(payment)
+            db.flush()
+    except IntegrityError as exc:
+        raise _key_reused() from exc
+
+
 def _replay(db: Session, key: str, subscription_id: uuid.UUID, purpose: str, fingerprint: str) -> PaymentResult | None:
     existing = db.query(Payment).filter(Payment.idempotency_key == key).one_or_none()
     if existing is None:
@@ -114,6 +144,8 @@ def record_plan_payment(
     replayed = _replay(db, key, subscription.id, "plan_period", fingerprint)
     if replayed:
         return replayed
+    if _claim(db, key, "payment.plan_period", fingerprint):
+        return _replay(db, key, subscription.id, "plan_period", fingerprint) or _raise_reused()
     _check_common(amount, method, paid_on, currency)
     if covers_until < covers_from:
         raise PaymentError("payment_period_invalid", "The period must end on or after its start.")
@@ -123,8 +155,7 @@ def record_plan_payment(
         covers_from=covers_from, covers_until=covers_until, note=_clean(note),
         recorded_by_user_id=actor.user_id, idempotency_key=key, request_sha256=fingerprint,
     )
-    db.add(payment)
-    db.flush()
+    _insert_payment(db, payment)
     reason = note or f"Plan payment {payment.reference or payment.id}"
     audit.record(db, actor, "payment.record", reason=reason, organization_id=subscription.organization_id,
                  target_type="payment", target_id=payment.id, current=_payment_view(payment))
@@ -171,6 +202,8 @@ def record_top_up_payment(
     replayed = _replay(db, key, subscription.id, "top_up", fingerprint)
     if replayed:
         return replayed
+    if _claim(db, key, "payment.top_up", fingerprint):
+        return _replay(db, key, subscription.id, "top_up", fingerprint) or _raise_reused()
     _check_common(amount, method, paid_on, currency)
     _check_credits(credits)
     _refuse_unlimited(db, subscription)
@@ -181,8 +214,7 @@ def record_top_up_payment(
         credits=credits, expected_amount=credits * unit if unit is not None else None, note=_clean(note),
         recorded_by_user_id=actor.user_id, idempotency_key=key, request_sha256=fingerprint,
     )
-    db.add(payment)
-    db.flush()
+    _insert_payment(db, payment)
     ledger.ensure_period(db, subscription)
     entry = ledger.append_entry(db, subscription, kind="top_up", bucket="top_up", amount=credits,
                                 key=f"topup:{payment.id}", payment_id=payment.id, actor_user_id=actor.user_id,
@@ -209,6 +241,8 @@ def reverse_payment(
     replayed = _replay(db, key, subscription.id, "reversal", fingerprint)
     if replayed:
         return replayed
+    if _claim(db, key, "payment.reversal", fingerprint):
+        return _replay(db, key, subscription.id, "reversal", fingerprint) or _raise_reused()
     if original.purpose == "reversal":
         raise PaymentError("payment_not_reversible", "A reversal cannot itself be reversed.", 409)
     if db.query(Payment).filter(Payment.reverses_payment_id == original.id).first() is not None:
@@ -219,8 +253,7 @@ def reverse_payment(
         purpose="reversal", credits=original.credits, reverses_payment_id=original.id, note=reason,
         recorded_by_user_id=actor.user_id, idempotency_key=key, request_sha256=fingerprint,
     )
-    db.add(reversal)
-    db.flush()
+    _insert_payment(db, reversal)
     entry = None
     shortfall = 0
     if original.purpose == "top_up" and original.credits:
@@ -255,6 +288,8 @@ def grant_top_up(
         if existing.subscription_id != subscription.id or _ledger_fingerprint(existing) not in (None, fingerprint):
             raise _key_reused()
         return existing
+    if _claim(db, key, "credits.grant", fingerprint):
+        raise _key_reused()  # claimed by this request but no entry: cannot happen inside one transaction
     _refuse_unlimited(db, subscription)
     ledger.ensure_period(db, subscription)
     entry = ledger.append_entry(db, subscription, kind="top_up", bucket="top_up", amount=credits, key=ledger_key,
@@ -285,6 +320,8 @@ def adjust_credits(
         if existing.subscription_id != subscription.id or _ledger_fingerprint(existing) not in (None, fingerprint):
             raise _key_reused()
         return existing
+    if _claim(db, key, "credits.adjust", fingerprint):
+        raise _key_reused()
     _refuse_unlimited(db, subscription)
     ledger.ensure_period(db, subscription)
     try:
@@ -297,6 +334,10 @@ def adjust_credits(
                  target_type="subscription", target_id=subscription.id,
                  current={"amount": amount, "bucket": bucket, "ledger_entry_id": str(entry.id)})
     return entry
+
+
+def _raise_reused():
+    raise _key_reused()
 
 
 def _ledger_fingerprint(entry: CreditLedgerEntry) -> str | None:

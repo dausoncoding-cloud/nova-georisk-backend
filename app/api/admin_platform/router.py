@@ -40,6 +40,7 @@ from app.schemas.platform_admin import (AddCustomerRequest, AddSubscriptionReque
 from app.models.platform_admin import SubscriptionRequest
 from app.services.billing import requests as billing_requests
 from app.services.billing import audit, backfill, ledger, limits, payments, statuses
+from app.services.billing.submission import validate_key
 from app.services.platform_admin import actions, overview
 from app.services.platform_admin.access import AdminContext, require_platform_admin
 from app.services.sessions.tracking import SessionTracker, get_session_tracker
@@ -82,9 +83,11 @@ def _overrides(value) -> dict | None:
 
 
 def _key(value: str | None) -> str:
-    if not value or not 8 <= len(value) <= 128:
+    """The same rule as analysis submission (A1): 8-128 characters of [A-Za-z0-9_-:.] (independent review 1)."""
+    key = validate_key(value)
+    if key is None:
         raise PublicAPIError(422, "idempotency_key_required", "Send an Idempotency-Key header (8-128 characters).")
-    return f"admin:{value}"
+    return f"admin:{key}"
 
 
 def _organization(db: Session, organization_id: uuid.UUID) -> Organization:
