@@ -511,3 +511,28 @@ def test_plan_change_top_up_counts_the_highest_allowance_once(client, db_session
     assert move("frris_wrris.enterprise") == [240]            # up again: already had 250 this month
     assert move("frris_wrris.custom", monthly_credits_override=300) == [240, 50]  # higher still: only the difference
     assert ledger.balances(db_session, t.sub.id).monthly == 300
+
+
+def test_an_idempotency_key_reused_with_a_different_request_is_refused(client, db_session):
+    """Security review L5: the same key replays only the same request; anything else is a 409."""
+    admin = _admin(db_session)
+    t = _tenant(db_session, "pa-fingerprint")
+    path = f"{BASE}/subscriptions/{t.sub.id}"
+    body = {"purpose": "top_up", "amount": 100_000, "method": "cash", "credits": 10, "paid_on": date.today().isoformat()}
+    key = _key()
+    first = client.post(f"{path}/payments", headers={**admin.headers, **key}, json=body)
+    assert first.status_code == 201
+    assert client.post(f"{path}/payments", headers={**admin.headers, **key}, json=body).json()["replayed"] is True
+    changed = client.post(f"{path}/payments", headers={**admin.headers, **key}, json={**body, "amount": 10_000})
+    assert changed.status_code == 409 and changed.json()["error"]["code"] == "request_key_reused"
+    assert db_session.query(Payment).count() == 1
+    grant_key = _key()
+    assert client.post(f"{path}/credits", headers={**admin.headers, **grant_key}, json={"credits": 5, "reason": "Pilot"}).status_code == 201
+    assert client.post(f"{path}/credits", headers={**admin.headers, **grant_key}, json={"credits": 5, "reason": "Pilot"}).status_code == 201
+    assert client.post(f"{path}/credits", headers={**admin.headers, **grant_key}, json={"credits": 50, "reason": "Pilot"}).status_code == 409
+    reverse_key = _key()
+    reverse = f"{BASE}/payments/{first.json()['payment']['id']}/reverse"
+    assert client.post(reverse, headers={**admin.headers, **reverse_key}, json={"reason": "Bounced"}).status_code == 201
+    assert client.post(reverse, headers={**admin.headers, **reverse_key}, json={"reason": "Bounced"}).json()["replayed"] is True
+    assert client.post(reverse, headers={**admin.headers, **reverse_key}, json={"reason": "Other"}).status_code == 409
+    assert ledger.balances(db_session, t.sub.id).top_up == 5  # 10 paid - 10 reversed + 5 granted, each once

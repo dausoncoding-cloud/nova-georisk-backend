@@ -11,6 +11,8 @@ top-up reversal also removes the credits it added, as far as they are still unsp
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -61,12 +63,22 @@ def _check_common(amount: int, method: str, paid_on: date, currency: str) -> Non
         raise PaymentError("payment_currency_invalid", f"Payments are recorded in {catalogue.load_catalogue()['currency']}.")
 
 
-def _replay(db: Session, key: str, subscription_id: uuid.UUID, purpose: str) -> PaymentResult | None:
+def _fingerprint(**fields) -> str:
+    """The request a key was first used with (security review L5)."""
+    return hashlib.sha256(json.dumps(fields, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _key_reused() -> PaymentError:
+    return PaymentError("request_key_reused", "This request key was already used for a different request.", 409)
+
+
+def _replay(db: Session, key: str, subscription_id: uuid.UUID, purpose: str, fingerprint: str) -> PaymentResult | None:
     existing = db.query(Payment).filter(Payment.idempotency_key == key).one_or_none()
     if existing is None:
         return None
-    if existing.subscription_id != subscription_id or existing.purpose != purpose:
-        raise PaymentError("request_key_reused", "This request key was already used for a different payment.", 409)
+    if (existing.subscription_id != subscription_id or existing.purpose != purpose
+            or (existing.request_sha256 is not None and existing.request_sha256 != fingerprint)):
+        raise _key_reused()
     entry = db.query(CreditLedgerEntry).filter(CreditLedgerEntry.payment_id == existing.id).one_or_none()
     return PaymentResult(existing, entry, replayed=True)
 
@@ -96,7 +108,10 @@ def record_plan_payment(
     extended to the end of the paid period. A Suspended subscription stays suspended (an admin decision)."""
     key = _check_key(key)
     subscription = ledger.lock_subscription(db, subscription_id)
-    replayed = _replay(db, key, subscription.id, "plan_period")
+    fingerprint = _fingerprint(purpose="plan_period", subscription=subscription.id, amount=amount, method=method,
+                               paid_on=paid_on, covers_from=covers_from, covers_until=covers_until,
+                               reference=_clean(reference), note=_clean(note), currency=currency)
+    replayed = _replay(db, key, subscription.id, "plan_period", fingerprint)
     if replayed:
         return replayed
     _check_common(amount, method, paid_on, currency)
@@ -106,7 +121,7 @@ def record_plan_payment(
         organization_id=subscription.organization_id, subscription_id=subscription.id, amount=amount,
         currency=currency, method=method, reference=_clean(reference), paid_on=paid_on, purpose="plan_period",
         covers_from=covers_from, covers_until=covers_until, note=_clean(note),
-        recorded_by_user_id=actor.user_id, idempotency_key=key,
+        recorded_by_user_id=actor.user_id, idempotency_key=key, request_sha256=fingerprint,
     )
     db.add(payment)
     db.flush()
@@ -150,7 +165,10 @@ def record_top_up_payment(
     price at recording time is kept beside it as `expected_amount`."""
     key = _check_key(key)
     subscription = ledger.lock_subscription(db, subscription_id)
-    replayed = _replay(db, key, subscription.id, "top_up")
+    fingerprint = _fingerprint(purpose="top_up", subscription=subscription.id, credits=credits, amount=amount,
+                               method=method, paid_on=paid_on, reference=_clean(reference), note=_clean(note),
+                               currency=currency)
+    replayed = _replay(db, key, subscription.id, "top_up", fingerprint)
     if replayed:
         return replayed
     _check_common(amount, method, paid_on, currency)
@@ -161,7 +179,7 @@ def record_top_up_payment(
         organization_id=subscription.organization_id, subscription_id=subscription.id, amount=amount,
         currency=currency, method=method, reference=_clean(reference), paid_on=paid_on, purpose="top_up",
         credits=credits, expected_amount=credits * unit if unit is not None else None, note=_clean(note),
-        recorded_by_user_id=actor.user_id, idempotency_key=key,
+        recorded_by_user_id=actor.user_id, idempotency_key=key, request_sha256=fingerprint,
     )
     db.add(payment)
     db.flush()
@@ -187,7 +205,8 @@ def reverse_payment(
     if original is None:
         raise PaymentError("payment_not_found", "Payment not found.", 404)
     subscription = ledger.lock_subscription(db, original.subscription_id)
-    replayed = _replay(db, key, subscription.id, "reversal")
+    fingerprint = _fingerprint(purpose="reversal", payment=original.id, reason=reason)
+    replayed = _replay(db, key, subscription.id, "reversal", fingerprint)
     if replayed:
         return replayed
     if original.purpose == "reversal":
@@ -198,7 +217,7 @@ def reverse_payment(
         organization_id=original.organization_id, subscription_id=original.subscription_id, amount=-original.amount,
         currency=original.currency, method=original.method, reference=original.reference, paid_on=_today(),
         purpose="reversal", credits=original.credits, reverses_payment_id=original.id, note=reason,
-        recorded_by_user_id=actor.user_id, idempotency_key=key,
+        recorded_by_user_id=actor.user_id, idempotency_key=key, request_sha256=fingerprint,
     )
     db.add(reversal)
     db.flush()
@@ -230,15 +249,17 @@ def grant_top_up(
     _check_credits(credits)
     subscription = ledger.lock_subscription(db, subscription_id)
     ledger_key = f"grant-topup:{key}"
+    fingerprint = _fingerprint(kind="grant", subscription=subscription.id, credits=credits, reason=reason)
     existing = ledger.entry_by_key(db, ledger_key)
     if existing is not None:
-        if existing.subscription_id != subscription.id:
-            raise PaymentError("request_key_reused", "This request key was already used.", 409)
+        if existing.subscription_id != subscription.id or _ledger_fingerprint(existing) not in (None, fingerprint):
+            raise _key_reused()
         return existing
     _refuse_unlimited(db, subscription)
     ledger.ensure_period(db, subscription)
     entry = ledger.append_entry(db, subscription, kind="top_up", bucket="top_up", amount=credits, key=ledger_key,
-                                actor_user_id=actor.user_id, reason=reason, metadata={"granted": True})
+                                actor_user_id=actor.user_id, reason=reason,
+                                metadata={"granted": True, "request_sha256": fingerprint})
     audit.record(db, actor, "credits.grant_top_up", reason=reason, organization_id=subscription.organization_id,
                  target_type="subscription", target_id=subscription.id,
                  current={"credits": credits, "ledger_entry_id": str(entry.id)})
@@ -258,22 +279,28 @@ def adjust_credits(
         raise PaymentError("credits_invalid", f"The adjustment must be non-zero and at most {MAX_TOP_UP_CREDITS}.")
     subscription = ledger.lock_subscription(db, subscription_id)
     ledger_key = f"adjust:{key}"
+    fingerprint = _fingerprint(kind="adjust", subscription=subscription.id, amount=amount, bucket=bucket, reason=reason)
     existing = ledger.entry_by_key(db, ledger_key)
     if existing is not None:
-        if existing.subscription_id != subscription.id:
-            raise PaymentError("request_key_reused", "This request key was already used.", 409)
+        if existing.subscription_id != subscription.id or _ledger_fingerprint(existing) not in (None, fingerprint):
+            raise _key_reused()
         return existing
     _refuse_unlimited(db, subscription)
     ledger.ensure_period(db, subscription)
     try:
         entry = ledger.append_entry(db, subscription, kind="adjustment", bucket=bucket, amount=amount, key=ledger_key,
-                                    actor_user_id=actor.user_id, reason=reason)
+                                    actor_user_id=actor.user_id, reason=reason,
+                                    metadata={"request_sha256": fingerprint})
     except ledger.InsufficientCredits as exc:
         raise PaymentError("credits_insufficient", "The adjustment would take the balance below zero.", 409) from exc
     audit.record(db, actor, "credits.adjust", reason=reason, organization_id=subscription.organization_id,
                  target_type="subscription", target_id=subscription.id,
                  current={"amount": amount, "bucket": bucket, "ledger_entry_id": str(entry.id)})
     return entry
+
+
+def _ledger_fingerprint(entry: CreditLedgerEntry) -> str | None:
+    return (entry.metadata_json or {}).get("request_sha256")
 
 
 def _clean(value: str | None) -> str | None:

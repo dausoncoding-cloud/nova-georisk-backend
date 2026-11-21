@@ -95,7 +95,8 @@ def test_top_up_payment_adds_credits_in_the_same_transaction_and_unblocks(client
     assert result.entry.idempotency_key == f"topup:{result.payment.id}" and result.entry.payment_id == result.payment.id
     assert result.payment.expected_amount == 100_000
     again = payments.record_top_up_payment(
-        db_session, t.sub.id, credits=10, amount=100_000, method="mobile_money", paid_on=date.today(), actor=ADMIN, key=key)
+        db_session, t.sub.id, credits=10, amount=100_000, method="mobile_money", paid_on=date.today(),
+        reference="MP-123", note="Pack of 10", actor=ADMIN, key=key)  # the identical request (a different one is a 409)
     assert again.replayed and again.payment.id == result.payment.id
     assert db_session.query(Payment).count() == 1 and len(_entries(db_session, t.sub, "top_up")) == 1
     assert _submit(client, t).status_code == 202

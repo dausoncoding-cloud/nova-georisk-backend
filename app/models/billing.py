@@ -172,6 +172,8 @@ class Payment(UUIDPrimaryKeyMixin, Base):
                                                                   nullable=True)
     # The admin request's key, so a double-clicked "Record payment" records one payment.
     idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
+    # SHA-256 of the request the key was first used with; the same key with a different request is a 409.
+    request_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
 
 
