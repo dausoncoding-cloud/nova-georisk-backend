@@ -305,7 +305,12 @@ A refused deposit (an Abliner 4xx with no `transaction_id`) marks the intent `fa
 
 **Owner decision (2026-11-21): the TZS 500 operator test payment.**
 - It grants **0 credits** and no plan period.
-- It is labelled **test-only**: on the payment (`note` "TEST: Abliner live test …"), in the platform audit log (action `abliner.test_payment`, actor `operator command: abliner test-payment (<operator>)`), and on the customer ledger as the fixed label "Test payment (no credits)".
+- It is labelled **test-only**:
+  - **the payment:** purpose `test`, with the note "TEST: Abliner live test <id>, no credits";
+  - **the platform audit log:** `abliner.test_payment` when it is started (actor `operator command: abliner test-payment (<operator>)`), and `payment.record_test` when it completes (actor `system:abliner`, reason beginning "TEST:");
+  - **the customer's and the console's Payments lists:** "Test payment (no credits)".
+- **The credit ledger gets no line.** The ledger holds only non-zero credit movements (a database constraint), and 0 credits move. This replaces the "ledger label" in the first version of this decision.
+- Reversing it in the console takes nothing back from the ledger (tested).
 - It is created only by the operator CLI, never by the UI, and needs no customer subscription change.
 
 **Rollback:** set the flag to `false` and restart. Webhooks and reconciliation still settle the payments already in flight.

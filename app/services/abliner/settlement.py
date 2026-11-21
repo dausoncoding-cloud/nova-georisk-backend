@@ -98,7 +98,10 @@ def apply(db: Session, intent_id: uuid.UUID, remote: Remote) -> str:
                   note=f"Abliner {tx}", currency=intent.currency)
     try:
         with db.begin_nested():
-            if intent.purpose == "top_up":
+            if intent.purpose == "test":  # the owner's live test: labelled test-only, no credits (owner decision)
+                result = payments.record_test_payment(db, intent.subscription_id, **{
+                    **common, "note": f"TEST: Abliner live test {tx}, no credits"})
+            elif intent.purpose == "top_up":
                 result = payments.record_top_up_payment(db, intent.subscription_id, credits=intent.credits, **common)
             else:
                 result = payments.record_plan_payment(db, intent.subscription_id, covers_from=intent.covers_from,

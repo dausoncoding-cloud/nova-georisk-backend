@@ -333,3 +333,60 @@ def test_parallel_duplicate_webhooks_store_and_settle_once(engine, db_session):
     assert sorted(outcomes) == ["duplicate", "settled"], outcomes
     db_session.expire_all()
     assert len(_payments(db_session, intent)) == 1
+
+
+# --- the owner's TZS 500 live test (owner decision: 0 credits, labelled test-only) --------------------------
+
+def test_operator_test_payment_adds_no_credits_and_is_labelled_test_only(client, db_session, monkeypatch, capsys):
+    from types import SimpleNamespace
+
+    from app.services.abliner.cli import _test_payment
+    from app.services.billing import audit, payments
+
+    monkeypatch.setattr(get_settings(), "abliner_payments_enabled", False)  # the live test runs before the switch
+    t = _tenant(db_session, "abw-live-test")
+    admin_t = _tenant(db_session, "abw-live-admin", plan_key="frris_wrris.internal")
+    access.grant(db_session, email=None, user_id=admin_t.user.id, reason="operator", operator="test")
+    db_session.commit()
+    calls = []
+
+    def handler(request):
+        calls.append(json.loads(request.content))
+        return httpx.Response(201, json={"status": "success", "data": {"id": "tx_live", "status": "pending"}})
+
+    fake = AblinerClient(transport=httpx.MockTransport(handler))
+    args = SimpleNamespace(subscription_id=t.sub.id, admin_email=admin_t.user.email, operator="Dauson", phone=None, apply=False)
+    assert _test_payment(db_session, args, client=fake) == 0 and calls == []          # dry run: nothing sent
+    assert '"credits": 0' in capsys.readouterr().out
+    outsider = SimpleNamespace(**{**args.__dict__, "admin_email": t.user.email, "apply": True})
+    with pytest.raises(SystemExit, match="platform_admin_required"):
+        _test_payment(db_session, outsider, ask=lambda _prompt: "0712345678", client=fake)
+    db_session.rollback()
+    _test_payment(db_session, SimpleNamespace(**{**args.__dict__, "apply": True}), ask=lambda _prompt: "0712345678", client=fake)
+    printed = capsys.readouterr().out
+    assert "255712345678" not in printed and "2557•••••678" in printed
+    assert calls == [{"amount": 500, "method": "mobile", "currency": "TZS", "phone": "255712345678",
+                      "reference": calls[0]["reference"], "callback_url": get_settings().abliner_callback_url}]
+    intent = db_session.query(PaymentIntent).filter_by(subscription_id=t.sub.id, purpose="test").one()
+    assert (intent.status, intent.amount, intent.credits) == ("pending", 500, None)
+    created = db_session.query(PlatformAudit).filter_by(action="abliner.test_payment", target_id=str(intent.id)).one()
+    assert created.actor_label == "operator command: abliner test-payment (Dauson)" and created.reason.startswith("TEST:")
+    before = db_session.query(CreditLedgerEntry).filter_by(subscription_id=t.sub.id).count()
+    assert _send(client, _event(intent)).status_code == 200
+    db_session.refresh(intent)
+    payment = db_session.get(Payment, intent.payment_id)
+    assert (intent.status, payment.purpose, payment.amount, payment.credits) == ("completed", "test", 500, None)
+    assert payment.note.startswith("TEST: Abliner live test")
+    assert db_session.query(CreditLedgerEntry).filter_by(subscription_id=t.sub.id).count() == before  # 0 credits
+    recorded = db_session.query(PlatformAudit).filter_by(action="payment.record_test", target_id=str(payment.id)).one()
+    assert recorded.actor_label == "system:abliner" and recorded.reason.startswith("TEST:")
+    view = client.get(f"/api/v1/billing/abliner/payments/{intent.id}", headers=t.headers).json()
+    assert view["message"] == "Test payment received. No credits were added."
+    listed = client.get("/api/v1/billing/payments", headers=t.headers).json()["items"]
+    assert [item["purpose"] for item in listed] == ["test"]
+    # Then reversed in the console, like any payment: nothing to take back from the ledger.
+    reversal = payments.reverse_payment(db_session, payment.id, reason="Live test done", key="admin:reverse-live-test",
+                                        actor=audit.Actor(user_id=admin_t.user.id, label="Admin"))
+    db_session.commit()
+    assert reversal.payment.amount == -500 and reversal.entry is None
+    assert db_session.query(CreditLedgerEntry).filter_by(subscription_id=t.sub.id).count() == before
