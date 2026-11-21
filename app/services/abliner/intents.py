@@ -160,6 +160,59 @@ def create(db: Session, *, organization_id: uuid.UUID, user_id: uuid.UUID, subsc
     return intent, False
 
 
+TEST_AMOUNT = 500
+
+
+def create_test(db: Session, *, admin_user_id: uuid.UUID, subscription_id: uuid.UUID, phone_number: str, operator: str,
+                client: AblinerClient) -> PaymentIntent:
+    """The owner's TZS 500 live test (operator CLI only, works before ABLINER_PAYMENTS_ENABLED is switched on).
+    Adds no credits when it completes; audited as a test (abliner.test_payment)."""
+    from app.services.billing import audit
+    from app.services.platform_admin.access import live_grant
+
+    if live_grant(db, admin_user_id) is None:
+        raise PublicAPIError(403, "platform_admin_required", "A NOVA ARI admin must start the test payment.")
+    subscription = db.get(OrganizationSubscription, subscription_id)
+    if subscription is None or subscription.family is None:
+        raise PublicAPIError(404, "subscription_not_found", "Subscription not found.")
+    try:
+        number = phones.normalise(phone_number)
+    except phones.PhoneInvalid as exc:
+        raise PublicAPIError(422, "invalid_phone", str(exc)) from None
+    intent_id = uuid.uuid4()
+    intent = PaymentIntent(
+        id=intent_id, organization_id=subscription.organization_id, subscription_id=subscription.id, purpose="test",
+        amount=TEST_AMOUNT, currency="TZS", phone_masked=phones.masked(number), phone_sha256=phones.digest(number),
+        reference=_reference(intent_id), idempotency_key=str(uuid.uuid4()), request_key=f"operator:{intent_id}",
+        status="created", created_by_user_id=admin_user_id)
+    try:
+        with db.begin_nested():
+            db.add(intent)
+            db.flush()
+    except IntegrityError:
+        db.rollback()
+        raise PublicAPIError(409, "payment_in_progress", "A test payment for this subscription is already waiting.") from None
+    audit.record(db, audit.Actor.command(f"abliner test-payment ({operator})"), "abliner.test_payment",
+                 reason=f"TEST: Abliner live test, TZS {TEST_AMOUNT}, no credits", organization_id=subscription.organization_id,
+                 target_type="payment_intent", target_id=intent.id, current={"reference": intent.reference, "amount": TEST_AMOUNT})
+    db.commit()
+    try:
+        deposit = client.create_deposit(amount=TEST_AMOUNT, phone=number, reference=intent.reference,
+                                        idempotency_key=intent.idempotency_key,
+                                        callback_url=get_settings().abliner_callback_url)
+    except AblinerError as exc:
+        intent.status = "pending_unknown" if (exc.uncertain or exc.transaction_id) else "failed"
+        intent.failure_code = None if intent.status == "pending_unknown" else map_error(exc.code, exc.http_status).code
+        intent.abliner_tx_id = exc.transaction_id
+        db.commit()
+        logger.warning("Abliner test deposit not accepted intent=%s code=%s", intent.id, exc.code)
+        return intent
+    intent.status, intent.abliner_tx_id = "pending", deposit.id
+    db.commit()
+    logger.info("Abliner test deposit pending intent=%s abliner=%s", intent.id, deposit.id)
+    return intent
+
+
 # --- the customer's view ------------------------------------------------------------------------
 
 def customer_message(intent: PaymentIntent) -> str:
@@ -169,7 +222,8 @@ def customer_message(intent: PaymentIntent) -> str:
         "pending": f"Check your phone to approve the payment of {amount}.",
         "pending_unknown": ("We haven't heard back from the payment service yet. If your phone shows a prompt, "
                             "approve it; the result will appear here."),
-        "completed": "Payment received." + (f" {intent.credits} credits added." if intent.credits else " Your plan is renewed."),
+        "completed": ("Test payment received. No credits were added." if intent.purpose == "test" else
+                      "Payment received." + (f" {intent.credits} credits added." if intent.credits else " Your plan is renewed.")),
         "failed": map_error(intent.failure_code).message if intent.failure_code else "The payment was not completed.",
         "expired": ("The payment was not completed within 30 minutes, so nothing was added. "
                     "If money left your account, contact NOVAREX; otherwise you can try again."),
