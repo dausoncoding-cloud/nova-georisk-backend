@@ -117,7 +117,8 @@ def report_table(level: dict[str, Any], keys: list[str], top: int = TOP_UNITS) -
         rows.append({"name": OUTSIDE_NAME, "parent": None, "share": None, "cluster": False, **cells(row["extents"])})
     check = level.get("check") or {}
     total = {key: {"people": (check.get("extents") or {}).get(key, {}).get("people_total"),
-                   "buildings": (check.get("extents") or {}).get(key, {}).get("buildings_total")} for key in keys}
+                   "buildings": (check.get("extents") or {}).get(key, {}).get("buildings_total"),
+                   "buildings_065": (check.get("extents") or {}).get(key, {}).get("buildings_065_total")} for key in keys}
     return {"rows": rows, "total": total, "units": len(units), "others": len(rest)}
 
 

@@ -149,7 +149,7 @@ def check_sums(rows: list[dict], totals: dict[str, dict]) -> dict[str, Any]:
             if all(c is not None for c in counts):
                 units_sum = sum(c for c in counts)
                 entry.update(buildings_units=units_sum, buildings_total=total["buildings"],
-                             buildings_ok=units_sum == total["buildings"])
+                             buildings_065_total=total.get("buildings_065"), buildings_ok=units_sum == total["buildings"])
             else:
                 entry.update(buildings_ok=None)
         entry["ok"] = people_ok and entry.get("buildings_ok") is not False

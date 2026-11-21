@@ -61,7 +61,7 @@ def admin_unit_subsection(writer, record: dict[str, Any] | None, *, number: int)
             writer.para(f"{plural}: {level.get('reason')}" + ("" if str(level.get("reason") or "").endswith(".") else "."))
             continue
         table = report_table(level, keys)
-        header = [level["level_name"], "Share of the unit inside the area"]
+        header = [level["level_name"], "Share inside the area"]
         for key in keys:
             header += [f"{SHORT[key]}: people", f"{SHORT[key]}: buildings ≥ 0.75 (≥ 0.65)"]
         rows = []
@@ -74,7 +74,7 @@ def admin_unit_subsection(writer, record: dict[str, Any] | None, *, number: int)
         total = ["Total (the area totals)", ""]
         for key in keys:
             t = table["total"][key]
-            total += [_int(t["people"]), _int(t["buildings"]) if t.get("buildings") is not None else "—"]
+            total += [_int(t["people"]), _buildings(t) if t.get("buildings") is not None else "—"]
         rows.append(total)
         more = (f" The top {TOP_UNITS} of {table['units']} units by people in the observed flood candidates; the others are grouped "
                 "as \"Other units\" (every unit is in the workbook and the GeoPackage)." if table["others"] else "")
