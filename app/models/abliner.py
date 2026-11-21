@@ -26,7 +26,7 @@ def _now() -> datetime:
 class PaymentIntent(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "payment_intents"
     __table_args__ = (
-        CheckConstraint("purpose IN ('top_up','renewal')", name="ck_payment_intent_purpose"),
+        CheckConstraint("purpose IN ('top_up','renewal','test')", name="ck_payment_intent_purpose"),
         CheckConstraint("status IN ('created','pending','pending_unknown','completed','failed','expired','review')",
                         name="ck_payment_intent_status"),
         CheckConstraint("amount > 0", name="ck_payment_intent_amount"),
@@ -102,3 +102,5 @@ class IntegrationStatus(Base):
     last_error_code: Mapped[str | None] = mapped_column(String(60), nullable=True)
     last_webhook_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_webhook_event: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    last_test_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_test_result: Mapped[str | None] = mapped_column(String(60), nullable=True)

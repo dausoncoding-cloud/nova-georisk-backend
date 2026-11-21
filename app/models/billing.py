@@ -19,7 +19,7 @@ from app.db.base import Base, UUIDPrimaryKeyMixin
 LEDGER_KINDS = ("monthly_grant", "top_up", "charge", "refund", "adjustment", "expiry")
 LEDGER_BUCKETS = ("monthly", "top_up")
 PAYMENT_METHODS = ("bank_transfer", "mobile_money", "cash", "other")
-PAYMENT_PURPOSES = ("plan_period", "top_up", "reversal")
+PAYMENT_PURPOSES = ("plan_period", "top_up", "reversal", "test")
 
 
 def _now() -> datetime:
@@ -138,7 +138,8 @@ class Payment(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "payments"
     __table_args__ = (
         CheckConstraint("method IN ('bank_transfer','mobile_money','cash','other')", name="ck_payment_method"),
-        CheckConstraint("purpose IN ('plan_period','top_up','reversal')", name="ck_payment_purpose"),
+        # "test": the owner's Abliner live test (TZS 500): no credits, no plan period, reversible.
+        CheckConstraint("purpose IN ('plan_period','top_up','reversal','test')", name="ck_payment_purpose"),
         CheckConstraint("(purpose = 'reversal') = (amount < 0)", name="ck_payment_sign"),
         CheckConstraint("amount <> 0", name="ck_payment_amount_nonzero"),
         CheckConstraint("purpose <> 'top_up' OR (credits IS NOT NULL AND credits > 0)", name="ck_payment_topup_credits"),
