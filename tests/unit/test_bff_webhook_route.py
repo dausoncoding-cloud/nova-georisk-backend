@@ -39,8 +39,25 @@ def test_the_webhook_is_the_only_session_less_state_changing_route():
     assert routes.index(webhook) < routes.index(proxy)  # matched before the session proxy
 
 
+class FakeLimiter:
+    def __init__(self, allow=True):
+        self.allowed, self.sources = allow, []
+
+    async def allow(self, source):
+        self.sources.append(source)
+        return self.allowed
+
+
 @pytest.fixture()
-def captured(monkeypatch):
+def limiter():
+    fake = FakeLimiter()
+    app.dependency_overrides[bff_module.get_webhook_limiter] = lambda: fake
+    yield fake
+    app.dependency_overrides.pop(bff_module.get_webhook_limiter, None)
+
+
+@pytest.fixture()
+def captured(monkeypatch, limiter):
     seen = {}
 
     class Upstream:
@@ -105,3 +122,18 @@ def test_gateway_location_blanks_every_identity_and_is_post_only():
                    "X-Nova-Role", "X-Nova-Session-Ref"):
         assert f'proxy_set_header {header} "";' in block, header
     assert "proxy_pass http://nova_gateway_bff;" in block
+
+
+def test_rate_limited_per_source_before_reading_or_forwarding(captured, limiter):
+    limiter.allowed = False
+    with TestClient(app) as client:
+        response = client.post(ABLINER_WEBHOOK_PATH, content=b"{}", headers={"X-Forwarded-For": "41.59.10.20"})
+    assert response.status_code == 429 and response.json()["code"] == "rate_limited"
+    assert "url" not in captured
+    assert limiter.sources == ["unknown"]  # TestClient's peer is not an IP: X-Forwarded-For alone is never trusted
+
+
+def test_declared_oversize_is_refused_before_reading(captured):
+    with TestClient(app) as client:
+        response = client.post(ABLINER_WEBHOOK_PATH, content=b"{}", headers={"Content-Length": str(64 * 1024 + 1)})
+    assert response.status_code == 413 and "url" not in captured
