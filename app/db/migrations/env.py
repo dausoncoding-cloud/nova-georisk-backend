@@ -7,7 +7,7 @@ from app.core.config import get_settings
 from app.db.base import Base
 
 # Import all models so they're registered on Base.metadata before autogenerate runs.
-from app.models import abliner, aoi, billing, dataset, identity, live, management, platform, platform_admin, project, result, sessions, task  # noqa: F401
+from app.models import abliner, aoi, billing, dataset, identity, live, management, platform, platform_admin, project, receipts, result, sessions, task  # noqa: F401
 
 config = context.config
 settings = get_settings()

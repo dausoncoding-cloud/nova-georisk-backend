@@ -1654,6 +1654,17 @@
             "title": "Purpose",
             "type": "string"
           },
+          "receipt_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receipt Number"
+          },
           "recorded_by": {
             "anyOf": [
               {
@@ -8328,6 +8339,17 @@
             "title": "Purpose",
             "type": "string"
           },
+          "receipt_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receipt Number"
+          },
           "reference": {
             "anyOf": [
               {
@@ -14633,6 +14655,96 @@
         ]
       }
     },
+    "/api/v1/billing/payments/{payment_id}/receipt": {
+      "get": {
+        "description": "Q6: the PDF receipt of one of this organisation's payments (owners and admins). The first download freezes\nthe seller identity onto the receipt (a write on GET).",
+        "operationId": "get_payment_receipt_api_v1_billing_payments__payment_id__receipt_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "payment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Payment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {}
+            },
+            "description": "The payment receipt (PDF)."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authorization failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Get Payment Receipt",
+        "tags": [
+          "Billing"
+        ]
+      }
+    },
     "/api/v1/billing/plans": {
       "get": {
         "description": "The plan table on \"My subscription\" (prices are public list prices, not organisation data).",
@@ -19679,6 +19791,96 @@
           }
         },
         "summary": "List Payments",
+        "tags": [
+          "NOVA ARI administration"
+        ]
+      }
+    },
+    "/api/v1/platform-admin/payments/{payment_id}/receipt": {
+      "get": {
+        "description": "Q6: any payment's receipt, for NOVA ARI.",
+        "operationId": "payment_receipt_api_v1_platform_admin_payments__payment_id__receipt_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "payment_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Payment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/pdf": {}
+            },
+            "description": "The payment receipt (PDF)."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authorization failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Payment Receipt",
         "tags": [
           "NOVA ARI administration"
         ]

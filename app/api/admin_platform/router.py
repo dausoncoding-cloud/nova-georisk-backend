@@ -13,7 +13,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header, Query, Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -42,6 +42,7 @@ from app.schemas.platform_admin import (AddCustomerRequest, AddSubscriptionReque
 from app.models.platform_admin import SubscriptionRequest
 from app.models.abliner import IntegrationStatus, PaymentIntent
 from app.services.abliner.client import AblinerClient, get_client as _abliner_client
+from app.services.billing import receipts as billing_receipts
 from app.services.integrations import checks as integration_checks
 from app.services.integrations import status as integration_status
 from app.services.abliner import review as abliner_review
@@ -392,8 +393,10 @@ def list_payments(
         OrganizationSubscription.id.in_({row.subscription_id for row in rows}))} if rows else {}
     users = {user.id: user.display_name or user.email for user in db.query(User).filter(
         User.id.in_({row.recorded_by_user_id for row in rows if row.recorded_by_user_id}))} if rows else {}
+    numbers = billing_receipts.numbers(db, [row.id for row in rows])
     items = [AdminPaymentResponse(
-        **_payment(row, families.get(row.subscription_id), reversed_ids).model_dump(),
+        **{**_payment(row, families.get(row.subscription_id), reversed_ids).model_dump(),
+           "receipt_number": numbers.get(row.id)},
         organization_id=row.organization_id, organization_name=orgs.get(row.organization_id, ""), note=row.note,
         expected_amount=row.expected_amount, recorded_by=users.get(row.recorded_by_user_id)) for row in rows]
     return AdminPaymentPage(items=items, total=query.count(), limit=limit, offset=offset)
@@ -580,6 +583,17 @@ def resolve_mobile_payment(intent_id: uuid.UUID, body: ResolveReviewRequest, db:
         raise PublicAPIError(422, "reason_required", str(exc)) from exc
     db.commit()
     return body
+
+
+@router.get("/payments/{payment_id}/receipt", response_class=Response,
+            responses={200: {"content": {"application/pdf": {}}, "description": "The payment receipt (PDF)."}})
+def payment_receipt(payment_id: uuid.UUID, db: Session = Depends(get_db),
+                    admin: AdminContext = Depends(require_platform_admin)) -> Response:
+    """Q6: any payment's receipt, for NOVA ARI."""
+    receipt = billing_receipts.for_payment(db, payment_id)
+    if receipt is None:
+        raise PublicAPIError(404, "receipt_not_found", "Receipt not found.")
+    return billing_receipts.response(db, receipt)
 
 
 # --- Integrations (read-only; plan §6) -----------------------------------------------------------------------
