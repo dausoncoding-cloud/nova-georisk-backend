@@ -117,8 +117,9 @@ def test_catalogue_seed_matches_data_file_and_is_idempotent(db_session):
     assert professional.top_up_credit_price == 10000  # every other FRRIS/WRRIS plan: 10 credits = TZS 100,000
     # Q2: MEGIS TZS 25,000 per credit (10-credit top-up = TZS 250,000).
     assert db_session.query(BillingPlanPrice).filter_by(plan_key="megis.researcher").one().top_up_credit_price == 25000
-    # Q8: one active session per user on every plan.
-    assert {plan.session_limit for plan in db_session.query(BillingPlan)} == {1}
+    # Q8: one active session per user on every customer plan; the Internal plan keeps 3.
+    assert {plan.session_limit for plan in db_session.query(BillingPlan) if not plan.is_internal} == {1}
+    assert {plan.session_limit for plan in db_session.query(BillingPlan) if plan.is_internal} == {3}
     assert db_session.get(BillingPlan, "frris_wrris.custom").monthly_credits is None
 
 
@@ -435,7 +436,7 @@ def test_apply_catalogue_moves_a_v1_database_to_the_decided_v2_prices_and_limits
     db_session.commit()
     researcher = catalogue.current_price(db_session, "frris_wrris.researcher")
     assert (researcher.version, researcher.top_up_credit_price, researcher.source) == (2, 15000, "plans.v2.json")
-    assert db_session.get(BillingPlan, "megis.internal").session_limit == 1
+    assert db_session.get(BillingPlan, "megis.internal").session_limit == 3  # Q8: Internal exempt
     assert catalogue.apply_catalogue(db_session, apply=True, actor=actor) == []
     events = db_session.query(PlatformAudit).filter(PlatformAudit.actor_label == "operator command: apply-catalogue").all()
     assert {event.action for event in events} == {"plan.price", "plan.limits"} and len(events) == len(planned)

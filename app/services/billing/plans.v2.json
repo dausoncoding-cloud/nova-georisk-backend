@@ -6,7 +6,7 @@
     "Q1": "2026-11-21: Researcher 10 credits/month at TZS 150,000; top-up 10 credits = TZS 150,000 on Researcher, TZS 100,000 on every other FRRIS/WRRIS plan.",
     "Q2": "2026-11-21: MEGIS TZS 25,000 per credit (10-credit top-up = TZS 250,000). Data, pending the client's final confirmation.",
     "Q3": "2026-11-21: refunds for data failures ON for every plan.",
-    "Q8": "2026-11-21: 1 active session per user on all plans (phone or computer, not both)."
+    "Q8": "2026-11-21: 1 active session per user on all customer plans (phone or computer, not both); the Internal plan keeps 3 (owner, 2026-11-21)."
   },
   "pending": {
     "Q2": "Final client confirmation of the MEGIS credit price.",
@@ -108,7 +108,7 @@
         "seat_limit": null,
         "monthly_credits": null,
         "storage_bytes": null,
-        "session_limit": 1,
+        "session_limit": 3,
         "is_custom": false,
         "is_internal": true,
         "unlimited_credits": true,
@@ -189,7 +189,7 @@
         "seat_limit": null,
         "monthly_credits": null,
         "storage_bytes": null,
-        "session_limit": 1,
+        "session_limit": 3,
         "is_custom": false,
         "is_internal": true,
         "unlimited_credits": true,
@@ -198,5 +198,5 @@
     ]
   },
   "design_source": "docs/design/subscriptions/ (boards 13-14)",
-  "internal_plans_note": "'<family>.internal' is for NOVAREX's own organisation and the team's test organisation: unlimited credits, no seat or storage limit, one session per user (Q8), not sold, never listed to customers. Assigned only by the backfill command or the NOVA ARI console."
+  "internal_plans_note": "'<family>.internal' is for NOVAREX's own organisation and the team's test organisation: unlimited credits, no seat or storage limit, 3 sessions per user (Q8 exemption), not sold, never listed to customers. Assigned only by the backfill command or the NOVA ARI console."
 }
