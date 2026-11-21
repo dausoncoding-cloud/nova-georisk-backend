@@ -271,7 +271,8 @@ def test_enforcement_off_keeps_todays_behaviour(client, db_session, monkeypatch)
     assert db_session.query(CreditLedgerEntry).count() == 0
     assert client.get("/api/v1/billing/summary", headers=t.headers).json() == {
         "enforcement_enabled": False, "subscriptions": [], "seats": {"used": 1, "limit": None, "level": None},
-        "storage": {"used": 0, "limit": None, "level": None}, "storage_blocks_at_limit": True}  # Q5 setting
+        "storage": {"used": 0, "limit": None, "level": None}, "storage_blocks_at_limit": True,  # Q5 setting
+        "seller": None}
 
 
 def test_data_failure_refund_only_when_the_flag_is_on_and_at_most_once(client, db_session, enforced):

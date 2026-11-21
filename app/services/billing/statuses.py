@@ -96,6 +96,15 @@ def change_status(
     return subscription
 
 
+def access_ends_at(subscription: OrganizationSubscription) -> datetime | None:
+    """Q7: when viewing and downloads close for an Expired or Cancelled subscription (None: not ending)."""
+    grace_days = get_settings().billing_view_grace_days
+    if grace_days is None or subscription.status not in {SubscriptionStatus.EXPIRED, SubscriptionStatus.CANCELED}:
+        return None
+    since = subscription.status_changed_at or subscription.ends_at
+    return since + timedelta(days=grace_days) if since else None
+
+
 def sweep(db: Session, *, apply: bool, actor: audit.Actor, now: datetime | None = None) -> list[dict]:
     """Automatic status rules, for the operator command (dry run unless `apply`):
     1. an Active or Trial subscription past its end (or trial end) becomes Expired;

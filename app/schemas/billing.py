@@ -76,6 +76,8 @@ class SubscriptionSummary(BaseModel):
     seats_used: int
     # Next billing-month start, or the subscription end if that comes first.
     renews_on: datetime | None
+    # Q7: Expired or Cancelled: viewing and downloads end at this time (2 days' grace); None otherwise.
+    access_ends_at: datetime | None = None
     warning_levels: list[int]
     # None while top-ups are unavailable for this plan (for example MEGIS until Q2 is decided).
     top_up: TopUpOffer | None
@@ -83,6 +85,16 @@ class SubscriptionSummary(BaseModel):
     can_submit: bool
     block_code: str | None
     block_message: str | None
+
+
+class SellerIdentity(BaseModel):
+    """Q6: who sells NOVA-GeoRisk (settings), shown on My subscription and on receipts."""
+    legal_name: str
+    tin: str | None
+    address: str | None
+    # none | inclusive | exclusive (prices shown are before VAT when "exclusive").
+    vat_mode: str
+    vat_rate_percent: int
 
 
 class BillingSummaryResponse(BaseModel):
@@ -93,6 +105,8 @@ class BillingSummaryResponse(BaseModel):
     storage: Allowance
     # Q5: whether a full storage quota pauses new analyses (otherwise it only warns).
     storage_blocks_at_limit: bool
+    # None until SELLER_LEGAL_NAME is set.
+    seller: SellerIdentity | None = None
 
 
 class LedgerEntryResponse(BaseModel):

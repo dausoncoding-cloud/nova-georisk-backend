@@ -3258,6 +3258,16 @@
           "seats": {
             "$ref": "#/components/schemas/Allowance"
           },
+          "seller": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SellerIdentity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "storage": {
             "$ref": "#/components/schemas/Allowance"
           },
@@ -10521,6 +10531,54 @@
         "title": "SecurityAlertResponse",
         "type": "object"
       },
+      "SellerIdentity": {
+        "description": "Q6: who sells NOVA-GeoRisk (settings), shown on My subscription and on receipts.",
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "legal_name": {
+            "title": "Legal Name",
+            "type": "string"
+          },
+          "tin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tin"
+          },
+          "vat_mode": {
+            "title": "Vat Mode",
+            "type": "string"
+          },
+          "vat_rate_percent": {
+            "title": "Vat Rate Percent",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "legal_name",
+          "tin",
+          "address",
+          "vat_mode",
+          "vat_rate_percent"
+        ],
+        "title": "SellerIdentity",
+        "type": "object"
+      },
       "SignOutOthersResponse": {
         "properties": {
           "ended": {
@@ -11435,6 +11493,18 @@
       },
       "SubscriptionSummary": {
         "properties": {
+          "access_ends_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Ends At"
+          },
           "block_code": {
             "anyOf": [
               {
