@@ -32,6 +32,13 @@ def _reference(tmp_path, status="PENDING OWNER APPROVAL"):
 _MANIFEST, _FEATURES = bs.manifest, bs._features  # the cached originals
 
 
+@pytest.fixture(autouse=True)
+def _fresh_units():
+    bs._district_units.cache_clear()
+    yield
+    bs._district_units.cache_clear()
+
+
 @pytest.fixture
 def patched(tmp_path, monkeypatch):
     def use(status="PENDING OWNER APPROVAL"):

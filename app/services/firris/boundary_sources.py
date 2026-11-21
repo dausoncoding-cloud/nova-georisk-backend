@@ -67,6 +67,15 @@ def regions_approved(country: str = "tza") -> bool:
     return str(manifest(country)["district_region_table"]["status"]).upper().startswith("APPROVED")
 
 
+@functools.lru_cache(maxsize=4)
+def _district_units(path: str, sha256: str, country: str, approved: bool) -> tuple[Unit, ...]:
+    features = _features(path, sha256)
+    regions = district_region_table(country) if approved else {}
+    return tuple(Unit(id=f["properties"]["shapeID"], name=clean_name(f["properties"]["shapeName"], country), level="L2",
+                      geometry=shape(f["geometry"]).buffer(0), parent=regions.get(f["properties"]["shapeID"]),
+                      source_name=f["properties"]["shapeName"]) for f in features)
+
+
 class GeoBoundariesDistricts:
     level = "L2"
 
@@ -74,13 +83,11 @@ class GeoBoundariesDistricts:
         self.reference_dir, self.country = Path(reference_dir), country
 
     def all_units(self) -> list[Unit]:
+        """Every district, parsed once per process (the pinned file is checksum-verified on first read)."""
         country_manifest = manifest(self.country)
         entry = country_manifest["files"]["districts"]
-        features = _features(str(self.reference_dir / "boundaries" / self.country / entry["file"]), entry["sha256"])
-        regions = district_region_table(self.country) if regions_approved(self.country) else {}
-        return [Unit(id=f["properties"]["shapeID"], name=clean_name(f["properties"]["shapeName"], self.country), level="L2",
-                     geometry=shape(f["geometry"]), parent=regions.get(f["properties"]["shapeID"]),
-                     source_name=f["properties"]["shapeName"]) for f in features]
+        return list(_district_units(str(self.reference_dir / "boundaries" / self.country / entry["file"]), entry["sha256"],
+                                    self.country, regions_approved(self.country)))
 
     def units(self, aoi_geometry: dict) -> BoundaryUnits | NotProvided:
         country_manifest = manifest(self.country)
@@ -115,14 +122,13 @@ class GroupedRegions:
             districts = self.districts.all_units()
         except (FileNotFoundError, OSError):
             return NotProvided("L1", FILE_UNAVAILABLE, provenance)
-        grouped: dict[str, list] = {}
-        for unit in districts:
-            if unit.parent:
-                grouped.setdefault(unit.parent, []).append(unit.geometry.buffer(0))
         aoi = shape(aoi_geometry)
-        units = [Unit(id=f"region:{name}", name=name, level="L1", geometry=unary_union(parts))
-                 for name, parts in sorted(grouped.items())]
-        return BoundaryUnits("L1", [u for u in units if u.geometry.intersects(aoi)], provenance)
+        # Only the regions with a district touching the AOI are merged (the full region polygon is still needed for
+        # the unit's share inside the AOI).
+        touched = sorted({unit.parent for unit in districts if unit.parent and unit.geometry.intersects(aoi)})
+        units = [Unit(id=f"region:{name}", name=name, level="L1",
+                      geometry=unary_union([unit.geometry for unit in districts if unit.parent == name])) for name in touched]
+        return BoundaryUnits("L1", units, provenance)
 
 
 class ReviewedWards:
