@@ -3,7 +3,9 @@
 Every route: internal secret (BFF only) + `require_platform_admin` (live grant in the database, checked
 per request). Every write: a reason, and a `platform_audit` row in the same transaction. Payment and
 credit writes also take an `Idempotency-Key`, so a repeated click records once. Cross-organisation
-login history is the one read that is audited too.
+login history is the one read that is audited too, so it is a POST (CSRF-protected). Two GETs also write,
+idempotently: reading customers brings each subscription to the current month (the monthly grant, once
+per month) and reading a customer flushes the usage buffer.
 """
 from __future__ import annotations
 
@@ -186,11 +188,14 @@ def customer_detail(organization_id: uuid.UUID, db: Session = Depends(get_db),
         open_alerts=overview._open_alerts(db, organization_id))
 
 
-@router.get("/customers/{organization_id}/login-history", response_model=AdminLoginPage)
+@router.post("/customers/{organization_id}/login-history", response_model=AdminLoginPage)
 def customer_login_history(
     organization_id: uuid.UUID, limit: int = Query(25, ge=1, le=100), offset: int = Query(0, ge=0),
     db: Session = Depends(get_db), admin: AdminContext = Depends(require_platform_admin),
 ) -> AdminLoginPage:
+    """Cross-organisation login history, IP addresses included, is an audited view. It is a POST (security
+    review L4) so the audit row can only come from an explicit request carrying the BFF's CSRF token, never from
+    a cross-site link that a browser follows with the session cookie."""
     _organization(db, organization_id)
     query = (db.query(UserSession, User).join(User, User.id == UserSession.user_id)
              .filter(UserSession.organization_id == organization_id))

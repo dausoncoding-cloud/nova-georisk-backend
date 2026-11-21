@@ -236,7 +236,8 @@ def test_end_all_sessions_and_login_history_for_nova_ari(client, db_session, sta
     assert len(alerts) == 1 and alerts[0].detail["browser"] == "Chrome"  # first sign-in ever: no alert
     client.app.dependency_overrides[get_session_tracker] = lambda: tracker
     try:
-        history = client.get(f"{BASE}/customers/{t.org.id}/login-history", headers=admin.headers).json()
+        assert client.get(f"{BASE}/customers/{t.org.id}/login-history", headers=admin.headers).status_code == 405
+        history = client.post(f"{BASE}/customers/{t.org.id}/login-history", headers=admin.headers).json()
         assert [(i["browser"], i["result"], i["ended_earlier_sessions"]) for i in history["items"]] == [
             ("Chrome", "active", 1), ("Firefox", "replaced", 0)]
         assert history["items"][0]["ip_address"] == "41.59.10.20"  # NOVA ARI sees it (kept 30 days)

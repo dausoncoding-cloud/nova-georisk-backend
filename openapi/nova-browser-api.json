@@ -763,26 +763,12 @@
           "overrides": {
             "anyOf": [
               {
-                "additionalProperties": {
-                  "anyOf": [
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "type": "object"
+                "$ref": "#/components/schemas/Overrides"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Overrides"
+            ]
           },
           "owner_email": {
             "anyOf": [
@@ -897,26 +883,12 @@
           "overrides": {
             "anyOf": [
               {
-                "additionalProperties": {
-                  "anyOf": [
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "type": "object"
+                "$ref": "#/components/schemas/Overrides"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Overrides"
+            ]
           },
           "plan_key": {
             "maxLength": 64,
@@ -6319,6 +6291,7 @@
         "type": "object"
       },
       "LimitChangeRequest": {
+        "additionalProperties": false,
         "properties": {
           "fields": {
             "items": {
@@ -6338,6 +6311,8 @@
           "monthly_credits": {
             "anyOf": [
               {
+                "maximum": 100000.0,
+                "minimum": 0.0,
                 "type": "integer"
               },
               {
@@ -6366,6 +6341,8 @@
           "seat_limit": {
             "anyOf": [
               {
+                "maximum": 10000.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -6377,6 +6354,8 @@
           "session_limit": {
             "anyOf": [
               {
+                "maximum": 100.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -6388,6 +6367,8 @@
           "storage_bytes": {
             "anyOf": [
               {
+                "maximum": 100000000000000.0,
+                "minimum": 0.0,
                 "type": "integer"
               },
               {
@@ -7245,6 +7226,77 @@
         "title": "OrganizationSummary",
         "type": "object"
       },
+      "Overrides": {
+        "additionalProperties": false,
+        "description": "Per-contract values (security review L2): typed per field, bounded, no booleans for numbers. Only the\nfields sent are changed; send null to clear one (the plan's value applies again).",
+        "properties": {
+          "monthly_credits_override": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Credits Override"
+          },
+          "refund_on_data_failure_override": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refund On Data Failure Override"
+          },
+          "seat_limit_override": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seat Limit Override"
+          },
+          "session_limit_override": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Limit Override"
+          },
+          "storage_bytes_override": {
+            "anyOf": [
+              {
+                "maximum": 100000000000000.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Bytes Override"
+          }
+        },
+        "title": "Overrides",
+        "type": "object"
+      },
       "OverviewHeadline": {
         "properties": {
           "baseline_period": {
@@ -7579,26 +7631,12 @@
           "overrides": {
             "anyOf": [
               {
-                "additionalProperties": {
-                  "anyOf": [
-                    {
-                      "type": "integer"
-                    },
-                    {
-                      "type": "boolean"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ]
-                },
-                "type": "object"
+                "$ref": "#/components/schemas/Overrides"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Overrides"
+            ]
           },
           "plan_key": {
             "anyOf": [
@@ -17532,8 +17570,9 @@
       }
     },
     "/api/v1/platform-admin/customers/{organization_id}/login-history": {
-      "get": {
-        "operationId": "customer_login_history_api_v1_platform_admin_customers__organization_id__login_history_get",
+      "post": {
+        "description": "Cross-organisation login history, IP addresses included, is an audited view. It is a POST (security\nreview L4) so the audit row can only come from an explicit request carrying the BFF's CSRF token, never from\na cross-site link that a browser follows with the session cookie.",
+        "operationId": "customer_login_history_api_v1_platform_admin_customers__organization_id__login_history_post",
         "parameters": [
           {
             "in": "path",
