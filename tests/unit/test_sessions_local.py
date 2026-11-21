@@ -47,6 +47,8 @@ def test_user_agent_label_text():
     ("172.18.0.5", "garbage, 41.59.10.20", "41.59.10.20"),
     ("::ffff:172.18.0.5", "41.59.10.20", "41.59.10.20"),
     (None, None, None),
+    (None, "41.59.10.20", None),  # no parseable peer: the header alone is never trusted
+    ("testclient", "41.59.10.20", None),
 ])
 def test_client_ip_behind_trusted_proxies(peer, forwarded, expected):
     assert client_ip.client_ip(peer, forwarded) == expected

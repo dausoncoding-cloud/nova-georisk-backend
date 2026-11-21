@@ -29,12 +29,12 @@ def _parse(value: str):
 
 def client_ip(peer: str | None, forwarded_for: str | None) -> str | None:
     trusted = _networks(tuple(get_settings().session_trusted_proxy_cidrs))
+    peer_address = _parse(peer or "")
+    if peer_address is None:
+        return None  # no direct peer to judge the header by: never trust X-Forwarded-For alone
     chain = [item for item in (forwarded_for or "").split(",")[-20:] if item.strip()]
-    candidates = [_parse(item) for item in chain] + [_parse(peer or "")]
+    candidates = [_parse(item) for item in chain] + [peer_address]
     candidates = [item for item in candidates if item is not None]
-    if not candidates:
-        return None
-    peer_address = candidates[-1]
     if not any(peer_address in network for network in trusted):
         return str(peer_address)  # not behind a proxy we trust: ignore the header
     for address in reversed(candidates):

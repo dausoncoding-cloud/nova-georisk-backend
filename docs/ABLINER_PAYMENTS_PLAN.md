@@ -80,8 +80,8 @@
 - `api.novageorisk.com` stays `/health` only.
 
 **Route:** `POST https://app.novageorisk.com/api/v1/webhooks/abliner`, chosen so that no live edge file has to change.
-1. **Edge (live `frontend-app.conf`):** it already sends `/api/*` on the app host to the gateway. No change. The deploy runs a read-only check first: `POST /api/v1/webhooks/abliner` with no body must reach the BFF (401 from the new route, not the SPA).
-2. **Gateway (`deploy/nginx/conf.d/gateway.conf`).** A new exact-match location, which wins over `^~ /api/`:
+1. **Edge (live `frontend-app.conf`), the real production path.** Per the r8 nginx audit (`docs/FRRIS_PRODUCTION_DEPLOY_RECORD_R8.md`, release record §5.2), the app host sends `/api/*` **directly to the BFF**, not through the gateway. No edge change is needed: the BFF route below protects itself (per-source rate limit, streamed 64 KB cap, header allowlist). The deploy session runs a read-only check first: `POST /api/v1/webhooks/abliner` with no body must reach the BFF route (`401 invalid_signature` from the API), not the SPA and not the session proxy.
+2. **Gateway (`deploy/nginx/conf.d/gateway.conf`).** **Not on the production path today**; kept because it is harmless and right if routing ever moves to the gateway. A new exact-match location, which wins over `^~ /api/`:
    ```
    location = /api/v1/webhooks/abliner {
        limit_except POST { deny all; }            # GET etc. -> 403 (or a JSON 404 via if, as on the API host)
@@ -278,8 +278,8 @@ A refused deposit (an Abliner 4xx with no `transaction_id`) marks the intent `fa
 
 | # | File | What | Failure behaviour |
 |---|---|---|---|
-| B1 | `deploy/nginx/conf.d/gateway.conf`: `location = /api/v1/webhooks/abliner` | POST only, 64 KB, own rate-limit zone; `Cookie`, `X-Internal-Secret` and all `X-Nova-*` blanked; to the BFF | Fails closed |
-| B2 | `app/bff/main.py`: `POST /api/v1/webhooks/abliner` | No session, CSRF or cookies; forwards the raw body and three `x-webhook-*` headers with the internal secret; holds no Abliner secret; declared before the session proxy | Upstream errors become 502; never authenticates a user |
+| B1 | `deploy/nginx/conf.d/gateway.conf`: `location = /api/v1/webhooks/abliner` | **Not on the production path** (the edge sends `/api/*` to the BFF directly); defence in depth if routing changes. POST only, 64 KB, own rate-limit zone; `Cookie`, `Authorization`, `X-Internal-Secret` and all `X-Nova-*` blanked; to the BFF. | Fails closed |
+| B2 | `app/bff/main.py`: `POST /api/v1/webhooks/abliner`; `app/bff/webhook_limit.py` | **The production entry point.** The only route with no session, CSRF or cookies (exact path, POST only, before the session proxy; a test fails if any other route is exempt). Self-sufficient: per-source rate limit in Redis (30 per 10 s per client IP behind trusted proxies, 300 per 10 s in total, fails open to the HMAC check); `Content-Length` and streamed 64 KB cap; forwards only the raw body, `content-type` and the three `x-webhook-*` headers, with the internal secret; holds no Abliner secret. | 413 / 429; upstream errors become 502; never authenticates a user |
 | B3 | `app/api/v1/endpoints/abliner_webhooks.py` | Internal secret + HMAC-SHA256 over `ts.rawBody` (constant time, bytes) + ±300 s + dedupe on the webhook ID; service context, no principal | 401 / 503; never settles unverified data |
 | B4 | `app/services/abliner/client.py` | Bearer key from the environment (`SecretStr`), signed deposits, one attempt, no new key on retry, timeouts | No secret in logs or errors |
 | B5 | `app/services/abliner/settlement.py` | Row lock, amount, currency and reference check, then the existing payment service with actor `system:abliner` | Mismatch → `review`, no credits |
@@ -288,7 +288,7 @@ A refused deposit (an Abliner 4xx with no `transaction_id`) marks the intent `fa
 
 **Turn-on checklist** (owner):
 1. Deploy with `ABLINER_PAYMENTS_ENABLED=false` and run the migration.
-2. Read-only edge check: `POST https://app.novageorisk.com/api/v1/webhooks/abliner` (empty) must return the BFF's 401, not the SPA. `api.novageorisk.com` still returns 404 for everything but `/health`.
+2. Read-only edge check: `POST https://app.novageorisk.com/api/v1/webhooks/abliner` (empty body) must return `401 invalid_signature` from the BFF route (edge → BFF directly), not the SPA and not the session proxy's 401 "Authentication required". `GET` on the same path must not reach this route (session proxy 401). `api.novageorisk.com` still returns 404 for everything but `/health`.
 3. The owner sets `ABLINER_API_KEY` and `ABLINER_WEBHOOK_SECRET` over SSH, then `docker compose up -d api worker`.
 4. Run `python -m app.services.integrations.cli check`; it must show Abliner `connected`. Then the console's Integrations page, Test connection.
 5. In the Abliner dashboard, set the callback URL `https://app.novageorisk.com/api/v1/webhooks/abliner` (also sent per request). Give the client this URL if they manage the dashboard.
