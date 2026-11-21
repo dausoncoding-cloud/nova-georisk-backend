@@ -231,6 +231,7 @@ def run_satellite_workflow(
     gis_metadata: dict[str, Any],
     aoi_geometry: dict | None,
     workspace: Path,
+    admin_boundaries: dict | None = None,
 ) -> FIRRISWorkflowOutput:
     source = dict(workflow.get("source") or {})
     provider = str(source.get("provider", "prepared"))
@@ -514,7 +515,8 @@ def run_satellite_workflow(
             hazard_layers=modelled_hazard_layers,
             users_accuracy_flood_pct=(((independent_accuracy.get("metrics") or {}).get("per_class") or {}).get("1") or {}).get(
                 "users_accuracy_pct") if independent_accuracy.get("status") == "assessed" else None,
-            accuracy_reason=independent_accuracy.get("reason") if independent_accuracy.get("coverage_rule") == "failed" else None)
+            accuracy_reason=independent_accuracy.get("reason") if independent_accuracy.get("coverage_rule") == "failed" else None,
+            admin_boundaries=admin_boundaries)
         provenance["flood_exposure"] = {"status": flood_exposure.get("status"), "reason": flood_exposure.get("reason"),
                                         "population": (flood_exposure.get("population") or {}).get("source"),
                                         "buildings": {k: v for k, v in (flood_exposure.get("buildings") or {}).items()

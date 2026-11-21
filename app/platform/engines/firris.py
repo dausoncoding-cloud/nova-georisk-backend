@@ -663,7 +663,13 @@ class FIRRISEngineAdapter(EngineAdapter):
         workflow = None
         if workflow_config:
             progress_callback(5)
-            workflow = run_satellite_workflow(dict(workflow_config), context.gis_metadata, context.aoi_geometry, context.output_directory)
+            admin_boundaries = None
+            if ((workflow_config.get("source") or {}).get("provider") == "gee" and context.aoi_geometry
+                    and (workflow_config.get("context") or {}).get("flood_exposure")):
+                from app.services.firris.boundary_sources import resolve_admin_boundaries  # v1.1 exposure by admin unit
+                admin_boundaries = resolve_admin_boundaries(context.aoi_geometry, context.project_id)
+            workflow = run_satellite_workflow(dict(workflow_config), context.gis_metadata, context.aoi_geometry, context.output_directory,
+                                              admin_boundaries=admin_boundaries)
             source_config = dict(workflow_config.get("source") or {})
             actual = _actual_raster_metadata(workflow, context.gis_metadata)
             actual["target_period"] = source_config.get("target_period")

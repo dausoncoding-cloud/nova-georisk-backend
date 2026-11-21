@@ -97,16 +97,15 @@ def _buildings(geometry, count: Callable) -> dict[str, Any]:
         return {"status": "not_available", "reason": str(exc)}
 
 
-def exposure_rows(population, aoi_geometry: dict, *, observed: dict | None, hazard_layers: dict | None,
-                  count: Callable) -> tuple[list[dict], dict[str, Any]]:
-    """One row per extent (whole area, observed extent, each RP zone) and the arrays for the GIS layers."""
-    pop, pop_t = population.population, population.transform
-    areas = cell_areas_km2(pop_t, pop.shape)
+def extent_specs(observed: dict | None, hazard_layers: dict | None) -> list[tuple[str, str, np.ndarray | None, np.ndarray | None, Affine | None]]:
+    """(key, label, reported mask, alternative mask or None, grid transform) for every Exposure extent, in report order.
+
+    The alternative is the sensitivity: the observed extent masked with GloFAS permanent water; for a GloFAS zone, the
+    zone with permanent water kept. ``mask is None`` means the whole area.
+    """
     permanent = []
     if hazard_layers:
         permanent = [(hazard_layers["permanent_water"], hazard_layers["transform"])]
-    # (key, label, reported mask, alternative mask or None, grid transform). The alternative is the sensitivity:
-    # the observed extent masked with GloFAS permanent water; for a GloFAS zone, the zone with permanent water kept.
     extents: list[tuple[str, str, np.ndarray | None, np.ndarray | None, Affine | None]] = [
         ("whole_area", "Whole area (reference)", None, None, None)]
     if observed is not None and observed.get("extent") is not None:
@@ -124,6 +123,19 @@ def exposure_rows(population, aoi_geometry: dict, *, observed: dict | None, haza
             wet_all = np.isfinite(depth) & (depth >= MIN_DEPTH_M) & ~hazard_layers["spurious"] & hazard_layers["inside"]
             wet = wet_all & ~hazard_layers["permanent_water"]
             extents.append((f"rp{period}", f"Modelled 1-in-{period}-year zone", wet, wet_all, hazard_layers["transform"]))
+    return extents
+
+
+def exposure_rows(population, aoi_geometry: dict, *, observed: dict | None, hazard_layers: dict | None,
+                  count: Callable, geometries: dict | None = None, specs: list | None = None) -> tuple[list[dict], dict[str, Any]]:
+    """One row per extent (whole area, observed extent, each RP zone) and the arrays for the GIS layers.
+
+    ``geometries``, when given, receives each extent's geometry (clipped to the AOI) by extent key. ``specs`` is
+    ``extent_specs(observed, hazard_layers)`` when the caller already has it.
+    """
+    pop, pop_t = population.population, population.transform
+    areas = cell_areas_km2(pop_t, pop.shape)
+    extents = specs if specs is not None else extent_specs(observed, hazard_layers)
 
     def figures(mask, mask_t):
         fraction = extent_fraction(pop_t, pop.shape, aoi_geometry, include=[] if mask is None else [(mask, mask_t)])
@@ -135,6 +147,8 @@ def exposure_rows(population, aoi_geometry: dict, *, observed: dict | None, haza
     rows, arrays = [], {}
     for key, label, mask, mask_all, mask_t in extents:
         fraction, geometry, values = figures(mask, mask_t)
+        if geometries is not None:
+            geometries[key] = geometry
         row = {"extent": key, "label": label, **values}
         if mask_all is not None and key == "observed_extent":
             row["sensitivity_glofas_permanent_water_masked"] = figures(mask_all, mask_t)[2]
@@ -255,7 +269,8 @@ def unavailable_exposure(reason: str) -> dict[str, Any]:
 def run_exposure(aoi_geometry: dict, *, event_year: int | None, extent: np.ndarray | None, extent_transform: Affine | None,
                  extent_crs: str, hazard_layers: dict | None, acquire=None, count=None, points=None,
                  users_accuracy_flood_pct: float | None = None,
-                 accuracy_reason: str | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
+                 accuracy_reason: str | None = None,
+                 admin_boundaries: dict | None = None) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """Population and buildings for every extent; on failure, a 'not available' record (the flood map is unaffected)."""
     from app.services.gee.open_buildings import building_points, count_buildings
     from app.services.gee.worldpop import PopulationUnavailable, acquire_worldpop
@@ -274,7 +289,10 @@ def run_exposure(aoi_geometry: dict, *, event_year: int | None, extent: np.ndarr
         return unavailable_exposure("WorldPop could not be read from Earth Engine for this run. The flood map is unaffected; "
                                     "run the analysis again to add the exposure estimate."), None
     observed = {"extent": extent, "transform": extent_transform} if extent is not None and extent_transform is not None else None
-    rows, arrays = exposure_rows(population, aoi_geometry, observed=observed, hazard_layers=hazard_layers, count=count)
+    geometries: dict[str, Any] = {}
+    specs = extent_specs(observed, hazard_layers)
+    rows, arrays = exposure_rows(population, aoi_geometry, observed=observed, hazard_layers=hazard_layers, count=count,
+                                 geometries=geometries, specs=specs)
     building_layer = None
     if "observed_extent" in arrays:
         try:
@@ -286,5 +304,15 @@ def run_exposure(aoi_geometry: dict, *, event_year: int | None, extent: np.ndarr
         cluster["glofas"] = cluster_glofas_check(cluster, hazard_layers)
     record = exposure_record(population, rows, points=building_layer, users_accuracy_flood_pct=users_accuracy_flood_pct,
                              cluster=cluster, accuracy_reason=accuracy_reason)
+    if admin_boundaries:
+        from app.services.firris.admin_units import breakdown
+        try:  # v1.1: exposure by administrative unit; never changes the Exposure figures above
+            record["by_admin_unit"] = breakdown(population, aoi_geometry, specs, rows, geometries,
+                                                count=count, boundaries=admin_boundaries)
+        except Exception:  # noqa: BLE001 - the breakdown is an add-on; Exposure stays as computed
+            logger.exception("Exposure by administrative unit failed")
+            record["by_admin_unit"] = {"status": "not_available",
+                                       "reason": "The breakdown by administrative unit could not be computed for this run; "
+                                                 "the Exposure figures are unaffected."}
     layers = {"population_transform": population.transform, "arrays": arrays, "building_points": building_layer}
     return record, layers

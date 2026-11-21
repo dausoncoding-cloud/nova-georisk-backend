@@ -111,3 +111,15 @@ def test_real_regions_are_31_including_songwe_and_keep_source_names():
     assert babati.name == "Babati Urban" and babati.parent == "Manyara"
     songwe = bs.GroupedRegions(bs.GeoBoundariesDistricts(REAL)).units(mapping(box(32.5, -9.5, 33.5, -8.8)))
     assert "Songwe" in [u.name for u in songwe.units]
+
+
+def test_resolve_never_raises_missing_files_and_a_failing_database_are_stated(tmp_path, monkeypatch):
+    import app.db.session as session
+    def broken():
+        raise RuntimeError("database down")
+    monkeypatch.setattr(session, "SessionLocal", broken)
+    _MANIFEST.cache_clear(); _FEATURES.cache_clear()
+    out = bs.resolve_admin_boundaries(AOI, "p", reference_dir=tmp_path)
+    assert {k: (type(v).__name__, v.reason) for k, v in out.items()} == {
+        "L1": ("NotProvided", bs.FILE_UNAVAILABLE), "L2": ("NotProvided", bs.FILE_UNAVAILABLE),
+        "L3": ("NotProvided", "Ward boundaries could not be read for this run.")}

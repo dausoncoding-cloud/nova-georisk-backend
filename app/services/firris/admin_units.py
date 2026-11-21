@@ -158,18 +158,33 @@ def check_sums(rows: list[dict], totals: dict[str, dict]) -> dict[str, Any]:
     return result
 
 
+LEVELS: tuple[Level, ...] = ("L1", "L2", "L3")
+REPORT_EXTENTS = ("observed_extent", "rp100")   # the report tables (plan §5); the workbook has every extent
+MAX_BUILDING_COUNTS_PER_LEVEL = 120               # Earth Engine count calls; beyond it, only the report extents are counted
+OVERLAP_RULE = "Overlapping boundary areas go to the unit with the larger area inside the AOI; ties to the lower unit id."
+WITHHELD = "The units do not add up to the area totals for this level; the breakdown is withheld rather than rescaled."
+
+
+def _covers(piece: Piece, aoi) -> bool:
+    """The piece is the whole AOI (one unit holds all of it): its figures are the area totals, exactly."""
+    return piece.unit is not None and aoi.area > 0 and piece.geometry.symmetric_difference(aoi).area <= 1e-9 * aoi.area
+
+
 def level_breakdown(source_result: BoundaryUnits | NotProvided, *, population, aoi_geometry: dict,
                     extents: list[tuple[str, str, np.ndarray | None, Affine | None]], totals: dict[str, dict],
-                    count: Callable | None, extent_geometries: dict[str, Any]) -> dict[str, Any]:
+                    count: Callable | None, extent_geometries: dict[str, Any],
+                    count_extents: set[str] | None = None) -> dict[str, Any]:
     """One level's table: rows per unit (plus "Outside any unit"), per extent people and buildings, and the check.
 
-    ``extents``: (key, label, mask or None for the whole area, mask transform) as in exposure_rows.
-    ``totals``: per extent {"people": float, "buildings": int | None} from the Exposure rows (≥ 0.75 buildings).
+    ``extents``: (key, label, mask or None for the whole area, mask transform) as in ``exposure.extent_specs``.
+    ``totals``: per extent {"people": float, "buildings": int | None, "buildings_065": int | None} from Exposure.
     ``count``: server-side Open Buildings count(geometry) -> {"0.75": {"count": int}, "0.65": {...}}, or None.
+    ``count_extents``: extents whose buildings are counted per unit (default: every extent with a building total).
     """
     if isinstance(source_result, NotProvided):
         return {"level": source_result.level, "level_name": LEVEL_NAMES[source_result.level], "status": "not_provided",
                 "reason": source_result.reason, "provenance": source_result.provenance}
+    aoi = shape(aoi_geometry).buffer(0)
     pieces = disjoint_pieces(source_result.units, aoi_geometry)
     pop, pop_t = population.population, population.transform
     rows = []
@@ -178,29 +193,80 @@ def level_breakdown(source_result: BoundaryUnits | NotProvided, *, population, a
         rows.append({"unit_id": piece.id, "name": unit.name if unit else OUTSIDE_NAME, "code": unit.code if unit else None,
                      "source_name": unit.source_name if unit else None,
                      "parent": unit.parent if unit else None, "area_in_aoi_km2": piece.area_in_aoi_km2,
+                     "unit_area_km2": area_km2(unit.geometry.buffer(0)) if unit else None,
                      "share_of_unit_in_aoi": piece.share_of_unit_in_aoi, "extents": {}})
+    counted = set()
     for key, label, mask, mask_t in extents:
         fractions = unit_fractions(pop_t, pop.shape, aoi_geometry, pieces, include=[] if mask is None else [(mask, mask_t)])
+        total = totals.get(key, {})
         extent_geometry = extent_geometries.get(key)
+        do_count = (count is not None and extent_geometry is not None and total.get("buildings") is not None
+                    and (count_extents is None or key in count_extents))
+        if do_count:
+            counted.add(key)
         for row, piece in zip(rows, pieces):
             values: dict[str, Any] = {"people": float((pop * fractions[piece.id]).sum())}
-            if count is not None and extent_geometry is not None and totals.get(key, {}).get("buildings") is not None:
-                geometry = piece.geometry.intersection(extent_geometry) if key != "whole_area" else piece.geometry
-                if geometry.is_empty:
-                    values.update(buildings=0, buildings_065=0)
+            if do_count:
+                if _covers(piece, aoi):
+                    values.update(buildings=int(total["buildings"]), buildings_065=total.get("buildings_065"))
                 else:
-                    counted = count(geometry)
-                    values.update(buildings=int(counted["0.75"]["count"]), buildings_065=int(counted["0.65"]["count"]))
+                    geometry = piece.geometry if key == "whole_area" else piece.geometry.intersection(extent_geometry)
+                    if geometry.is_empty:
+                        values.update(buildings=0, buildings_065=0)
+                    else:
+                        result = count(geometry)
+                        values.update(buildings=int(result["0.75"]["count"]), buildings_065=int(result["0.65"]["count"]))
             row["extents"][key] = values
-    check = check_sums(rows, totals)
+    check = check_sums(rows, {key: total for key, total in totals.items() if key in {e[0] for e in extents}})
     outside = next(row for row in rows if row["unit_id"] == OUTSIDE_ID)
     shown = [row for row in rows if row["unit_id"] != OUTSIDE_ID]
-    if any(abs(v["people"]) > 0 or v.get("buildings") for v in outside["extents"].values()) or outside["area_in_aoi_km2"] > 1e-6:
+    if outside["area_in_aoi_km2"] > 1e-6 or any(v["people"] > 0 or v.get("buildings") for v in outside["extents"].values()):
         shown.append(outside)
-    record = {"level": source_result.level, "level_name": LEVEL_NAMES[source_result.level],
-              "status": "assessed" if check["ok"] else "not_available",
-              "reason": None if check["ok"] else ("The units do not add up to the area totals for this level; the "
-                                                   "breakdown is withheld rather than rescaled."),
-              "rows": shown, "check": check, "provenance": source_result.provenance,
-              "overlap_rule": "Overlapping boundary areas go to the unit with the larger area inside the AOI; ties to the lower unit id."}
-    return record
+    return {"level": source_result.level, "level_name": LEVEL_NAMES[source_result.level],
+            "status": "assessed" if check["ok"] else "not_available", "reason": None if check["ok"] else WITHHELD,
+            "rows": shown, "check": check, "provenance": source_result.provenance, "overlap_rule": OVERLAP_RULE,
+            "buildings_counted_for": [e[0] for e in extents if e[0] in counted]}
+
+
+def _totals(rows: list[dict]) -> dict[str, dict]:
+    out = {}
+    for row in rows:
+        buildings = row.get("buildings") or {}
+        counted = buildings.get("status") == "counted"
+        out[row["extent"]] = {"people": float(row["people"]),
+                              "buildings": int(buildings["0.75"]["count"]) if counted else None,
+                              "buildings_065": int(buildings["0.65"]["count"]) if counted else None}
+    return out
+
+
+def breakdown(population, aoi_geometry: dict, specs: list, rows: list[dict], geometries: dict[str, Any], *,
+              count: Callable | None, boundaries: dict[str, BoundaryUnits | NotProvided]) -> dict[str, Any]:
+    """Exposure by administrative unit for every level in ``boundaries`` (L1 regions, L2 districts, L3 wards)."""
+    extents = [(key, label, mask, mask_t) for key, label, mask, _alternative, mask_t in specs]
+    totals = _totals(rows)
+    levels = []
+    for level in LEVELS:
+        source = boundaries.get(level)
+        if source is None:
+            continue
+        count_extents = None
+        if isinstance(source, BoundaryUnits):
+            calls = (len(source.units) + 1) * sum(1 for t in totals.values() if t["buildings"] is not None)
+            if calls > MAX_BUILDING_COUNTS_PER_LEVEL:
+                count_extents = set(REPORT_EXTENTS)
+        record = level_breakdown(source, population=population, aoi_geometry=aoi_geometry, extents=extents, totals=totals,
+                                 count=count, extent_geometries=geometries, count_extents=count_extents)
+        if count_extents is not None and record.get("status") == "assessed":
+            record["buildings_note"] = (f"Buildings are counted per unit for the observed extent and the 1-in-100-year zone only "
+                                        f"({len(source.units)} units; the per-run limit is {MAX_BUILDING_COUNTS_PER_LEVEL} "
+                                        "Earth Engine counts per level). People are given for every extent.")
+        levels.append(record)
+    assessed = [lv for lv in levels if lv["status"] == "assessed"]
+    return {"status": "assessed" if assessed else "not_available",
+            "reason": None if assessed else "No administrative level could be assessed for this run.",
+            "method": ("Units clipped to the AOI and made disjoint; people from the same WorldPop grid and sub-cell fractions as "
+                       "the area totals; buildings counted server-side per unit piece and extent (centroid inside). Units "
+                       "and \"Outside any unit\" add up to the area totals: buildings exactly, people within "
+                       "max(0.5 person, 0.01%)."),
+            "extents": [{"key": key, "label": label} for key, label, *_ in extents],
+            "levels": levels}

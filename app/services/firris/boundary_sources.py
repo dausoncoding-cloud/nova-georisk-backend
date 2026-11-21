@@ -149,3 +149,37 @@ class ReviewedWards:
                           "reviewed_at": source.evidence.get("reviewed_at")}
             return BoundaryUnits("L3", [u for u in units if u.geometry.intersects(aoi)], provenance)
         return NotProvided("L3", WARDS_NOT_PROVIDED)
+
+
+def resolve_admin_boundaries(aoi_geometry: dict, project_id, *, reference_dir: str | Path | None = None,
+                             country: str = "tza") -> dict[str, BoundaryUnits | NotProvided]:
+    """The three levels for one run, resolved before the workflow (the workflow itself has no database session).
+
+    Regions and districts read the pinned files; wards read the project's approved boundary datasets in a short,
+    read-only session. A failure at one level is that level's "not available" reason; it never stops the run.
+    """
+    import logging
+    from app.core.config import get_settings
+    log = logging.getLogger(__name__)
+    districts = GeoBoundariesDistricts(reference_dir or get_settings().reference_data_dir, country)
+    out: dict[str, BoundaryUnits | NotProvided] = {}
+    for level, source in (("L1", GroupedRegions(districts)), ("L2", districts)):
+        try:
+            out[level] = source.units(aoi_geometry)
+        except Exception:  # noqa: BLE001
+            log.exception("Boundary level %s could not be read", level)
+            out[level] = NotProvided(level, "The boundaries for this level could not be read for this run.")
+    try:
+        from sqlalchemy import text
+        from app.db.session import SessionLocal
+        db = SessionLocal()
+        try:
+            db.execute(text("SET TRANSACTION READ ONLY"))
+            out["L3"] = ReviewedWards(db, project_id).units(aoi_geometry)
+        finally:
+            db.rollback()
+            db.close()
+    except Exception:  # noqa: BLE001
+        log.exception("Ward boundaries could not be read")
+        out["L3"] = NotProvided("L3", "Ward boundaries could not be read for this run.")
+    return out

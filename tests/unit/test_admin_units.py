@@ -93,3 +93,89 @@ def test_wards_not_provided_is_stated_and_nothing_else_is_filled_in():
                                 extents=[], totals={}, count=None, extent_geometries={})
     assert record == {"level": "L3", "level_name": "Ward", "status": "not_provided",
                       "reason": "Ward boundaries not yet provided", "provenance": {}}
+
+
+# --- through run_exposure (the Exposure fakes; no Earth Engine) -------------------------------------------------------
+
+from shapely.geometry import box as _sbox  # noqa: E402
+
+from app.services.firris import exposure as ex  # noqa: E402
+from tests.unit.test_exposure import C, _count as _area_count, _hazard, _population  # noqa: E402
+
+GRID_AOI = mapping(_sbox(39.0, -8.0 - 4 * C, 39.0 + 4 * C, -8.0))
+OBS_FULL = {"extent": np.ones((4, 4), bool), "transform": Affine(C, 0, 39.0, 0, -C, -8.0)}
+
+
+def _counting(calls):
+    def count(geometry):
+        calls.append(geometry.area)
+        return _area_count(geometry)
+    return count
+
+
+def _run(boundaries, calls):
+    pop = np.arange(16, dtype=np.float32).reshape(4, 4) + 1
+    return ex.run_exposure(GRID_AOI, event_year=2024, extent=OBS_FULL["extent"], extent_transform=OBS_FULL["transform"],
+                           extent_crs="EPSG:4326", hazard_layers=_hazard(), acquire=lambda aoi, year: _population(pop),
+                           count=_counting(calls), points=lambda g: {"status": "delivered", "reason": None, "features": []},
+                           admin_boundaries=boundaries)[0]
+
+
+def _districts():
+    west = au.Unit("D1", "West", "L2", _sbox(38.9, -8.0 - 4 * C, 39.0 + 2 * C, -7.9), parent="Pwani")
+    east = au.Unit("D2", "East", "L2", _sbox(39.0 + 2 * C, -8.0 - 4 * C, 39.1, -7.9), parent="Pwani")
+    region = au.Unit("region:Pwani", "Pwani", "L1", _sbox(38.9, -8.1, 39.1, -7.9))
+    return {"L1": au.BoundaryUnits("L1", [region], {"dataset": "grouped"}), "L2": au.BoundaryUnits("L2", [west, east], {"dataset": "gb"}),
+            "L3": au.NotProvided("L3", au.WARDS_NOT_PROVIDED)}
+
+
+def test_run_exposure_adds_the_breakdown_and_every_level_adds_up_to_the_area_totals():
+    calls = []
+    record = _run(_districts(), calls)
+    rows = {r["extent"]: r for r in record["rows"]}
+    by = record["by_admin_unit"]
+    assert by["status"] == "assessed" and [lv["level"] for lv in by["levels"]] == ["L1", "L2", "L3"]
+    l1, l2, l3 = by["levels"]
+    assert l3 == {"level": "L3", "level_name": "Ward", "status": "not_provided", "reason": "Ward boundaries not yet provided", "provenance": {}}
+    for level in (l1, l2):
+        assert level["status"] == "assessed" and level["check"]["ok"]
+        for key, row in rows.items():
+            entry = level["check"]["extents"][key]
+            assert entry["people_total"] == pytest.approx(row["people"]) and entry["people_ok"]
+            assert entry["buildings_total"] == row["buildings"]["0.75"]["count"] == entry["buildings_units"]
+    assert [r["name"] for r in l2["rows"]] == ["West", "East"]  # equal areas: the lower unit id first (overlap rule)
+    west = next(r for r in l2["rows"] if r["name"] == "West")
+    assert west["extents"]["whole_area"]["people"] == pytest.approx(sum(np.arange(16).reshape(4, 4)[:, :2].ravel() + 1))
+    assert 0 < west["share_of_unit_in_aoi"] < 1 and west["parent"] == "Pwani"
+    assert [r["name"] for r in l1["rows"]] == ["Pwani"] and l1["rows"][0]["extents"]["rp100"]["buildings"] == rows["rp100"]["buildings"]["0.75"]["count"]
+
+
+def test_a_unit_covering_the_whole_area_reuses_the_totals_without_count_calls():
+    calls_with, calls_without = [], []
+    _run({"L1": _districts()["L1"]}, calls_with)
+    _run(None, calls_without)
+    assert len(calls_with) == len(calls_without)  # the region adds no Earth Engine count
+
+
+def test_many_units_count_buildings_only_for_the_report_extents(monkeypatch):
+    monkeypatch.setattr(au, "MAX_BUILDING_COUNTS_PER_LEVEL", 3)
+    record = _run({"L2": _districts()["L2"]}, [])
+    level = record["by_admin_unit"]["levels"][0]
+    assert level["buildings_counted_for"] == ["observed_extent", "rp100"] and "per-run limit is 3" in level["buildings_note"]
+    assert level["check"]["ok"] and level["check"]["extents"]["rp10"]["buildings_ok"] is None
+    assert "buildings" not in level["rows"][0]["extents"]["rp10"] and "buildings" in level["rows"][0]["extents"]["rp100"]
+
+
+def test_a_failing_breakdown_never_changes_exposure(monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("boundary bug")
+    monkeypatch.setattr(au, "breakdown", boom)
+    calls = []
+    record = _run(_districts(), calls)
+    assert record["status"] == "assessed" and record["by_admin_unit"]["status"] == "not_available"
+    assert "Exposure figures are unaffected" in record["by_admin_unit"]["reason"]
+    assert {r["extent"]: r["people"] for r in record["rows"]} == {r["extent"]: r["people"] for r in _run(None, [])["rows"]}
+
+
+def test_without_boundaries_the_record_has_no_breakdown():
+    assert "by_admin_unit" not in _run(None, [])
