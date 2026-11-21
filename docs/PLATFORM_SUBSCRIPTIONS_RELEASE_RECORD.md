@@ -358,3 +358,16 @@ A fresh-session independent review follows. Each finding from the self-review, a
 
 **Full suites after 5.1** (branch heads; `origin/main` `e969ff3` unchanged, so no rebase or re-chain was needed): backend integration **260 passed**, backend unit **1311 passed**, frontend **288 passed**; `tsc --noEmit` and `api:check` clean.
 
+### 5.2 Release gate correction (2026-11-21, before the r8 deploy)
+
+**The frontend release gate is `npm run typecheck` (`tsc -b --pretty false`), not plain `tsc --noEmit`.**
+- Plain `tsc --noEmit` at the repository root does not check `tsconfig.app.json`, which sets `noUncheckedIndexedAccess`. So the clean result in 5.1 missed 7 errors on `main` `8b8238c`: `src/features/platformAdmin/CustomersPage.tsx` (2) and `PlatformAdmin.test.tsx` (5), all "possibly undefined" from list indexing.
+- **Fixed** on `fix/r8-typecheck` (`ea632e5`), with no `any` and no `ts-ignore`. Merged to frontend `main` as **`5209096`**.
+- The full gate on the fix: `npm run typecheck`, `npm run api:check`, `npm run build` and `vitest run` (**288 passed**, 47 files).
+- The frontend gate for every release is: `npm run typecheck`, `npm run api:check`, `npm run build`, `npx vitest run`.
+
+**Production edge configuration differs from `deploy/nginx/conf.d/app.conf`** (found 2026-11-21, read-only):
+- The live `/home/deploy/nova-georisk-engine/deploy/nginx/conf.d/app.conf` is a production file written at the October cutover, not the repo file.
+- On `api.novageorisk.com` it serves `/health` from the API, sends `/auth/*` and `/api/*` to the **BFF** (not to the API), redirects `/auth/login` and everything else to the app host, and returns 404 for `/outputs/`.
+- So the statement in §1 step 1a that this host "never served `/auth/*` through the BFF" does not hold for production. The r8 edge change must be made to the live file, not by copying the repo file. See `docs/FRRIS_PRODUCTION_DEPLOY_RECORD_R8.md` when it exists.
+
