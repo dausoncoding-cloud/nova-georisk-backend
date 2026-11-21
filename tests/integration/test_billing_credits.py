@@ -258,7 +258,8 @@ def test_status_blocks_new_analyses_with_402_and_keeps_reading(client, db_sessio
     assert _tasks(db_session, t) == [] and _tasks(db_session, none) == []
 
 
-def test_enforcement_off_keeps_todays_behaviour(client, db_session):
+def test_enforcement_off_keeps_todays_behaviour(client, db_session, monkeypatch):
+    monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", False)  # this test is about "off"
     t = _tenant(db_session, "billing-off", subscribed=False)
     assert client.post("/api/v1/analyses", headers=t.headers, json=_payload(t)).status_code == 202
     assert db_session.query(CreditLedgerEntry).count() == 0
@@ -373,9 +374,10 @@ def test_billing_reads_are_organisation_scoped_and_open_to_viewers(client, db_se
     assert client.get("/api/v1/billing/summary").status_code == 403  # service context has no organisation
 
 
-def test_enforcement_off_submission_and_retry_with_an_idempotency_key(client, db_session):
+def test_enforcement_off_submission_and_retry_with_an_idempotency_key(client, db_session, monkeypatch):
     """r8.1 regression: with enforcement off there is no subscription, so nothing flushed the new task before its
     Idempotency-Key row was written (task_id NULL -> 500). The r8 frontend sends a key on every submit and retry."""
+    monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", False)  # this test is about "off"
     t = _tenant(db_session, "billing-off-idem", subscribed=False)
     headers = {**t.headers, "Idempotency-Key": "submit-off-0001"}
     first = client.post("/api/v1/analyses", headers=headers, json=_payload(t))

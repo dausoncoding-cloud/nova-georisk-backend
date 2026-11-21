@@ -15,6 +15,13 @@ from app.models.identity import MembershipRole, OrganizationMembership, User
 from app.services.abliner.client import AblinerClient
 from tests.integration.test_billing_credits import _tenant
 
+@pytest.fixture(autouse=True, params=[False, True], ids=["enforcement-off", "enforcement-on"])
+def enforcement(request, monkeypatch):
+    """Every Abliner test runs with billing enforcement off (production today) and on."""
+    monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", request.param)
+    return request.param
+
+
 PHONE = "0712 345 678"
 FULL = "255712345678"
 

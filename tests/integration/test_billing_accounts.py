@@ -306,6 +306,7 @@ def _provision(client, t, subject, role="analyst"):
 
 def test_seat_limit_on_provisioning_and_reactivation(client, db_session, monkeypatch):
     monkeypatch.setattr(get_settings(), "oidc_issuer_url", "https://issuer.test/")
+    monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", False)  # this test is about "off"
     t = _tenant(db_session, "seats")  # Researcher: 1 seat, used by the owner
     assert _provision(client, t, "member-one").status_code == 201  # enforcement off: today's behaviour
     monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", True)
