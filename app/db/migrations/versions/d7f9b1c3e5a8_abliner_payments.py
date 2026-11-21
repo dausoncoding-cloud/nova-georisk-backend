@@ -45,7 +45,7 @@ def upgrade():
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.CheckConstraint("purpose IN ('top_up','renewal')", name="ck_payment_intent_purpose"),
+        sa.CheckConstraint("purpose IN ('top_up','renewal','test')", name="ck_payment_intent_purpose"),
         sa.CheckConstraint("status IN ('created','pending','pending_unknown','completed','failed','expired','review')",
                            name="ck_payment_intent_status"),
         sa.CheckConstraint("amount > 0", name="ck_payment_intent_amount"),
@@ -80,13 +80,22 @@ def upgrade():
         sa.Column("last_error_code", sa.String(60), nullable=True),
         sa.Column("last_webhook_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("last_webhook_event", sa.String(60), nullable=True),
+        sa.Column("last_test_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("last_test_result", sa.String(60), nullable=True),
     )
+    # The owner's TZS 500 Abliner live test is a payment with purpose "test": no credits, reversible.
+    op.drop_constraint("ck_payment_purpose", "payments", type_="check")
+    op.create_check_constraint("ck_payment_purpose", "payments", "purpose IN ('plan_period','top_up','reversal','test')")
 
 
 def downgrade():
     bind = op.get_bind()
     if bind.execute(sa.text("SELECT EXISTS (SELECT 1 FROM payment_intents)")).scalar():
         raise RuntimeError("payment_intents is not empty; export it before downgrading.")
+    if bind.execute(sa.text("SELECT EXISTS (SELECT 1 FROM payments WHERE purpose = 'test')")).scalar():
+        raise RuntimeError("payments holds test payments; they cannot be removed (append-only).")
+    op.drop_constraint("ck_payment_purpose", "payments", type_="check")
+    op.create_check_constraint("ck_payment_purpose", "payments", "purpose IN ('plan_period','top_up','reversal')")
     op.drop_table("integration_status")
     op.drop_table("abliner_webhook_events")
     op.drop_table("payment_intents")
