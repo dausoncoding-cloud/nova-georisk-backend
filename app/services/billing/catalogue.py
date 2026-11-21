@@ -1,7 +1,9 @@
-"""Plan catalogue seeding from the versioned data file (plans.v1.json).
+"""Plan catalogue from the versioned data file (plans.v2.json; plans.v1.json is kept as history and is
+what the migrations seeded).
 
-Insert-only and idempotent: a plan, engine link or price that already exists is left alone, because
-after the first seed prices and limits change only through the audited admin console.
+- `seed_catalogue`: insert-only and idempotent; a plan, engine link or price that already exists is left alone.
+- `apply_catalogue`: brings a database seeded from an earlier version up to this file's prices and plan limits,
+  as audited changes (new price versions; plan-limit edits). Dry run unless `apply`. Operator command only.
 """
 from __future__ import annotations
 
@@ -15,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.models.billing import BillingPlanPrice
 from app.models.platform import BillingPlan, BillingPlanEngine, Engine
 
-CATALOGUE_PATH = Path(__file__).with_name("plans.v1.json")
+CATALOGUE_PATH = Path(__file__).with_name("plans.v2.json")
 
 
 @lru_cache(maxsize=1)
@@ -73,7 +75,7 @@ def seed_catalogue(db: Session, catalogue: dict | None = None) -> SeedReport:
             if db.query(BillingPlanPrice).filter(BillingPlanPrice.plan_key == key).first() is None:
                 db.add(BillingPlanPrice(
                     plan_key=key, version=1, currency=catalogue["currency"], monthly_price=item["monthly_price"],
-                    top_up_credit_price=spec["top_up_credit_price"],
+                    top_up_credit_price=top_up_credit_price(catalogue, family, item),
                     source=f"plans.v{catalogue['version']}.json", reason=catalogue["source"],
                 ))
                 report.prices.append(key)
@@ -82,6 +84,63 @@ def seed_catalogue(db: Session, catalogue: dict | None = None) -> SeedReport:
 
 
 TOP_UP_PACK_CREDITS = 10
+# The plan fields `apply_catalogue` keeps in line with the file (prices are handled as versions).
+SYNCED_LIMITS = ("monthly_credits", "session_limit", "refund_on_data_failure")
+
+
+def top_up_credit_price(catalogue: dict, family: str, item: dict) -> int | None:
+    """A plan's own price per top-up credit (Q1: Researcher), else its family's."""
+    if "top_up_credit_price" in item:
+        return item["top_up_credit_price"]
+    return catalogue["families"][family]["top_up_credit_price"]
+
+
+def storage_extra_gb_price(family: str) -> int | None:
+    """Q5(b): price per extra GB of storage, as data. None until decided (NOVA ARI quotes it)."""
+    return load_catalogue()["families"][family].get("storage_extra_gb_price")
+
+
+def plan_limits_from_file(catalogue: dict, item: dict) -> dict:
+    refund_default = bool(catalogue.get("refund_on_data_failure", False))
+    return {"monthly_credits": item["monthly_credits"], "session_limit": item["session_limit"],
+            "refund_on_data_failure": item.get("refund_on_data_failure", refund_default)}
+
+
+def apply_catalogue(db: Session, *, apply: bool, actor, catalogue: dict | None = None) -> list[dict]:
+    """Differences between the database and the file, applied as audited changes when `apply`."""
+    from app.services.platform_admin import actions
+
+    catalogue = catalogue or load_catalogue()
+    reason = f"Catalogue v{catalogue['version']}: {catalogue['source']}"
+    changes: list[dict] = []
+    for family, plans in catalogue["plans"].items():
+        for item in plans:
+            plan = db.get(BillingPlan, item["key"])
+            if plan is None:
+                changes.append({"plan": item["key"], "change": "missing (run seed first)"})
+                continue
+            wanted = plan_limits_from_file(catalogue, item)
+            limits = {name: value for name, value in wanted.items() if getattr(plan, name) != value}
+            if limits:
+                changes.append({"plan": plan.key, "change": "limits",
+                                "from": {name: getattr(plan, name) for name in limits}, "to": limits})
+                if apply:
+                    actions.update_plan_limits(db, plan.key, changes=limits, reason=reason, actor=actor)
+            if item.get("is_internal"):
+                continue
+            current = current_price(db, plan.key)
+            price = {"monthly_price": item["monthly_price"],
+                     "top_up_credit_price": top_up_credit_price(catalogue, family, item)}
+            if current is None or (current.monthly_price, current.top_up_credit_price) != tuple(price.values()):
+                changes.append({"plan": plan.key, "change": "price",
+                                "from": {"monthly_price": current.monthly_price,
+                                         "top_up_credit_price": current.top_up_credit_price} if current else None,
+                                "to": price})
+                if apply:
+                    actions.new_price_version(db, plan.key, reason=reason, actor=actor,
+                                              source=f"plans.v{catalogue['version']}.json", **price)
+    db.flush()
+    return changes
 
 
 def internal_plan_key(family: str) -> str:

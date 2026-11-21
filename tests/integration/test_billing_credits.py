@@ -109,10 +109,16 @@ def test_catalogue_seed_matches_data_file_and_is_idempotent(db_session):
     assert again.plans == [] and again.prices == [] and again.engine_links == []
     researcher = db_session.get(BillingPlan, "frris_wrris.researcher")
     assert (researcher.monthly_credits, researcher.seat_limit, researcher.session_limit) == (10, 1, 1)
-    assert researcher.refund_on_data_failure is False  # Q3: off until the client confirms
+    assert researcher.refund_on_data_failure is True  # Q3 (decided 2026-11-21): refunds for data failures on
     price = db_session.query(BillingPlanPrice).filter_by(plan_key="frris_wrris.researcher").one()
-    assert (price.monthly_price, price.top_up_credit_price, price.currency) == (150000, 10000, "TZS")
-    assert db_session.query(BillingPlanPrice).filter_by(plan_key="megis.researcher").one().top_up_credit_price is None
+    # Q1: Researcher 10 credits/month at TZS 150,000; its top-up is 10 credits = TZS 150,000.
+    assert (price.monthly_price, price.top_up_credit_price, price.currency) == (150000, 15000, "TZS")
+    professional = db_session.query(BillingPlanPrice).filter_by(plan_key="frris_wrris.professional").one()
+    assert professional.top_up_credit_price == 10000  # every other FRRIS/WRRIS plan: 10 credits = TZS 100,000
+    # Q2: MEGIS TZS 25,000 per credit (10-credit top-up = TZS 250,000).
+    assert db_session.query(BillingPlanPrice).filter_by(plan_key="megis.researcher").one().top_up_credit_price == 25000
+    # Q8: one active session per user on every plan.
+    assert {plan.session_limit for plan in db_session.query(BillingPlan)} == {1}
     assert db_session.get(BillingPlan, "frris_wrris.custom").monthly_credits is None
 
 
@@ -134,7 +140,7 @@ def test_submission_charges_one_credit_in_the_same_transaction(client, db_sessio
     assert (summary["monthly_price"], summary["currency"], summary["seats_used"]) == (150000, "TZS", 1)
     assert summary["limits"] == {"seat_limit": 1, "monthly_credits": 2, "storage_bytes": 2_000_000_000,
                                  "session_limit": 1}
-    assert summary["top_up"] == {"credits": 10, "price": 100000, "currency": "TZS"}
+    assert summary["top_up"] == {"credits": 10, "price": 150000, "currency": "TZS"}  # Q1: Researcher
     assert summary["warning_levels"] == [75, 90] and summary["renews_on"] is not None
     rows = client.get("/api/v1/billing/ledger", headers=t.headers).json()["items"]
     charge_row = next(row for row in rows if row["kind"] == "charge")
@@ -265,18 +271,20 @@ def test_enforcement_off_keeps_todays_behaviour(client, db_session, monkeypatch)
     assert db_session.query(CreditLedgerEntry).count() == 0
     assert client.get("/api/v1/billing/summary", headers=t.headers).json() == {
         "enforcement_enabled": False, "subscriptions": [], "seats": {"used": 1, "limit": None, "level": None},
-        "storage": {"used": 0, "limit": None, "level": None}, "storage_blocks_at_limit": False}
+        "storage": {"used": 0, "limit": None, "level": None}, "storage_blocks_at_limit": True}  # Q5 setting
 
 
 def test_data_failure_refund_only_when_the_flag_is_on_and_at_most_once(client, db_session, enforced):
     from app.services.gee.firris_pipeline import FIRRISQualityError
 
     t = _tenant(db_session, "billing-refund", credits=5)
+    t.sub.refund_on_data_failure_override = False  # a subscription can still turn it off
+    db_session.commit()
     off = _failed_charged_task(client, db_session, t)
     _mark_failed(db_session, off, FIRRISQualityError(DATA_FAILURE))
-    assert _entries(db_session, t.sub, "refund") == []  # flag defaults to off (Q3)
+    assert _entries(db_session, t.sub, "refund") == []
 
-    t.sub.refund_on_data_failure_override = True
+    t.sub.refund_on_data_failure_override = None  # Q3 (decided): the plan default is on
     db_session.commit()
     on = _failed_charged_task(client, db_session, t)
     _mark_failed(db_session, on, FIRRISQualityError(DATA_FAILURE))
@@ -399,3 +407,34 @@ def test_enforcement_off_submission_and_retry_with_an_idempotency_key(client, db
     keys = db_session.query(SubmissionIdempotencyKey).filter(SubmissionIdempotencyKey.user_id == t.user.id).all()
     assert len(keys) == 2 and all(key.task_id is not None for key in keys)
     assert db_session.query(CreditLedgerEntry).count() == 0
+
+
+def test_apply_catalogue_moves_a_v1_database_to_the_decided_v2_prices_and_limits(db_session):
+    """Production was seeded from plans.v1.json; the decisions (Q1, Q2, Q3, Q8) reach it only through the audited
+    operator command, dry run first, and a second run changes nothing."""
+    import json
+    from pathlib import Path
+
+    from app.models.billing import PlatformAudit
+    from app.services.billing import audit
+
+    v1 = json.loads(Path(catalogue.CATALOGUE_PATH).with_name("plans.v1.json").read_text(encoding="utf-8"))
+    catalogue.seed_catalogue(db_session, v1)
+    db_session.commit()
+    actor = audit.Actor.command("apply-catalogue")
+    planned = catalogue.apply_catalogue(db_session, apply=False, actor=actor)
+    db_session.rollback()
+    assert catalogue.current_price(db_session, "frris_wrris.researcher").top_up_credit_price == 10000  # unchanged
+    by = {(item["plan"], item["change"]): item for item in planned}
+    assert by[("frris_wrris.researcher", "price")]["to"] == {"monthly_price": 150000, "top_up_credit_price": 15000}
+    assert by[("megis.professional", "price")]["to"]["top_up_credit_price"] == 25000
+    assert ("frris_wrris.professional", "price") not in by  # already 10,000 per credit
+    assert by[("frris_wrris.professional", "limits")]["to"] == {"session_limit": 1, "refund_on_data_failure": True}
+    catalogue.apply_catalogue(db_session, apply=True, actor=actor)
+    db_session.commit()
+    researcher = catalogue.current_price(db_session, "frris_wrris.researcher")
+    assert (researcher.version, researcher.top_up_credit_price, researcher.source) == (2, 15000, "plans.v2.json")
+    assert db_session.get(BillingPlan, "megis.internal").session_limit == 1
+    assert catalogue.apply_catalogue(db_session, apply=True, actor=actor) == []
+    events = db_session.query(PlatformAudit).filter(PlatformAudit.actor_label == "operator command: apply-catalogue").all()
+    assert {event.action for event in events} == {"plan.price", "plan.limits"} and len(events) == len(planned)

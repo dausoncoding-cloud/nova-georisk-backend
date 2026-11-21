@@ -93,7 +93,7 @@ def test_top_up_payment_adds_credits_in_the_same_transaction_and_unblocks(client
     db_session.commit()
     assert result.entry.kind == "top_up" and result.entry.amount == 10 and result.entry.bucket == "top_up"
     assert result.entry.idempotency_key == f"topup:{result.payment.id}" and result.entry.payment_id == result.payment.id
-    assert result.payment.expected_amount == 100_000
+    assert result.payment.expected_amount == 150_000  # Q1: the Researcher list price
     again = payments.record_top_up_payment(
         db_session, t.sub.id, credits=10, amount=100_000, method="mobile_money", paid_on=date.today(),
         reference="MP-123", note="Pack of 10", actor=ADMIN, key=key)  # the identical request (a different one is a 409)
@@ -129,13 +129,13 @@ def test_payment_validation(db_session):
     assert caught.value.code == "request_key_reused" and first.payment is not None
 
 
-def test_megis_top_up_has_no_list_price_until_q2(db_session):
+def test_megis_top_up_list_price_is_25000_per_credit_q2(db_session):
     t = _tenant(db_session, "megis-topup", plan_key="megis.professional")
     t.sub.family = "megis"
     db_session.commit()
-    result = payments.record_top_up_payment(db_session, t.sub.id, credits=10, amount=200_000, method="cash",
+    result = payments.record_top_up_payment(db_session, t.sub.id, credits=10, amount=250_000, method="cash",
                                             paid_on=date.today(), actor=ADMIN, key=_key())
-    assert result.payment.expected_amount is None and result.entry.amount == 10
+    assert result.payment.expected_amount == 250_000 and result.entry.amount == 10
 
 
 def test_plan_payment_reactivates_and_extends_but_never_lifts_a_suspension(db_session):
@@ -279,14 +279,17 @@ def test_sweep_expires_ended_subscriptions_dry_run_first(client, db_session, enf
     assert len(_audit(db_session, "subscription.expire", t.org)) == 1
 
 
-def test_grace_period_closes_viewing_only_when_configured_and_reactivation_reopens(client, db_session, monkeypatch):
+def test_grace_period_of_two_days_closes_viewing_and_reactivation_reopens(client, db_session, monkeypatch):
     t = _tenant(db_session, "grace", credits=3)
     task_path = f"/api/v1/tasks/{_submit(client, t).json()['task']['id']}"
     statuses.change_status(db_session, t.sub.id, "canceled", reason="Customer left", actor=ADMIN)
-    t.sub.status_changed_at = datetime.now(timezone.utc) - timedelta(days=40)
+    t.sub.status_changed_at = datetime.now(timezone.utc) - timedelta(days=1, hours=23)
     db_session.commit()
-    assert statuses.sweep(db_session, apply=True, actor=ADMIN) == []  # Q7 unset: viewing never closes
-    monkeypatch.setattr(get_settings(), "billing_view_grace_days", 30)
+    assert get_settings().billing_view_grace_days == 2  # Q7 (decided 2026-11-21)
+    assert statuses.sweep(db_session, apply=True, actor=ADMIN) == []  # inside the 2 days: still viewable
+    assert client.get(task_path, headers=t.headers).status_code == 200
+    t.sub.status_changed_at = datetime.now(timezone.utc) - timedelta(days=2, minutes=1)
+    db_session.commit()
     actions = statuses.sweep(db_session, apply=True, actor=ADMIN)
     db_session.commit()
     assert actions[0]["action"] == "close_entitlements" and actions[0]["engines"] == ["firris"]
@@ -373,12 +376,18 @@ def test_storage_counts_result_files_and_datasets_and_blocks_only_when_configure
     db_session.commit()
     assert limits.storage_used(db_session, t.org.id) == 1_700_000_000
     storage = client.get("/api/v1/billing/summary", headers=t.headers).json()["storage"]
-    assert storage == {"used": 1_700_000_000, "limit": 2_000_000_000, "level": 75}
-    db_session.add(Result(task_id=task.id, project_id=t.project.id, aoi_id=t.aoi.id, result_type="fii",
-                          output_files={"x": {"file_size_bytes": 400_000_000}}))
+    assert storage == {"used": 1_700_000_000, "limit": 2_000_000_000, "level": None}  # 85%: below the Q5 warning
+    db_session.add(Result(task_id=task.id, project_id=t.project.id, aoi_id=t.aoi.id, result_type="fii", version=2,
+                          output_files={"x": {"file_size_bytes": 150_000_000}}))
     db_session.commit()
-    assert _submit(client, t).status_code == 202  # Q5 default: warn only
-    monkeypatch.setattr(get_settings(), "billing_storage_block_at_limit", True)
+    assert client.get("/api/v1/billing/summary", headers=t.headers).json()["storage"]["level"] == 90  # Q5: 90%
+    assert _submit(client, t).status_code == 202  # 92.5%: warned, not blocked
+    db_session.add(Result(task_id=task.id, project_id=t.project.id, aoi_id=t.aoi.id, result_type="fii", version=3,
+                          output_files={"y": {"file_size_bytes": 250_000_000}}))
+    db_session.commit()
+    monkeypatch.setattr(get_settings(), "billing_storage_block_at_limit", False)
+    assert _submit(client, t).status_code == 202  # the setting can still switch blocking off
+    monkeypatch.setattr(get_settings(), "billing_storage_block_at_limit", True)  # Q5 (decided): block at 100%
     refused = _submit(client, t)
     assert refused.status_code == 402 and refused.json()["error"]["code"] == "storage_full"
     summary = client.get("/api/v1/billing/summary", headers=t.headers).json()

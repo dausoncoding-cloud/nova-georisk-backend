@@ -109,13 +109,28 @@ class Settings(BaseSettings):
     # otherwise every submission returns 402. Read and download routes are never affected.
     billing_enforcement_enabled: bool = False
     billing_timezone: str = "Africa/Dar_es_Salaam"
-    # Q4 (open): unused monthly credits expire at month end; top-up credits do not.
+    # Q4 (decided 2026-11-21): unused monthly credits expire at month end (no rollover); top-up credits do not.
     billing_monthly_credits_roll_over: bool = False
     billing_top_up_credits_expire: bool = False
-    # Q5: at 100% storage, block new analyses (True) or only warn (False, until the client decides).
-    billing_storage_block_at_limit: bool = False
-    # Q7: days an Expired or Cancelled organisation keeps viewing and downloads; None = no limit until decided.
-    billing_view_grace_days: int | None = None
+    # Q5 (decided 2026-11-21): warn at 90% and at 100%; at 100% block new analyses until space is freed or
+    # added. Viewing and downloads are never blocked.
+    billing_storage_block_at_limit: bool = True
+    billing_storage_warning_percents: list[int] = [90]
+    # Q7 (decided 2026-11-21): an Expired or Cancelled organisation keeps viewing and downloads for 2 days.
+    billing_view_grace_days: int | None = 2
+
+    # --- Seller identity on payment receipts and My subscription (Q6, decided 2026-11-21) ---
+    # Configuration only, so a change of seller (for example to NOVAREX Ltd) needs no code change.
+    # Receipts are refused (503 receipts_not_configured) until the legal name is set.
+    seller_legal_name: str = ""
+    seller_tin: str = ""
+    seller_address: str = ""
+    # A PNG or JPEG file on the server, read when a receipt is drawn; unset = no logo.
+    seller_logo_path: str | None = None
+    # none | inclusive | exclusive. "inclusive": the amount paid includes VAT; "exclusive": VAT is added on
+    # top of the plan or top-up price. Receipts show the VAT line in every mode.
+    seller_vat_mode: str = "none"
+    seller_vat_rate_percent: int = 18
 
     # --- Sessions, devices and login history (plan section 6) ---
     # Local city-level GeoIP file (.mmdb, for example DB-IP Lite); unset = no locations. Never an online service.
@@ -179,6 +194,10 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _production_security_invariants(self) -> "Settings":
         environment = self.app_env.strip().lower()
+        if self.seller_vat_mode not in {"none", "inclusive", "exclusive"} or not 0 <= self.seller_vat_rate_percent <= 100:
+            raise ValueError("SELLER_VAT_MODE is none, inclusive or exclusive; SELLER_VAT_RATE_PERCENT is 0-100.")
+        if any(not 1 <= value <= 99 for value in self.billing_storage_warning_percents):
+            raise ValueError("BILLING_STORAGE_WARNING_PERCENTS are between 1 and 99 (100% is always a warning).")
         if (
             self.celery_task_soft_time_limit_seconds <= 0
             or self.celery_task_time_limit_seconds <= self.celery_task_soft_time_limit_seconds

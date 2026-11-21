@@ -21,11 +21,11 @@ from app.models.management import ManagedDataset
 from app.models.platform import OrganizationSubscription
 from app.services.billing import ledger
 
-STORAGE_WARNING_LEVELS = (75, 90)
 SEAT_LIMIT_MESSAGE = ("This organisation has used all the seats in its plan. "
                       "Remove a member or contact NOVA ARI to add seats.")
-STORAGE_FULL_MESSAGE = ("This organisation's storage is full. New analyses are paused; "
-                        "you can still view and download your results. Contact NOVA ARI.")
+STORAGE_FULL_MESSAGE = ("This organisation's storage is full. New analyses are paused until space is freed or "
+                        "added; you can still view and download your results. Free up space or request more "
+                        "storage on My subscription.")
 
 
 @dataclass(frozen=True)
@@ -40,7 +40,7 @@ class Allowance:
         if self.used >= self.limit:
             return 100
         percent = 100.0 * self.used / self.limit if self.limit > 0 else 100.0
-        for threshold in reversed(STORAGE_WARNING_LEVELS):
+        for threshold in sorted(get_settings().billing_storage_warning_percents, reverse=True):
             if percent >= threshold:
                 return threshold
         return None
@@ -140,7 +140,7 @@ def storage(db: Session, organization_id: uuid.UUID) -> Allowance:
 
 
 def storage_blocks_submission(db: Session, organization_id: uuid.UUID) -> bool:
-    """Q5: only when the client chooses "block" (setting), and only at 100%."""
+    """Q5 (decided): at 100% new analyses are blocked (setting, on by default). Never viewing or downloads."""
     return get_settings().billing_storage_block_at_limit and storage(db, organization_id).full
 
 
