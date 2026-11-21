@@ -52,6 +52,7 @@ def admin_unit_subsection(writer, record: dict[str, Any] | None, *, number: int)
     caveat = ((record or {}).get("observed_extent_caveat") or {}).get("text")
     cluster_text = ((record or {}).get("observed_cluster") or {}).get("text")
     levels = {lv["level"]: lv for lv in by.get("levels") or []}
+    has_cluster, cited = False, None
     for code in LEVELS:
         level = levels.get(code)
         if level is None:
@@ -80,15 +81,22 @@ def admin_unit_subsection(writer, record: dict[str, Any] | None, *, number: int)
                 "as \"Other units\" (every unit is in the workbook and the GeoPackage)." if table["others"] else "")
         writer.table(header, rows, caption=f"Estimated exposure by {level['level_name'].lower()}: WorldPop R2025A people (area-weighted) and "
                                            f"Open Buildings v3 buildings (centroid inside).{more}")
-        checks = [sum_check_text(level, key, SHORT[key]) for key in keys]
-        notes = [text for text in checks if text]
-        if any(row.get("cluster") for row in table["rows"]) and cluster_text:
-            notes.append(f"† {cluster_text}")
+        has_cluster = has_cluster or any(row.get("cluster") for row in table["rows"])
+        notes = [text for text in (sum_check_text(level, key, SHORT[key]) for key in keys) if text]
         if level.get("buildings_note"):
             notes.append(level["buildings_note"])
-        notes.append(source_text(level))
+        notes.append(source_text(level, cite=False))
         writer.para(" ".join(notes))
+        cited = cited or level.get("provenance")
+    observed_notes = []
     if caveat and "observed_extent" in keys:
-        writer.para(f"Observed flood candidates, in every table: {caveat}")
+        observed_notes.append(f"Observed flood candidates, in every table: {caveat}")
+    if has_cluster and cluster_text:
+        observed_notes.append(f"† {cluster_text}")
+    if observed_notes:
+        writer.para(" ".join(observed_notes))
     texts = limitations(record) + [next((lv.get("overlap_rule") for lv in levels.values() if lv.get("overlap_rule")), "")]
     writer.para("Limitations: " + " ".join(text for text in texts if text))
+    citation = (cited or {}).get("citation")
+    if citation:
+        writer.para(f"Boundary source: {citation}")

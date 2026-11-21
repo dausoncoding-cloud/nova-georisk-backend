@@ -37,15 +37,15 @@ def assessed_levels(record: dict[str, Any] | None) -> list[dict[str, Any]]:
     return [level for level in by.get("levels") or [] if level.get("status") == "assessed"]
 
 
-def source_text(level: dict[str, Any]) -> str:
-    """Boundary source, version and licence for a table footer."""
+def source_text(level: dict[str, Any], *, cite: bool = True) -> str:
+    """Boundary source, version and licence for a table footer (``cite=False``: without the citation)."""
     prov = level.get("provenance") or {}
     if prov.get("dataset") == "geoBoundaries":
         grouped = " Regions are built by merging these districts (district-to-region table approved by the owner)." \
             if level.get("level") == "L1" else ""
         return (f"Boundaries: geoBoundaries {prov.get('release_type')} {prov.get('boundaryID')}, {prov.get('source')}, "
-                f"{prov.get('year_represented')} ({prov.get('release')}); licence {prov.get('licence')}.{grouped} "
-                f"{prov.get('citation')}")
+                f"{prov.get('year_represented')} ({prov.get('release')}); licence {prov.get('licence')}.{grouped}"
+                + (f" {prov.get('citation')}" if cite else ""))
     if prov.get("dataset_id"):
         licence = prov.get("licence") or {}
         name = licence.get("name") if isinstance(licence, dict) else licence

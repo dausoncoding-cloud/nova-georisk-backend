@@ -114,6 +114,7 @@ def test_report_subsection_top_15_other_units_sum_check_wards_and_limitations(ou
     assert "Wards: Ward boundaries not yet provided." in text
     assert "predates newer councils" in text and "CC BY 3.0 IGO" in text and "TZA-ADM2-72390352" in text
     assert "District 00 (Pwani)" in text or "District 19 (Pwani)" in text
+    assert text.count("Runfola, D. et al. (2020).") == 1  # the boundary citation once, not under every table
 
 
 def test_workbook_csv_geopackage_and_package_readme(outputs):
