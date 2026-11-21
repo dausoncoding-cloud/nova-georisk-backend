@@ -170,3 +170,39 @@ New log lines end with the host (8 in the first 30 s).
 - **Backlog 36:** the old `INTERNAL_API_SECRET` remains in earlier release and rollback compose files (mode 600); clean them up once r8 is accepted.
 - **Backlog 37:** an explicit default server for unknown hosts and the bare IP.
 - **Next:** FRRIS v1.1 exposure by administrative level resumes on `feat/frris-admin-exposure`, rebased on this `main`.
+
+## 8. Addendum (2026-11-21, after the deploy): backlog 35 and 37 done, 36 scheduled
+
+All three were approved by the owner the same day.
+
+**35: renewal of the `api.novageorisk.com` certificate** (expires 24 Dec 2026; renewal due from about 24 Nov).
+- **Same mechanism as the app host:** the certbot webroot `renew` in a throwaway `certbot/certbot` container, then `nginx -t` and a reload, both only if the certificate changed.
+- **Script:** `/home/deploy/nova-ops/renew-api-certificate.sh` (mode 700). It is the app script with only the certificate name changed.
+- **Cron:** `47 3,15 * * *` with `flock`, 30 minutes after the app job; log `/home/deploy/nova-ops/logs/renew-api-certificate.log`. The previous crontab is saved as `nova-ops/crontab.before-backlog35`.
+- **Tests:**
+  - `certbot renew --cert-name api.novageorisk.com --dry-run` (Let's Encrypt staging, nothing saved): **succeeded**. Staging fetched the HTTP-01 token from the API host's port-80 path (200), so r8's `app.conf` keeps renewal working.
+  - One real run: exit 0, nothing renewed (not due yet), certificate unchanged (`d0a81c48db20…`).
+  - Both certificates' dry runs succeeded again after the item 37 change.
+
+**37: explicit default server.**
+- **New file:** `conf.d/default-server.conf` (SHA-256 `216a0b8ddffd…`):
+  - `listen 80 default_server` → `return 444`;
+  - `listen 443 ssl default_server` → `ssl_reject_handshake on` (no certificate is shown for an unknown or missing SNI);
+  - both logged with `main_host`.
+- **Tested first** locally in nginx 1.27.5 with the r8 edge files.
+- **Applied** by an atomic rename, then `nginx -t` and a reload (no restart). Rollback is to remove the file and reload; it was not needed.
+
+| Check (from the host) | Before | After |
+|---|---|---|
+| `api /health`, `app /`, `app /auth/session` | 200 | 200 |
+| `api /api/v1/projects` | 404 | 404 |
+| HTTP with `Host: api.novageorisk.com` | 301 | 301 |
+| HTTP to the bare IP / an unknown host | 301 | **closed without a response** |
+| HTTPS with SNI `api.novageorisk.com` | handshake ok | handshake ok |
+| HTTPS with no SNI / an unknown SNI | handshake ok | **handshake refused** |
+
+**Effect on traffic:** from 04:17 to 04:51 UTC, the host field logged since the r8 edge change shows only **3 bare-IP requests and 1 for `deesnap.deeteki.com`** that the default server now refuses. The certificate store holds certificates for `deesnap.deeteki.com` and `novaari.deelink.cc`, but no server block serves them; they were left untouched.
+
+The same log showed a scanner burst against the API host at 04:35–04:36 (about 1,260 GETs, browser-like user agents); every request got 404.
+
+**36: old `INTERNAL_API_SECRET` in the r7 rollback files.** Scheduled: remove it **on or after 28 Nov 2026**, after 7 days of stable r8. Not done yet.
