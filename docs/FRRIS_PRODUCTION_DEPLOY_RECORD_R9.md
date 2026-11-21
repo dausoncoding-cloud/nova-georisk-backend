@@ -26,3 +26,29 @@ Dependencies, Dockerfiles and migrations are unchanged since r8.1. The suites on
 | Candidate compose | The r8.1 compose + the r9 images + **one read-only bind** `/home/deploy/nova-reference/boundaries/tza` → `/app/reference_data/boundaries/tza` on **api and worker**. Everything else is asserted identical: environment (the r8 secret), the gateway's r8 `gateway.conf`, mounts, limits |
 | Reference check | In a throwaway, no-network container of the candidate image with the same read-only bind, run as the image's user `nova` (uid 100): 170 districts read and checksum-verified, regions approved; the Rufiji AOI → district Rufiji, region Pwani |
 | One-off worker | Healthy in **15.6 s**; healthcheck ×5 rc 0; 0 tasks; no `VersionMismatch`; no container left |
+
+## 3. Phase B (`cutover.py`: the r8.1 procedure, no migration; `tmux` session `r9-cutover` on the server)
+
+| Item | Value |
+|---|---|
+| Artifacts base (services running) | 629,880,598 B, 114.5 s |
+| DB dump (quiesced) | 1,874,615 B, 38 TABLE DATA entries, SHA-256 `2afadda1e5815b18…` |
+| Alembic | current == heads == `c5e7a9b1d3f6` (no upgrade) |
+| Quiesce → new API/BFF/worker healthy | 18:17:09 → 18:17:57 UTC: **47.8 s** |
+| Gateway swap | 7.5 s (done 18:18:05) |
+| Restore check | Base + incremental restored in a throwaway container: **1,989 files, identical** list and per-file SHA-256 to the live volume |
+
+No rollback was needed. The rollback is ready: `rollback/compose.previous.json` (the r8.1 compose, without the reference bind) and the `:rollback-before-r9` images.
+
+## 4. Post-deploy checks
+
+| Check | Result |
+|---|---|
+| Services | api, bff and worker on rev `f4bd090`, gateway on `eba39fd`; all healthy, 0 restarts; `compose.active.json` = the r9 candidate |
+| Reference bind | api and worker: `/home/deploy/nova-reference/boundaries/tza` mounted `rw=false`, 2 files; a write test inside the container is refused |
+| Health | API host `/health` 200; `/api/v1/projects`, `/docs` and `POST /health` 404; app `/` and `/auth/session` 200 |
+| OpenAPI at runtime | `77ecb8aa…` |
+| Enforcement | `false` on api, bff and worker |
+| Redis | The one-off worker's `_kombu.binding.diag_noop_r9_20261121t181402z` (db 3) was shown, then deleted; none left; `LLEN celery` = 0 |
+| Logs since 18:17:30 UTC | 0 errors in api, bff, worker, gateway and the edge nginx |
+| Memory after | 934 MB available, 98 MB swap |
