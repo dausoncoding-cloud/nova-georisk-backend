@@ -1,6 +1,6 @@
 # Abliner Mobile Money payments and the NOVA ARI "Integrations" page: plan
 
-**Status:** plan for approval (2026-11-21). Nothing is built.
+**Status:** approved 2026-11-21 with the owner's additions (below); being built on `feat/abliner-payments` (M1 done, M2 done).
 **Branches:** `feat/abliner-payments` in both repos, from `origin/main` (backend `7e93323`, frontend `5209096`).
 **Sources:**
 - Abliner API documentation, `https://abliner.net/docs` (authoritative).
@@ -154,10 +154,10 @@
 |---|---|
 | `completed` | `settlement.apply` (§4) |
 | `failed` | Mark failed |
-| `pending` | Leave it. Older than 24 h: `expired` (no credits), with an Integrations note. |
-| Empty list and the intent is older than 30 min | `failed` / `not_created` (the documentation says an empty list means no push was sent) |
-| Empty list and younger | Leave it |
-| Network or 5xx | Leave it, record the last error, try next run |
+| `pending`, empty or unknown, and the intent is **30 minutes** old or more (`ABLINER_INTENT_EXPIRY_MINUTES`) | `expired` (no credits). The customer sees "not completed within 30 minutes, so nothing was added". |
+| `pending`, empty or unknown, younger | Leave it |
+| Network or 5xx | Leave it and record the last error; at 30 minutes it expires all the same |
+| A `completed` arriving later for an `expired` or `failed` intent (webhook or reconciliation) | `review`, never a silent credit (owner decision) |
 
 **Output:** JSON counts (`settled`, `failed`, `expired`, `unchanged`, `errors`). No phone numbers and no secrets.
 
@@ -296,6 +296,12 @@ A refused deposit (an Abliner 4xx with no `transaction_id`) marks the intent `fa
 7. **Live test:** a TZS 500 test intent through the operator CLI to the owner's phone. Approve it, then check that the webhook arrived, the payment and ledger entry exist (actor `system:abliner`), and the Integrations page shows the last webhook. Reverse the test payment in the console with a reason.
 8. Set `ABLINER_PAYMENTS_ENABLED=true` and restart the API.
 9. Make one real top-up yourself, then go.
+
+**Owner additions (2026-11-21, built in M2):**
+- The BFF webhook route is the ONLY session-less, CSRF-exempt route: exact path, POST only. `tests/unit/test_bff_webhook_route.py` fails if any other route is exempted.
+- Payments in `review` appear on the NOVA ARI Payments page with a "Review" badge, and as the customers-table flag "Payment review". An admin closes each with a reason ("Mark credited" after recording the payment, or "No action"), and it is audited. Closing never adds credits.
+- Pending payments expire after 30 minutes without a result; a later `completed` goes to review.
+- Logs carry only the intent and Abliner IDs: never phone numbers, raw webhook bodies or headers.
 
 **Rollback:** set the flag to `false` and restart. Webhooks and reconciliation still settle the payments already in flight.
 

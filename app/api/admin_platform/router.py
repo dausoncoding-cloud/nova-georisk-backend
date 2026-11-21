@@ -37,8 +37,10 @@ from app.schemas.platform_admin import (AddCustomerRequest, AddSubscriptionReque
                                         OverviewTiles, PaymentRecorded, PlanChangeRequest, PriceChangeRequest,
                                         ReasonRequest, RecordPaymentRequest, SecurityAlertPage, SecurityAlertResponse,
                                         StatusChangeRequest, UsageThisPeriod, AdminRequest, AdminRequestPage,
-                                        CloseRequest)
+                                        CloseRequest, AdminMobilePayment, AdminMobilePaymentPage, ResolveReviewRequest)
 from app.models.platform_admin import SubscriptionRequest
+from app.models.abliner import PaymentIntent
+from app.services.abliner import review as abliner_review
 from app.services.billing import requests as billing_requests
 from app.services.billing import audit, backfill, ledger, limits, payments, statuses
 from app.services.billing.submission import validate_key
@@ -527,4 +529,46 @@ def close_customer_request(request_id: uuid.UUID, body: CloseRequest, db: Sessio
     with _errors(db):
         billing_requests.close(db, request_id, outcome=body.outcome, reason=body.reason, actor=admin.actor)
         db.commit()
+    return body
+
+
+# --- Mobile Money payments (Abliner): review queue ----------------------------------------------------------
+
+@router.get("/mobile-payments", response_model=AdminMobilePaymentPage)
+def list_mobile_payments(
+    state: str = Query("review", pattern="^(review|open|all)$"), limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0), db: Session = Depends(get_db), admin: AdminContext = Depends(require_platform_admin),
+) -> AdminMobilePaymentPage:
+    """Mobile Money payments; "review" lists the ones a person must look at (mismatch, or completed after expiry)."""
+    query = db.query(PaymentIntent)
+    if state == "review":
+        query = abliner_review.open_reviews(db)
+    elif state == "open":
+        query = query.filter(PaymentIntent.status.in_(("created", "pending", "pending_unknown")))
+    rows = query.order_by(PaymentIntent.created_at.desc(), PaymentIntent.id).offset(offset).limit(limit).all()
+    orgs = {org.id: org.name for org in db.query(Organization).filter(
+        Organization.id.in_({row.organization_id for row in rows}))} if rows else {}
+    return AdminMobilePaymentPage(items=[AdminMobilePayment(
+        id=row.id, created_at=row.created_at, organization_id=row.organization_id,
+        organization_name=orgs.get(row.organization_id, ""), subscription_id=row.subscription_id, purpose=row.purpose,
+        amount=row.amount, currency=row.currency, credits=row.credits, phone=row.phone_masked, status=row.status,
+        reference=row.reference, abliner_tx_id=row.abliner_tx_id, abliner_event_tx_id=row.abliner_event_tx_id,
+        provider_reference=row.provider_reference, failure_code=row.failure_code, review_reason=row.review_reason,
+        payment_id=row.payment_id, resolution=row.resolution, resolved_at=row.resolved_at) for row in rows],
+        total=query.count(), limit=limit, offset=offset)
+
+
+@router.post("/mobile-payments/{intent_id}/resolve", response_model=ResolveReviewRequest)
+def resolve_mobile_payment(intent_id: uuid.UUID, body: ResolveReviewRequest, db: Session = Depends(get_db),
+                           admin: AdminContext = Depends(require_platform_admin)) -> ResolveReviewRequest:
+    """Close a review with a reason (audited). Never adds credits: record the payment first if the customer paid."""
+    try:
+        abliner_review.resolve(db, intent_id, resolution=body.resolution, reason=body.reason, actor=admin.actor)
+    except abliner_review.ReviewError as exc:
+        db.rollback()
+        raise PublicAPIError(exc.status, exc.code, exc.message) from exc
+    except audit.ReasonRequired as exc:
+        db.rollback()
+        raise PublicAPIError(422, "reason_required", str(exc)) from exc
+    db.commit()
     return body
