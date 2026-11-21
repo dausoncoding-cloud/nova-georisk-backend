@@ -527,7 +527,8 @@ def list_customer_requests(
             organization_name=orgs.get(row.organization_id, ""), subscription_id=row.subscription_id,
             family=subscription.family if subscription else None,
             current_plan=plans.get(subscription.plan_key) if subscription else None, kind=row.kind,
-            plan_key=row.plan_key, plan_name=plans.get(row.plan_key), credits=row.credits, note=row.note,
+            plan_key=row.plan_key, plan_name=plans.get(row.plan_key), credits=row.credits, storage_gb=row.storage_gb,
+            note=row.note,
             requested_by=users.get(row.requested_by_user_id), status=row.status, closed_at=row.closed_at,
             closed_by=users.get(row.closed_by_user_id), close_reason=row.close_reason))
     return AdminRequestPage(items=items, total=query.count(), limit=limit, offset=offset)

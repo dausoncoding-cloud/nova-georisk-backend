@@ -149,9 +149,10 @@ class PaymentPage(BaseModel):
 
 class SubscriptionRequestCreate(BaseModel):
     subscription_id: uuid.UUID
-    # top_up (the plan's top-up pack) or upgrade (to plan_key).
-    kind: str = Field(pattern="^(top_up|upgrade)$")
+    # top_up (the plan's top-up pack), upgrade (to plan_key) or storage (Q5b: storage_gb more GB).
+    kind: str = Field(pattern="^(top_up|upgrade|storage)$")
     plan_key: str | None = Field(default=None, max_length=64)
+    storage_gb: int | None = Field(default=None, ge=1, le=10000)
     note: str | None = Field(default=None, max_length=1000)
 
 
@@ -162,6 +163,9 @@ class SubscriptionRequestResponse(BaseModel):
     plan_key: str | None
     plan_name: str | None
     credits: int | None
+    storage_gb: int | None = None
+    # Q5b: storage_gb x the price per GB when one is set (plans file); None = NOVA ARI quotes it.
+    storage_price: int | None = None
     status: str
     created_at: datetime
     closed_at: datetime | None
@@ -179,3 +183,40 @@ class AdminLedgerPage(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class StoredResultItem(BaseModel):
+    result_id: uuid.UUID
+    project_name: str
+    result_type: str
+    created_at: datetime
+    bytes: int
+    files: int
+    # Type these characters to confirm the deletion.
+    confirmation_code: str
+    # Each file still downloadable before it is deleted.
+    downloads: list[str]
+
+
+class StorageOverview(BaseModel):
+    used: int
+    limit: int | None
+    level: int | None
+    # Q5: at 100% new analyses are blocked until space is freed or added; viewing and downloads never are.
+    blocks_at_limit: bool
+    warning_levels: list[int]
+    # Owners and admins may delete files and request storage.
+    can_manage: bool
+    items: list[StoredResultItem]
+
+
+class DeleteFilesRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    confirm: str = Field(min_length=1, max_length=64)
+
+
+class DeleteFilesResponse(BaseModel):
+    result_id: uuid.UUID
+    files_deleted: int
+    bytes_freed: int
+    storage: Allowance

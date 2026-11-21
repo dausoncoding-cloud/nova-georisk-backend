@@ -340,6 +340,7 @@ class AdminRequest(BaseModel):
     plan_key: str | None
     plan_name: str | None
     credits: int | None
+    storage_gb: int | None = None
     note: str | None
     requested_by: str | None
     status: str

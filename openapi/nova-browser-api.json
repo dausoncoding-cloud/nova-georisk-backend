@@ -1961,6 +1961,17 @@
             "title": "Status",
             "type": "string"
           },
+          "storage_gb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Gb"
+          },
           "subscription_id": {
             "format": "uuid",
             "title": "Subscription Id",
@@ -4933,6 +4944,50 @@
           "limitations"
         ],
         "title": "DecisionSupportDashboard",
+        "type": "object"
+      },
+      "DeleteFilesRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Confirm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "DeleteFilesRequest",
+        "type": "object"
+      },
+      "DeleteFilesResponse": {
+        "properties": {
+          "bytes_freed": {
+            "title": "Bytes Freed",
+            "type": "integer"
+          },
+          "files_deleted": {
+            "title": "Files Deleted",
+            "type": "integer"
+          },
+          "result_id": {
+            "format": "uuid",
+            "title": "Result Id",
+            "type": "string"
+          },
+          "storage": {
+            "$ref": "#/components/schemas/Allowance"
+          }
+        },
+        "required": [
+          "result_id",
+          "files_deleted",
+          "bytes_freed",
+          "storage"
+        ],
+        "title": "DeleteFilesResponse",
         "type": "object"
       },
       "DeliveryRepresentation": {
@@ -11244,10 +11299,126 @@
         "title": "StatusChangeRequest",
         "type": "object"
       },
+      "StorageOverview": {
+        "properties": {
+          "blocks_at_limit": {
+            "title": "Blocks At Limit",
+            "type": "boolean"
+          },
+          "can_manage": {
+            "title": "Can Manage",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StoredResultItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Level"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          },
+          "used": {
+            "title": "Used",
+            "type": "integer"
+          },
+          "warning_levels": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Warning Levels",
+            "type": "array"
+          }
+        },
+        "required": [
+          "used",
+          "limit",
+          "level",
+          "blocks_at_limit",
+          "warning_levels",
+          "can_manage",
+          "items"
+        ],
+        "title": "StorageOverview",
+        "type": "object"
+      },
+      "StoredResultItem": {
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "confirmation_code": {
+            "title": "Confirmation Code",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "downloads": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Downloads",
+            "type": "array"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "project_name": {
+            "title": "Project Name",
+            "type": "string"
+          },
+          "result_id": {
+            "format": "uuid",
+            "title": "Result Id",
+            "type": "string"
+          },
+          "result_type": {
+            "title": "Result Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result_id",
+          "project_name",
+          "result_type",
+          "created_at",
+          "bytes",
+          "files",
+          "confirmation_code",
+          "downloads"
+        ],
+        "title": "StoredResultItem",
+        "type": "object"
+      },
       "SubscriptionRequestCreate": {
         "properties": {
           "kind": {
-            "pattern": "^(top_up|upgrade)$",
+            "pattern": "^(top_up|upgrade|storage)$",
             "title": "Kind",
             "type": "string"
           },
@@ -11274,6 +11445,19 @@
               }
             ],
             "title": "Plan Key"
+          },
+          "storage_gb": {
+            "anyOf": [
+              {
+                "maximum": 10000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Gb"
           },
           "subscription_id": {
             "format": "uuid",
@@ -11357,6 +11541,28 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "storage_gb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Gb"
+          },
+          "storage_price": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Storage Price"
           },
           "subscription_id": {
             "format": "uuid",
@@ -15010,6 +15216,206 @@
           }
         },
         "summary": "Create Request",
+        "tags": [
+          "Billing"
+        ]
+      }
+    },
+    "/api/v1/billing/storage": {
+      "get": {
+        "description": "Storage used and the results that hold it, largest first (members). Read only.",
+        "operationId": "get_storage_api_v1_billing_storage_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageOverview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authorization failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Get Storage",
+        "tags": [
+          "Billing"
+        ]
+      }
+    },
+    "/api/v1/billing/storage/results/{result_id}/delete-files": {
+      "post": {
+        "description": "Q5a \"Free up space\": delete one finished result's output files (owners and admins, after confirming;\naudited). The result record and history stay. Download the files first: this cannot be undone.",
+        "operationId": "delete_result_files_api_v1_billing_storage_results__result_id__delete_files_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "result_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Result Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteFilesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteFilesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Authorization failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Resource not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Validation failed"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal server error"
+          }
+        },
+        "summary": "Delete Result Files",
         "tags": [
           "Billing"
         ]
