@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models.platform import BillingPlan, OrganizationSubscription
 from app.models.platform_admin import SubscriptionRequest
-from app.services.billing import audit, catalogue
+from app.services.billing import audit, catalogue, ledger
 
 
 class RequestError(ValueError):
@@ -34,6 +34,8 @@ def create(db: Session, *, organization_id: uuid.UUID, user_id: uuid.UUID, subsc
         raise RequestError("subscription_not_found", "Subscription not found.", 404)
     credits = None
     if kind == "top_up":
+        if not ledger.is_current(subscription):  # Q7
+            raise RequestError("plan_not_active", "Renew your plan first: top-up credits can only be used with an active plan.", 409)
         price = catalogue.current_price(db, subscription.plan_key) if subscription.plan_key else None
         if price is None or price.top_up_credit_price is None:
             raise RequestError("top_up_unavailable", "Top-ups are not offered for this plan yet. Contact NOVA ARI.", 409)

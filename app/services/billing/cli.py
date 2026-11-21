@@ -6,6 +6,7 @@
         --internal-org novarex --internal-org nova-test [--org-plan <slug>:<family>=<plan>] \\
         --reason "..." [--apply]                       # dry run unless --apply
     python -m app.services.billing.cli sweep-statuses [--apply]   # expire ended subscriptions; Q7 grace
+    python -m app.services.billing.cli apply-catalogue [--apply]  # prices and plan limits from plans.v2.json
 
 All are safe to repeat. Commands that change accounts print what they would do unless `--apply` is
 given, and write `platform_audit` rows (actor "operator command: <name>") when they apply.
@@ -70,6 +71,16 @@ def run_sweep(db, args) -> dict:
     return {"mode": "apply" if args.apply else "dry-run", "actions": actions}
 
 
+def run_apply_catalogue(db, args) -> dict:
+    changes = catalogue.apply_catalogue(db, apply=args.apply, actor=audit.Actor.command("apply-catalogue"))
+    if args.apply:
+        db.commit()
+    else:
+        db.rollback()
+    return {"mode": "apply" if args.apply else "dry-run", "version": catalogue.load_catalogue()["version"],
+            "changes": changes}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.services.billing.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -83,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
     fill.add_argument("--apply", action="store_true")
     sweep = commands.add_parser("sweep-statuses")
     sweep.add_argument("--apply", action="store_true")
+    sync = commands.add_parser("apply-catalogue", help="bring prices and plan limits up to the current plans file")
+    sync.add_argument("--apply", action="store_true")
     args = parser.parse_args(argv)
     db = SessionLocal()
     try:
@@ -98,6 +111,8 @@ def main(argv: list[str] | None = None) -> int:
             except backfill.BackfillError as exc:
                 db.rollback()
                 raise SystemExit(f"backfill refused: {exc}") from None
+        elif args.command == "apply-catalogue":
+            print(json.dumps(run_apply_catalogue(db, args), indent=2))
         else:
             print(json.dumps(run_sweep(db, args), indent=2))
     finally:
