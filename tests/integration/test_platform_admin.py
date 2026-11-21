@@ -536,3 +536,12 @@ def test_an_idempotency_key_reused_with_a_different_request_is_refused(client, d
     assert client.post(reverse, headers={**admin.headers, **reverse_key}, json={"reason": "Bounced"}).json()["replayed"] is True
     assert client.post(reverse, headers={**admin.headers, **reverse_key}, json={"reason": "Other"}).status_code == 409
     assert ledger.balances(db_session, t.sub.id).top_up == 5  # 10 paid - 10 reversed + 5 granted, each once
+
+
+def test_non_ascii_internal_secret_is_refused_not_a_500(client):
+    """Independent review 2: verify_internal_secret compares bytes; a non-ASCII header is 401, never 500."""
+    response = client.get("/api/v1/billing/summary", headers={"X-Internal-Secret": "sécret".encode("latin-1"),
+                                                               "X-Nova-User-Id": str(uuid.uuid4()),
+                                                               "X-Nova-Organization-Id": str(uuid.uuid4()),
+                                                               "X-Nova-Role": "owner"})
+    assert response.status_code == 401

@@ -12,13 +12,13 @@ runs as a background task after the response is produced.
 from __future__ import annotations
 
 import asyncio
-import hmac
 import logging
 import uuid
 
 from fastapi import Request
 
 from app.core.config import get_settings
+from app.core.security import secret_matches
 from app.services.usage.counters import record_api_request
 
 logger = logging.getLogger(__name__)
@@ -28,18 +28,13 @@ _MAX_PENDING = 1000
 _pending: set[asyncio.Task] = set()
 
 
-def _secret_matches(supplied: str, expected: str) -> bool:
-    # Starlette decodes header values as latin-1, so this round-trips the bytes the client sent.
-    return hmac.compare_digest(supplied.encode("latin-1", "replace"), expected.encode("utf-8"))
-
-
 def _organization(request: Request) -> uuid.UUID | None:
     path = request.url.path
     if not path.startswith("/api/v1/") or path.startswith(_EXCLUDED_PREFIXES):
         return None
     expected = get_settings().internal_api_secret
     supplied = request.headers.get("x-internal-secret", "")
-    if not expected or not supplied or not _secret_matches(supplied, expected):
+    if not expected or not supplied or not secret_matches(supplied, expected):
         return None
     try:
         return uuid.UUID(request.headers.get("x-nova-organization-id", ""))
