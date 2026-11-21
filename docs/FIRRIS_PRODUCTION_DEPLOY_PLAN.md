@@ -204,7 +204,14 @@ Downtime ends when api, bff and worker report healthy.
    - Sign in and open an existing result: the overview renders and the download groups show (legacy grouping for old results).
    - Open Data Catalog: it shows the "Flood-candidate mapping (model-classified)" wording.
    - No console errors.
-9. **Optional functional check (owner decision; uses GEE quota):** submit the Rufiji 2024 AOI and dates. The result should carry the scientific report (PDF/DOCX), the framed maps, the figures and the curated download groups.
+9. **Submit one real analysis — required after every deploy (owner rule, 2026-11-21, after the r8 defect).** r8 passed every check above, but every new analysis failed with 500: the defect was only on the submit path with enforcement off, and no check submitted anything. So after every cutover:
+   - **Submit** one real analysis on a small area. Use the existing Rufiji 2024 AOI (about 98 km²) with a known-good window, e.g. target 24–25 May 2024 and baseline 28 Aug – 2 Sep 2022, flood mapping only. Send it the way the app does, **with an `Idempotency-Key`**: either the owner submits in the browser, or the operator sends it from the BFF container through stdin with the BFF's own secret (never printed) and the owner's identity headers, as in the r8.1 record.
+   - **Pass:** the submit returns 202, and repeating it with the same key returns the same task.
+   - **Then follow the task** until it completes. The result opens with its report and downloads, and the worker logs show no error.
+   - **Record** the task and result IDs, the run time, and memory and swap during the run (2-second samples) in the deploy record.
+   - **If it fails:** that is a failed deploy, and the rollback in §6 applies.
+   - It uses Earth Engine quota and creates one real task in the owner's organisation. Say so in the record.
+10. **Optional further functional check (owner decision; uses GEE quota):** the full Rufiji 2024 run with Exposure and Trend analysis. The result should carry the scientific report (PDF/DOCX), the framed maps, the figures and the curated download groups.
 
 ## 6. Rollback
 
