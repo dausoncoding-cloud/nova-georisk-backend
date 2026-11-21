@@ -83,3 +83,5 @@ def exposure_section(writer, output_directory: Path, record: dict[str, Any] | No
         writer.para(f"Building layer: not delivered. {points.get('reason')}")
     writer.para(f"Sources: {population['citation']} Licence: {population['licence']}. {buildings['citation']}. "
                 f"Licence: {buildings['licence']}. Return-period zones: {GLOFAS_PRODUCED_WORK_NOTICE}.")
+    from app.services.reporting.admin_exposure_report import admin_unit_subsection
+    admin_unit_subsection(writer, record, number=number)  # v1.1: exposure by administrative unit

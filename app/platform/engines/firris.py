@@ -194,7 +194,11 @@ def _exposure_sheets(record: dict[str, Any] | None) -> dict[str, pd.DataFrame]:
                                                                                 (record.get("observed_extent_caveat") or {}).get("built_up_note"),
                                                                                 (record.get("observed_cluster") or {}).get("text")]))}]
     rows = exposure_table_rows(record) or [{"status": record.get("status"), "reason": record.get("reason")}]
-    return {"Exposure by extent": pd.DataFrame(rows), "Exposure source": pd.DataFrame(about)}
+    sheets = {"Exposure by extent": pd.DataFrame(rows), "Exposure source": pd.DataFrame(about)}
+    if record.get("by_admin_unit"):  # v1.1: every level × unit × extent
+        from app.services.firris.admin_exposure_exports import table_rows as admin_rows
+        sheets["Exposure by admin unit"] = pd.DataFrame(admin_rows(record))
+    return sheets
 
 
 def _layer_metadata(
@@ -663,7 +667,13 @@ class FIRRISEngineAdapter(EngineAdapter):
         workflow = None
         if workflow_config:
             progress_callback(5)
-            workflow = run_satellite_workflow(dict(workflow_config), context.gis_metadata, context.aoi_geometry, context.output_directory)
+            admin_boundaries = None
+            if ((workflow_config.get("source") or {}).get("provider") == "gee" and context.aoi_geometry
+                    and (workflow_config.get("context") or {}).get("flood_exposure")):
+                from app.services.firris.boundary_sources import resolve_admin_boundaries  # v1.1 exposure by admin unit
+                admin_boundaries = resolve_admin_boundaries(context.aoi_geometry, context.project_id)
+            workflow = run_satellite_workflow(dict(workflow_config), context.gis_metadata, context.aoi_geometry, context.output_directory,
+                                              admin_boundaries=admin_boundaries)
             source_config = dict(workflow_config.get("source") or {})
             actual = _actual_raster_metadata(workflow, context.gis_metadata)
             actual["target_period"] = source_config.get("target_period")
@@ -732,6 +742,10 @@ class FIRRISEngineAdapter(EngineAdapter):
                                                    aoi_geometry=context.aoi_geometry,
                                                    target_text=period_dict_text(workflow.provenance.get("target_period"))).items():
                     (outputs if entry.get("role") == "product" else reports)[key] = entry
+                if workflow.flood_exposure.get("by_admin_unit"):  # v1.1: exposure by administrative unit
+                    from app.services.firris.admin_exposure_exports import admin_exposure_exports
+                    reports.update(admin_exposure_exports(context.output_directory, workflow.flood_exposure,
+                                                          workflow.flood_exposure_layers, result_version=context.result_version))
         provenance = {
             "producer": context.gis_metadata["producer"], "engine_key": self.key, "engine_version": self.version,
             "operation": context.operation, "artifact_schema_version": "1.0",

@@ -8,6 +8,8 @@
 //   node tools/capture-frris.mjs results      # task pages and result tabs, once both runs have finished
 //   node tools/capture-frris.mjs trend-run     # Trend analysis option and preflight; submits a May 2024 run with trends
 //   node tools/capture-frris.mjs trend-results # the Trends tab of that run ("trend" in results.json)
+//   node tools/capture-frris.mjs admin-run      # FRRIS v1.1: a May 2024 run with Exposure, for exposure by administrative unit
+//   node tools/capture-frris.mjs admin-results  # the "Exposure by administrative unit" card of that run (task URL in admin-task-url.txt)
 //
 // Images go to ./img (1280 x 860 viewport, device scale 1.5).
 import { chromium } from "playwright";
@@ -241,6 +243,53 @@ if (stage === "trend-results") {
     await settle(p, 600);
     await shot(region, file);
   }
+  await ctx.close();
+}
+
+
+if (stage === "admin-run") {
+  // FRRIS v1.1: the May 2024 Rufiji run (24-25 May 2024, baseline 28 Aug - 2 Sep 2022) with Exposure (and so the hazard).
+  const ctx = await context();
+  const p = await page(ctx, "/frris/analyses/new");
+  await chooseArea(p, "Rufiji floodplain 2024");
+  await settle(p, 1500);
+  await fillPeriods(p, ["2024-05-24", "2024-05-25"], ["2022-08-28", "2022-09-02"]);
+  await waitPreflight(p);
+  await p.getByText("Model confidence score", { exact: false }).first().click();
+  await p.getByText("Estimated exposure (WorldPop, Open Buildings)").click();
+  await settle(p, 800);
+  await p.getByRole("button", { name: "Run analysis" }).click();
+  await p.waitForURL((url) => !url.pathname.endsWith("/new"), { timeout: 60000 }).catch(() => {});
+  writeFileSync(join(DATA, "admin-task-url.txt"), p.url());
+  console.log("task", p.url());
+  await ctx.close();
+}
+
+if (stage === "admin-results") {
+  const ctx = await context();
+  const task = await page(ctx, new URL(readFileSync(join(DATA, "admin-task-url.txt"), "utf8").trim()).pathname);
+  const link = task.getByRole("link", { name: /result/i }).first();
+  await link.click().catch(() => {});
+  await settle(task, 2000);
+  const resultPath = new URL(task.url()).pathname;
+  console.log("result", resultPath);
+  const p = await page(ctx, resultPath + "?tab=exposure");
+  await p.getByRole("tab", { name: /Exposure/ }).first().click().catch(() => {});
+  await settle(p, 2000);
+  const cardEl = p.locator("section[aria-label='Exposure by administrative unit']");
+  await cardEl.scrollIntoViewIfNeeded();
+  await shot(cardEl, "40-admin-exposure-districts");
+  await cardEl.getByLabel("Extent").selectOption("rp100");
+  await settle(p, 500);
+  await shot(cardEl, "41-admin-exposure-districts-rp100");
+  await cardEl.getByLabel("Extent").selectOption("observed_extent");
+  await cardEl.getByRole("button", { name: "Regions" }).click();
+  await settle(p, 500);
+  await shot(cardEl, "42-admin-exposure-regions");
+  await cardEl.getByRole("button", { name: "Wards" }).click();
+  await settle(p, 500);
+  await shot(cardEl, "43-admin-exposure-wards");
+  writeFileSync(join(DATA, "admin-result-path.txt"), resultPath);
   await ctx.close();
 }
 
