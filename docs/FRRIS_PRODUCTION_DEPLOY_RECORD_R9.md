@@ -52,3 +52,29 @@ No rollback was needed. The rollback is ready: `rollback/compose.previous.json` 
 | Redis | The one-off worker's `_kombu.binding.diag_noop_r9_20261121t181402z` (db 3) was shown, then deleted; none left; `LLEN celery` = 0 |
 | Logs since 18:17:30 UTC | 0 errors in api, bff, worker, gateway and the edge nginx |
 | Memory after | 934 MB available, 98 MB swap |
+
+## 5. Smoke test: real submission with Exposure on (deploy plan §5 item 9)
+
+**What was sent:**
+- **Request:** one submission, sent the way the app does: an `Idempotency-Key`, twice; from inside the BFF container with its own secret (never printed); the owner's identity.
+- **Payload:** the original request of the known-good run `492c073c` (Rufiji 2024 AOI, 98.8 km²; target 24–25 May 2024, baseline 28 Aug – 2 Sep 2022; **modelled hazard and Exposure on**).
+- **One run covers both checks:** the required real submission and the small analysis with Exposure on.
+
+| Step | Result |
+|---|---|
+| Submit ×2, same key | **202 / 202, same task** `53df4b7e-dedb-4dd0-9af8-65eae1eab2d5` |
+| Run | 18:20:13 → 18:23:15 UTC, **182 s**, COMPLETED; 0 worker errors |
+| Result | **`38d6072b-fa3e-429c-a06a-c0898155bf05`** |
+| Exposure | assessed; observed extent 2,236 people, 337 buildings; 1-in-100-year zone 823 people, 37 buildings (the same as the earlier Rufiji runs) |
+| **By administrative unit** (stored record, read by the Exposure tab card) | L1 **Pwani** and L2 **Rufiji** assessed, the sums check passing; L3 "Ward boundaries not yet provided" |
+| Report | Subsection "Exposure by administrative unit" on page 14; the wards line; the boundary citation once |
+| Workbook | Sheet **"Exposure by admin unit"**, 19 rows |
+| GeoPackage | `exposure-by-admin-unit.gpkg`: layers **`regions`, `districts`** (Rufiji) and `about` |
+| Package | Includes the GeoPackage; README has the boundary licence note |
+| **Memory during the run** (2 s samples, 62) | **Minimum MemAvailable 632 MB** (18:23:06); **maximum swap 329 MB** (18:23:12); **worker peak 503 MiB** (18:23:03). Before the run: 906 MB available, 98 MB swap. It never fell below 300 MB |
+
+**Checked how:** read-only, in a throwaway no-network container with the artifacts volume mounted `:ro`.
+
+**Not yet done:** the Exposure tab card was not viewed in a browser here. The record it reads is in place, and the bundle has the card; the owner's browser check is still to come.
+
+**Effect:** the test created one real task and result in the owner's organisation, and used Earth Engine quota for one 98.8 km² run.
