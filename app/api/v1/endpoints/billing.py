@@ -24,10 +24,10 @@ from app.models.task import Task
 from app.schemas.billing import (Allowance, BillingSummaryResponse, CreditSummary, LedgerEntryResponse, LedgerPage,
                                  PaymentPage, PaymentResponse, PlanCatalogueResponse, PlanLimits, PlanOption,
                                  SubscriptionRequestCreate, SubscriptionRequestResponse, SubscriptionSummary,
-                                 TopUpOffer, DeleteFilesRequest, DeleteFilesResponse, StorageOverview, StoredResultItem)
+                                 TopUpOffer, DeleteFilesRequest, SellerIdentity, DeleteFilesResponse, StorageOverview, StoredResultItem)
 from app.models.platform_admin import SubscriptionRequest
 from app.services.billing import requests as billing_requests
-from app.services.billing import audit, catalogue, ledger, limits, receipts
+from app.services.billing import audit, catalogue, ledger, limits, receipts, statuses
 from app.services.billing import storage as billing_storage
 from app.core.entitlements import active_engine_keys, require_engine_entitlement
 from app.core.security import require_project_access
@@ -82,8 +82,17 @@ def _summary(db: Session, subscription: OrganizationSubscription, seats_used: in
                               used_percent=0.0 if unlimited else usage.used_percent,
                               level=None if unlimited else usage.level, unlimited=unlimited),
         can_submit=code is None or not billing.enforcement_enabled(),
-        block_code=code, block_message=message,
+        block_code=code, block_message=message, access_ends_at=statuses.access_ends_at(subscription),
     )
+
+
+def _seller() -> SellerIdentity | None:
+    settings = get_settings()
+    if not settings.seller_legal_name.strip():
+        return None
+    return SellerIdentity(legal_name=settings.seller_legal_name.strip(), tin=settings.seller_tin.strip() or None,
+                          address=settings.seller_address.strip() or None, vat_mode=settings.seller_vat_mode,
+                          vat_rate_percent=settings.seller_vat_rate_percent)
 
 
 @router.get("/summary", response_model=BillingSummaryResponse)
@@ -110,7 +119,7 @@ def get_billing_summary(
              for subscription_id in ids]
     return BillingSummaryResponse(enforcement_enabled=billing.enforcement_enabled(), subscriptions=items,
                                   seats=_allowance(seats), storage=_allowance(storage),
-                                  storage_blocks_at_limit=get_settings().billing_storage_block_at_limit)
+                                  storage_blocks_at_limit=get_settings().billing_storage_block_at_limit, seller=_seller())
 
 
 @router.get("/ledger", response_model=LedgerPage)
