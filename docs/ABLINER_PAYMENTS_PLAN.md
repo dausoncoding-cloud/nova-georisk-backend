@@ -276,6 +276,8 @@ A refused deposit (an Abliner 4xx with no `transaction_id`) marks the intent `fa
 
 ## 10. Security-review list (new rows for the release record) and turn-on checklist
 
+> The release version of this list, with every hunk and line number, and the final turn-on checklist, is in `docs/ABLINER_PAYMENTS_RELEASE_RECORD.md` (B1–B12). That file wins where the two differ.
+
 | # | File | What | Failure behaviour |
 |---|---|---|---|
 | B1 | `deploy/nginx/conf.d/gateway.conf`: `location = /api/v1/webhooks/abliner` | **Not on the production path** (the edge sends `/api/*` to the BFF directly); defence in depth if routing changes. POST only, 64 KB, own rate-limit zone; `Cookie`, `Authorization`, `X-Internal-Secret` and all `X-Nova-*` blanked; to the BFF. | Fails closed |
