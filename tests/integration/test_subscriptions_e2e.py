@@ -36,6 +36,7 @@ def _legacy_customer(db, slug):
 
 def test_release_lifecycle_end_to_end(client, db_session, monkeypatch):
     settings = get_settings()
+    monkeypatch.setattr(settings, "billing_enforcement_enabled", False)  # Phase A starts with enforcement off
     catalogue.seed_catalogue(db_session)
     customer = _legacy_customer(db_session, "e2e-rufiji")
     novarex = _legacy_customer(db_session, "e2e-novarex")

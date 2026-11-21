@@ -108,6 +108,7 @@ def test_researcher_new_sign_in_ends_the_older_session_with_a_notice(db_session,
 
 def test_other_plans_keep_three_sessions_and_enforcement_off_keeps_all(db_session, stack, monkeypatch):
     store, tracker, _ = stack
+    monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", False)  # this test is about "off"
     t = _tenant(db_session, "sessions-pro", plan_key="frris_wrris.professional")
     tokens = [_sign_in(db_session, store, tracker, t)[0] for _ in range(4)]
     assert all(store.get(token) for token in tokens)  # enforcement off: today's behaviour

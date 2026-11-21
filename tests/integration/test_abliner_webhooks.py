@@ -22,6 +22,13 @@ from app.services.abliner.client import AblinerClient
 from app.services.platform_admin import access
 from tests.integration.test_billing_credits import _tenant
 
+@pytest.fixture(autouse=True, params=[False, True], ids=["enforcement-off", "enforcement-on"])
+def enforcement(request, monkeypatch):
+    """Every Abliner test runs with billing enforcement off (production today) and on."""
+    monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", request.param)
+    return request.param
+
+
 SECRET = "whsec_TEST_placeholder"
 PATH = "/api/v1/webhooks/abliner"
 
