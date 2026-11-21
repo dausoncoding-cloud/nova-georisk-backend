@@ -154,6 +154,8 @@ def remember_key(db: Session, context: RequestContext, key: str | None, endpoint
                  task: Task) -> None:
     if key is None or context.is_service:
         return
+    if task.id is None:  # r8.1: with enforcement off nothing has flushed the new task yet (charge() only flushes with a plan)
+        db.flush()
     db.add(SubmissionIdempotencyKey(organization_id=context.organization_id, user_id=context.user_id, key=key,
                                     endpoint=endpoint, request_sha256=fingerprint, task_id=task.id))
     db.flush()
