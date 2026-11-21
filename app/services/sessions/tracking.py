@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.platform_admin import SecurityAlert
 from app.models.sessions import UserSession
-from app.services.billing import ledger, limits
+from app.services.billing import limits
 from app.services.sessions import geoip, user_agent
 from app.services.sessions.client_ip import client_ip
 
@@ -73,10 +73,10 @@ class SignIn:
     ended: list[uuid.UUID]
 
 
-def replaced_notice(record: UserSession) -> str:
-    where = ", ".join(part for part in (f"{record.browser} on {record.os}", record.city or record.country) if part)
-    at = record.created_at.astimezone(ledger._zone()).strftime("%H:%M")
-    return f"You were signed out because your account signed in on another device ({where}, {at})."
+# Shown to whoever presents the ended session's cookie, which may not be the account's owner (a copied
+# cookie, a shared account). It therefore says nothing about the new sign-in; device details are only in the
+# signed-in user's own device list (security review M2).
+NOTICE_REPLACED = "You were signed out because your account signed in on another device."
 
 
 class SessionTracker:
@@ -134,7 +134,7 @@ class SessionTracker:
         limit = limits.session_limit(db, organization_id)
         ended_hashes = self._client.eval(
             _ENFORCE, 1, self._index_key(user_id), record.session_hash, int(now.timestamp() * 1000), limit or 0,
-            self._prefix, f"{self._prefix}ended:", replaced_notice(record), self._ttl)
+            self._prefix, f"{self._prefix}ended:", NOTICE_REPLACED, self._ttl)
         ended_ids: list[uuid.UUID] = []
         if ended_hashes:
             rows = db.query(UserSession).filter(UserSession.session_hash.in_(list(ended_hashes)),

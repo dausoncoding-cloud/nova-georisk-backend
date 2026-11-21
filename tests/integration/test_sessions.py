@@ -95,7 +95,9 @@ def test_researcher_new_sign_in_ends_the_older_session_with_a_notice(db_session,
     session_info = bff.get("/auth/session", cookies={"nova_session": first}).json()
     assert session_info["authenticated"] is False
     notice = session_info["signedOutNotice"]
-    assert notice.startswith("You were signed out because your account signed in on another device (Chrome on Windows")
+    # Generic: nothing about the new sign-in (browser, place, time) reaches the holder of the old cookie.
+    assert notice == tracking.NOTICE_REPLACED == "You were signed out because your account signed in on another device."
+    assert "Chrome" not in notice and "Windows" not in notice
     proxied = bff.get("/api/v1/billing/summary", cookies={"nova_session": first})
     assert proxied.status_code == 401 and proxied.json()["error"]["code"] == "session_ended"
     assert proxied.json()["error"]["message"] == notice
