@@ -113,12 +113,24 @@ def _counting(calls):
     return count
 
 
-def _run(boundaries, calls):
+def _run(boundaries, calls, count=None):
     pop = np.arange(16, dtype=np.float32).reshape(4, 4) + 1
     return ex.run_exposure(GRID_AOI, event_year=2024, extent=OBS_FULL["extent"], extent_transform=OBS_FULL["transform"],
                            extent_crs="EPSG:4326", hazard_layers=_hazard(), acquire=lambda aoi, year: _population(pop),
-                           count=_counting(calls), points=lambda g: {"status": "delivered", "reason": None, "features": []},
+                           count=count or _counting(calls), points=lambda g: {"status": "delivered", "reason": None, "features": []},
                            admin_boundaries=boundaries)[0]
+
+
+# Additive like the real count (centroid inside, disjoint pieces): points at (m + 0.5) * C/10, never on a C/5 border.
+GRID_POINTS = [Point(39.0 + (m + 0.5) * C / 10, -8.0 - (n + 0.5) * C / 10) for m in range(40) for n in range(40)]
+
+
+def _point_count(geometry):
+    from shapely.prepared import prep
+    inside = prep(geometry)
+    k = sum(1 for p in GRID_POINTS if inside.contains(p))
+    return {"0.75": {"count": k, "area_m2": 1.0}, "0.65": {"count": k + k // 3, "area_m2": 1.0},
+            "tiles": 1, "depth": 0, "seconds": 0.0, "method": "fake points"}
 
 
 def _districts():
@@ -179,3 +191,21 @@ def test_a_failing_breakdown_never_changes_exposure(monkeypatch):
 
 def test_without_boundaries_the_record_has_no_breakdown():
     assert "by_admin_unit" not in _run(None, [])
+
+
+def test_report_table_top_units_other_units_and_outside_add_up_to_the_total():
+    from app.services.firris.admin_exposure_exports import report_table
+    strips = [au.Unit(f"S{i:02d}", f"Strip {i:02d}", "L2", _sbox(39.0 + i * C / 5, -8.0 - 3 * C, 39.0 + (i + 1) * C / 5, -7.9))
+              for i in range(20)]  # 20 strips over the AOI's top three rows; the bottom row is "Outside any unit"
+    record = _run({"L2": au.BoundaryUnits("L2", strips, {"dataset": "test"})}, [], count=_point_count)
+    level = record["by_admin_unit"]["levels"][0]
+    assert level["status"] == "assessed", level["check"]
+    table = report_table(level, ["observed_extent", "rp100"])
+    names = [row["name"] for row in table["rows"]]
+    assert len(names) == 17 and names[15] == "Other units (5)" and names[16] == "Outside any unit"
+    for key in ("observed_extent", "rp100"):
+        people = sum(row[key]["people"] for row in table["rows"])
+        buildings = sum(row[key]["buildings"] for row in table["rows"])
+        assert people == pytest.approx(table["total"][key]["people"]) and buildings == table["total"][key]["buildings"]
+    shown = [row["observed_extent"]["people"] for row in table["rows"][:15]]
+    assert shown == sorted(shown, reverse=True)

@@ -1,6 +1,11 @@
 """FRRIS v1.1 exposure by administrative unit through the engine (Exposure fakes; boundaries patched)."""
 import json
+import sqlite3
+import zipfile
 
+import pyogrio
+import pytest
+from openpyxl import load_workbook
 from shapely.geometry import box
 
 from shapely.geometry import Point
@@ -8,7 +13,7 @@ from shapely.geometry import Point
 from app.services.firris import admin_units as au
 from app.services.firris import boundary_sources as bs
 from app.services.gee import open_buildings as ob
-from tests.unit.test_exposure_engine import _run
+from tests.unit.test_exposure_engine import _run, _text
 
 # An additive building count, like the real one (centroid inside; disjoint pieces): fixed points, none on a unit border.
 POINTS = [Point(36.0 + 0.00731 * i + 0.0013, -1.0 - 0.00617 * j - 0.0011) for i in range(82) for j in range(97)]
@@ -73,3 +78,76 @@ def test_without_exposure_no_boundaries_are_resolved(tmp_path, monkeypatch):
     monkeypatch.setattr(bs, "resolve_admin_boundaries", lambda *a, **k: seen.append(1) or {})
     output = _run(tmp_path, monkeypatch, exposure=False)
     assert not seen and "by_admin_unit" not in (output.summary.get("flood_exposure") or {})
+
+
+def _many_districts(aoi, project_id, **kwargs):
+    """20 district strips across the engine AOI (36.0-36.6 E), so the report needs "Other units"."""
+    units = [au.Unit(f"D{i:02d}", f"District {i:02d}", "L2", box(36.0 + 0.03 * i, -1.7, 36.0 + 0.03 * (i + 1), -0.9), parent="Pwani")
+             for i in range(20)]
+    region = au.Unit("region:Pwani", "Pwani", "L1", box(35.5, -2.0, 37.0, -0.5))
+    prov = {"dataset": "geoBoundaries", "release": "geoBoundaries commit 9469f09", "boundaryID": "TZA-ADM2-72390352",
+            "release_type": "gbOpen", "year_represented": "2021", "source": "NBS / UN OCHA ROSA", "licence": "CC BY 3.0 IGO",
+            "citation": "Runfola, D. et al. (2020).", "limitations": ["The 170-district layer predates newer councils (for example Kibiti)."]}
+    return {"L1": au.BoundaryUnits("L1", [region], prov), "L2": au.BoundaryUnits("L2", units, prov),
+            "L3": au.NotProvided("L3", au.WARDS_NOT_PROVIDED)}
+
+
+@pytest.fixture(scope="module")
+def outputs(tmp_path_factory):
+    directory = tmp_path_factory.mktemp("admin-exposure")
+    mp = pytest.MonkeyPatch()
+    try:
+        mp.setattr(bs, "resolve_admin_boundaries", _many_districts)
+        result = _run(directory, _WithCount(mp))
+    finally:
+        mp.undo()
+    return result, directory, _text(directory / result.output_files["scientific_report_pdf"]["path"])
+
+
+def test_report_subsection_top_15_other_units_sum_check_wards_and_limitations(outputs):
+    result, directory, text = outputs
+    levels = {lv["level"]: lv for lv in result.summary["flood_exposure"]["by_admin_unit"]["levels"]}
+    assert levels["L2"]["status"] == "assessed", levels["L2"]["check"]
+    assert "Exposure by administrative unit" in text and "Other units (5)" in text
+    assert "The top 15 of 20 units by people in the observed flood candidates" in text
+    assert "Units add up to the area total for the observed flood candidates:" in text and "buildings." in text
+    assert "Wards: Ward boundaries not yet provided." in text
+    assert "predates newer councils" in text and "CC BY 3.0 IGO" in text and "TZA-ADM2-72390352" in text
+    assert "District 00 (Pwani)" in text or "District 19 (Pwani)" in text
+
+
+def test_workbook_csv_geopackage_and_package_readme(outputs):
+    result, directory, _ = outputs
+    files = result.output_files
+    sheets = load_workbook(directory / files["firris_excel_report"]["path"], read_only=True)
+    assert "Exposure by admin unit" in sheets.sheetnames
+    ws = sheets["Exposure by admin unit"]
+    rows = list(ws.iter_rows(values_only=True))
+    districts = {r[1] for r in rows[1:] if r[0] == "District"}
+    assert len(districts) == 20 and rows[0][:3] == ("level", "unit_id", "unit")
+    csv = (directory / files["flood_exposure_by_admin_unit_csv"]["path"]).read_text()
+    assert "District 19" in csv and "Ward" in csv
+    gpkg = directory / files["exposure_by_admin_unit_gpkg"]["path"]
+    layers = {name for name, _ in pyogrio.list_layers(gpkg)}
+    assert layers == {"regions", "districts", "about"}
+    frame = pyogrio.read_dataframe(gpkg, layer="districts")
+    assert len(frame) == 20 and {"ppl_observed_extent", "bld_rp100", "b65_whole_area", "share_pct", "licence"} <= set(frame.columns)
+    assert abs(frame["ppl_whole_area"].sum() - next(r for r in result.summary["flood_exposure"]["rows"] if r["extent"] == "whole_area")["people"]) < 1
+    with sqlite3.connect(gpkg) as db:
+        descriptions = dict(db.execute("select table_name, description from gpkg_contents").fetchall())
+    assert "CC BY 3.0 IGO" in descriptions["districts"] and "estimates, not people affected" in descriptions["districts"]
+    about = pyogrio.read_dataframe(gpkg, layer="about")
+    assert "Layer wards" in set(about["item"]) and any("predates newer councils" in v for v in about["value"])
+    with zipfile.ZipFile(directory / files["report_package"]["path"]) as package:
+        names = package.namelist()
+        readme = package.read(next(n for n in names if n.endswith("README.txt"))).decode()
+    assert any(n.endswith("exposure-by-admin-unit.gpkg") for n in names)
+    assert "Licence note: administrative boundaries" in readme and "CC BY 3.0 IGO" in readme
+
+
+def test_provenance_records_each_level(outputs):
+    result, _, _ = outputs
+    prov = result.provenance["flood_exposure"]["by_admin_unit"]
+    by_level = {lv["level"]: lv for lv in prov["levels"]}
+    assert by_level["L2"]["sums_check_ok"] is True and by_level["L2"]["boundaries"]["boundaryID"] == "TZA-ADM2-72390352"
+    assert by_level["L3"]["status"] == "not_provided" and "Overlapping boundary areas" in by_level["L2"]["overlap_rule"]

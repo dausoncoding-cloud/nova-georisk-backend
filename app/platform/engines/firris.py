@@ -194,7 +194,11 @@ def _exposure_sheets(record: dict[str, Any] | None) -> dict[str, pd.DataFrame]:
                                                                                 (record.get("observed_extent_caveat") or {}).get("built_up_note"),
                                                                                 (record.get("observed_cluster") or {}).get("text")]))}]
     rows = exposure_table_rows(record) or [{"status": record.get("status"), "reason": record.get("reason")}]
-    return {"Exposure by extent": pd.DataFrame(rows), "Exposure source": pd.DataFrame(about)}
+    sheets = {"Exposure by extent": pd.DataFrame(rows), "Exposure source": pd.DataFrame(about)}
+    if record.get("by_admin_unit"):  # v1.1: every level × unit × extent
+        from app.services.firris.admin_exposure_exports import table_rows as admin_rows
+        sheets["Exposure by admin unit"] = pd.DataFrame(admin_rows(record))
+    return sheets
 
 
 def _layer_metadata(
@@ -738,6 +742,10 @@ class FIRRISEngineAdapter(EngineAdapter):
                                                    aoi_geometry=context.aoi_geometry,
                                                    target_text=period_dict_text(workflow.provenance.get("target_period"))).items():
                     (outputs if entry.get("role") == "product" else reports)[key] = entry
+                if workflow.flood_exposure.get("by_admin_unit"):  # v1.1: exposure by administrative unit
+                    from app.services.firris.admin_exposure_exports import admin_exposure_exports
+                    reports.update(admin_exposure_exports(context.output_directory, workflow.flood_exposure,
+                                                          workflow.flood_exposure_layers, result_version=context.result_version))
         provenance = {
             "producer": context.gis_metadata["producer"], "engine_key": self.key, "engine_version": self.version,
             "operation": context.operation, "artifact_schema_version": "1.0",

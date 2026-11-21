@@ -19,7 +19,7 @@ import numpy as np
 from pyproj import Transformer
 from rasterio.features import rasterize
 from rasterio.transform import Affine
-from shapely.geometry import GeometryCollection, mapping, shape
+from shapely.geometry import GeometryCollection, Point, mapping, shape
 from shapely.ops import transform as shapely_transform, unary_union
 
 Level = Literal["L1", "L2", "L3"]
@@ -173,7 +173,8 @@ def _covers(piece: Piece, aoi) -> bool:
 def level_breakdown(source_result: BoundaryUnits | NotProvided, *, population, aoi_geometry: dict,
                     extents: list[tuple[str, str, np.ndarray | None, Affine | None]], totals: dict[str, dict],
                     count: Callable | None, extent_geometries: dict[str, Any],
-                    count_extents: set[str] | None = None) -> dict[str, Any]:
+                    count_extents: set[str] | None = None, pieces_out: list | None = None,
+                    cluster_bounds: dict | None = None) -> dict[str, Any]:
     """One level's table: rows per unit (plus "Outside any unit"), per extent people and buildings, and the check.
 
     ``extents``: (key, label, mask or None for the whole area, mask transform) as in ``exposure.extent_specs``.
@@ -186,6 +187,13 @@ def level_breakdown(source_result: BoundaryUnits | NotProvided, *, population, a
                 "reason": source_result.reason, "provenance": source_result.provenance}
     aoi = shape(aoi_geometry).buffer(0)
     pieces = disjoint_pieces(source_result.units, aoi_geometry)
+    if pieces_out is not None:
+        pieces_out.extend((piece.id, piece.geometry) for piece in pieces if not piece.geometry.is_empty)
+    cluster_unit = None
+    if cluster_bounds:  # the settled cluster of the observed extent (exposure.observed_cluster): its unit carries the note
+        b = cluster_bounds
+        centre = Point((b["west"] + b["east"]) / 2, (b["south"] + b["north"]) / 2)
+        cluster_unit = next((piece.id for piece in pieces if piece.unit is not None and piece.geometry.covers(centre)), None)
     pop, pop_t = population.population, population.transform
     rows = []
     for piece in pieces:
@@ -225,7 +233,7 @@ def level_breakdown(source_result: BoundaryUnits | NotProvided, *, population, a
     return {"level": source_result.level, "level_name": LEVEL_NAMES[source_result.level],
             "status": "assessed" if check["ok"] else "not_available", "reason": None if check["ok"] else WITHHELD,
             "rows": shown, "check": check, "provenance": source_result.provenance, "overlap_rule": OVERLAP_RULE,
-            "buildings_counted_for": [e[0] for e in extents if e[0] in counted]}
+            "buildings_counted_for": [e[0] for e in extents if e[0] in counted], "cluster_unit_id": cluster_unit}
 
 
 def _totals(rows: list[dict]) -> dict[str, dict]:
@@ -240,8 +248,13 @@ def _totals(rows: list[dict]) -> dict[str, dict]:
 
 
 def breakdown(population, aoi_geometry: dict, specs: list, rows: list[dict], geometries: dict[str, Any], *,
-              count: Callable | None, boundaries: dict[str, BoundaryUnits | NotProvided]) -> dict[str, Any]:
-    """Exposure by administrative unit for every level in ``boundaries`` (L1 regions, L2 districts, L3 wards)."""
+              count: Callable | None, boundaries: dict[str, BoundaryUnits | NotProvided],
+              pieces_out: dict | None = None, cluster: dict | None = None) -> dict[str, Any]:
+    """Exposure by administrative unit for every level in ``boundaries`` (L1 regions, L2 districts, L3 wards).
+
+    ``pieces_out``, when given, receives level -> [(unit_id, clipped geometry)] for the GeoPackage (not stored in JSON).
+    ``cluster``: ``exposure.observed_cluster`` (or None); the unit holding it is named in each level's record.
+    """
     extents = [(key, label, mask, mask_t) for key, label, mask, _alternative, mask_t in specs]
     totals = _totals(rows)
     levels = []
@@ -254,8 +267,12 @@ def breakdown(population, aoi_geometry: dict, specs: list, rows: list[dict], geo
             calls = (len(source.units) + 1) * sum(1 for t in totals.values() if t["buildings"] is not None)
             if calls > MAX_BUILDING_COUNTS_PER_LEVEL:
                 count_extents = set(REPORT_EXTENTS)
+        level_pieces: list = []
         record = level_breakdown(source, population=population, aoi_geometry=aoi_geometry, extents=extents, totals=totals,
-                                 count=count, extent_geometries=geometries, count_extents=count_extents)
+                                 count=count, extent_geometries=geometries, count_extents=count_extents, pieces_out=level_pieces,
+                                 cluster_bounds=(cluster or {}).get("bounds"))
+        if pieces_out is not None and record.get("status") == "assessed":
+            pieces_out[level] = level_pieces
         if count_extents is not None and record.get("status") == "assessed":
             record["buildings_note"] = (f"Buildings are counted per unit for the observed extent and the 1-in-100-year zone only "
                                         f"({len(source.units)} units; the per-run limit is {MAX_BUILDING_COUNTS_PER_LEVEL} "

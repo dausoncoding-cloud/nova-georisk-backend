@@ -517,7 +517,15 @@ def run_satellite_workflow(
                 "users_accuracy_pct") if independent_accuracy.get("status") == "assessed" else None,
             accuracy_reason=independent_accuracy.get("reason") if independent_accuracy.get("coverage_rule") == "failed" else None,
             admin_boundaries=admin_boundaries)
+        by_admin = flood_exposure.get("by_admin_unit") or {}
         provenance["flood_exposure"] = {"status": flood_exposure.get("status"), "reason": flood_exposure.get("reason"),
+                                        "by_admin_unit": None if not by_admin else {
+                                            "status": by_admin.get("status"), "method": by_admin.get("method"),
+                                            "levels": [{"level": lv.get("level"), "status": lv.get("status"), "reason": lv.get("reason"),
+                                                        "boundaries": lv.get("provenance"), "overlap_rule": lv.get("overlap_rule"),
+                                                        "sums_check_ok": (lv.get("check") or {}).get("ok"),
+                                                        "buildings_counted_for": lv.get("buildings_counted_for")}
+                                                       for lv in by_admin.get("levels") or []]},
                                         "population": (flood_exposure.get("population") or {}).get("source"),
                                         "buildings": {k: v for k, v in (flood_exposure.get("buildings") or {}).items()
                                                       if k in ("asset", "version", "primary_threshold", "sensitivity_threshold")}}

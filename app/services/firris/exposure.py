@@ -304,15 +304,17 @@ def run_exposure(aoi_geometry: dict, *, event_year: int | None, extent: np.ndarr
         cluster["glofas"] = cluster_glofas_check(cluster, hazard_layers)
     record = exposure_record(population, rows, points=building_layer, users_accuracy_flood_pct=users_accuracy_flood_pct,
                              cluster=cluster, accuracy_reason=accuracy_reason)
+    admin_pieces: dict = {}
     if admin_boundaries:
         from app.services.firris.admin_units import breakdown
         try:  # v1.1: exposure by administrative unit; never changes the Exposure figures above
-            record["by_admin_unit"] = breakdown(population, aoi_geometry, specs, rows, geometries,
-                                                count=count, boundaries=admin_boundaries)
+            record["by_admin_unit"] = breakdown(population, aoi_geometry, specs, rows, geometries, count=count,
+                                                boundaries=admin_boundaries, pieces_out=admin_pieces, cluster=cluster)
         except Exception:  # noqa: BLE001 - the breakdown is an add-on; Exposure stays as computed
             logger.exception("Exposure by administrative unit failed")
             record["by_admin_unit"] = {"status": "not_available",
                                        "reason": "The breakdown by administrative unit could not be computed for this run; "
                                                  "the Exposure figures are unaffected."}
-    layers = {"population_transform": population.transform, "arrays": arrays, "building_points": building_layer}
+    layers = {"population_transform": population.transform, "arrays": arrays, "building_points": building_layer,
+              "admin_pieces": admin_pieces}
     return record, layers

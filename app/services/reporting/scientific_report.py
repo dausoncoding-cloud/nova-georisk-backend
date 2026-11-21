@@ -460,6 +460,9 @@ def package_readme(files: list[tuple[str, str, dict]]) -> str:
         lines += ["Licence note: GloFAS-derived data", "-" * 33, GLOFAS_DATABASE_NOTICE,
                   "These files are available under ODbL v1.0:"] + [f"  {name}" for name in derived] + [
                   f"Maps, graphs and the report made from them carry the notice: \"{GLOFAS_PRODUCED_WORK_NOTICE}\".", ""]
+    from app.services.firris.admin_exposure_exports import BOUNDARY_PACKAGE_NOTE, PACKAGE_KEYS
+    if any(key.startswith(PACKAGE_KEYS) for _, key, _ in files):  # FRRIS v1.1: exposure by administrative unit
+        lines += ["Licence note: administrative boundaries", "-" * 39, BOUNDARY_PACKAGE_NOTE, ""]
     return "\n".join(lines)
 
 
