@@ -655,3 +655,45 @@ def test_parallel_top_up_requests_never_500(engine, db_session, monkeypatch):
     assert created.existing is True  # the unique index caught it; no IntegrityError reached the caller
     db_session.commit()
     assert db_session.query(SubscriptionRequest).filter_by(subscription_id=t.sub.id, status="open").count() == 1
+
+
+def test_admin_reasons_never_reach_customers(client, db_session, monkeypatch):
+    """Independent review 7 (owner decision): reasons are internal. Customers see fixed labels; the console sees both."""
+    monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", True)
+    admin = _admin(db_session)
+    t = _tenant(db_session, "pa-reasons", credits=3)
+    viewer = User(issuer="https://identity.billing.test/", subject=str(uuid.uuid4()), email="viewer@reasons.test")
+    db_session.add(viewer)
+    db_session.flush()
+    db_session.add(OrganizationMembership(organization_id=t.org.id, user_id=viewer.id, role=MembershipRole.VIEWER))
+    db_session.commit()
+    viewer_headers = {**t.headers, "X-Nova-User-Id": str(viewer.id), "X-Nova-Role": "viewer"}
+    secret = "INTERNAL-REASON-7f3a"
+    assert client.post("/api/v1/analyses", headers=t.headers, json=_payload(t)).status_code == 202  # grant + charge
+    path = f"{BASE}/subscriptions/{t.sub.id}"
+    paid = client.post(f"{path}/payments", headers={**admin.headers, **_key()}, json={
+        "purpose": "top_up", "amount": 100_000, "method": "cash", "credits": 10, "paid_on": date.today().isoformat(),
+        "note": f"{secret} payment note", "reference": "REF-1"})
+    assert paid.status_code == 201
+    assert client.post(f"{path}/credits", headers={**admin.headers, **_key()}, json={"credits": 2, "reason": f"{secret} goodwill"}).status_code == 201
+    assert client.post(f"{path}/adjustments", headers={**admin.headers, **_key()},
+                       json={"amount": -1, "bucket": "top_up", "reason": f"{secret} correction"}).status_code == 201
+    assert client.post(f"{path}/plan", headers=admin.headers,
+                       json={"plan_key": "frris_wrris.professional", "overrides": {"monthly_credits_override": None},
+                             "reason": f"{secret} upgrade"}).status_code == 200
+    assert client.post(f"{BASE}/payments/{paid.json()['payment']['id']}/reverse", headers={**admin.headers, **_key()},
+                       json={"reason": f"{secret} bounced"}).status_code == 201
+    assert client.post(f"{path}/status", headers=admin.headers, json={"status": "suspended", "reason": f"{secret} unpaid"}).status_code == 200
+    customer_paths = ["/api/v1/billing/summary", "/api/v1/billing/ledger", "/api/v1/billing/plans?family=frris_wrris",
+                      "/api/v1/billing/payments", "/api/v1/billing/requests", "/api/v1/account/sessions",
+                      "/api/v1/account/login-history"]
+    for headers in (t.headers, viewer_headers):
+        for customer_path in customer_paths:
+            response = client.get(customer_path, headers=headers)
+            assert secret not in response.text, (customer_path, headers["X-Nova-Role"])
+    labels = [item["label"] for item in client.get("/api/v1/billing/ledger", headers=viewer_headers).json()["items"]]
+    assert {"Monthly allowance", "Analysis", "Top-up", "Credits added by NOVAREX", "Credit adjustment by NOVAREX",
+            "Plan change", "Top-up reversed"} <= set(labels), labels
+    assert all("reason" not in item for item in client.get("/api/v1/billing/ledger", headers=t.headers).json()["items"])
+    console = client.get(f"{BASE}/customers/{t.org.id}/ledger", headers=admin.headers).json()["items"]
+    assert any((item["reason"] or "").startswith(secret) for item in console)  # NOVA ARI still sees them

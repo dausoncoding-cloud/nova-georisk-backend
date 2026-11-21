@@ -25,6 +25,7 @@ from app.schemas.billing import (Allowance, BillingSummaryResponse, CreditSummar
 from app.models.platform_admin import SubscriptionRequest
 from app.services.billing import requests as billing_requests
 from app.services.billing import catalogue, ledger, limits
+from app.services.billing.labels import customer_label
 from app.services.billing import submission as billing
 
 router = APIRouter(prefix="/billing", tags=["Billing"], dependencies=[Depends(verify_internal_secret)])
@@ -135,7 +136,7 @@ def get_ledger(
         plan_key = (row.metadata_json or {}).get("plan_key") if row.kind == "monthly_grant" else None
         items.append(LedgerEntryResponse(
             id=row.id, created_at=row.created_at, period=row.period, kind=row.kind, bucket=row.bucket,
-            amount=row.amount, balance_after=row.balance_after, task_id=row.task_id, reason=row.reason,
+            amount=row.amount, balance_after=row.balance_after, task_id=row.task_id, label=customer_label(row),
             project_name=project_name, aoi_name=aoi_name, plan_name=plan_names.get(plan_key)))
     return LedgerPage(items=items, total=total, limit=limit, offset=offset)
 

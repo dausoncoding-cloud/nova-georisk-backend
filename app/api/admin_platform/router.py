@@ -27,7 +27,8 @@ from app.models.identity import Organization, OrganizationMembership, User
 from app.models.platform import BillingPlan, OrganizationSubscription
 from app.models.platform_admin import SecurityAlert
 from app.models.sessions import UserSession
-from app.schemas.billing import LedgerEntryResponse, LedgerPage, PaymentResponse, PlanLimits
+from app.schemas.billing import AdminLedgerEntry, AdminLedgerPage, PaymentResponse, PlanLimits
+from app.services.billing.labels import customer_label
 from app.schemas.platform_admin import (AddCustomerRequest, AddSubscriptionRequest, AdjustCreditsRequest, AdminAccess,
                                         AdminLoginEntry, AdminLoginPage, AdminPaymentPage, AdminPaymentResponse,
                                         AdminPlan, AuditEntry, AuditPage, CreditsChanged, CustomerCreated,
@@ -224,18 +225,19 @@ def customer_login_history(
                           location_attribution=ATTRIBUTION if get_settings().geoip_database_path else None)
 
 
-@router.get("/customers/{organization_id}/ledger", response_model=LedgerPage)
+@router.get("/customers/{organization_id}/ledger", response_model=AdminLedgerPage)
 def customer_ledger(
     organization_id: uuid.UUID, limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0),
     db: Session = Depends(get_db), admin: AdminContext = Depends(require_platform_admin),
-) -> LedgerPage:
+) -> AdminLedgerPage:
     _organization(db, organization_id)
     query = db.query(CreditLedgerEntry).filter(CreditLedgerEntry.organization_id == organization_id)
     rows = query.order_by(CreditLedgerEntry.created_at.desc(), CreditLedgerEntry.id).offset(offset).limit(limit).all()
     plan_names = {plan.key: plan.name for plan in db.query(BillingPlan)}
-    return LedgerPage(items=[LedgerEntryResponse(
+    return AdminLedgerPage(items=[AdminLedgerEntry(
         id=row.id, created_at=row.created_at, period=row.period, kind=row.kind, bucket=row.bucket, amount=row.amount,
-        balance_after=row.balance_after, task_id=row.task_id, reason=row.reason, project_name=None, aoi_name=None,
+        balance_after=row.balance_after, task_id=row.task_id, label=customer_label(row), reason=row.reason,
+        project_name=None, aoi_name=None,
         plan_name=plan_names.get((row.metadata_json or {}).get("plan_key")) if row.kind == "monthly_grant" else None)
         for row in rows], total=query.count(), limit=limit, offset=offset)
 

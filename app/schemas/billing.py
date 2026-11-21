@@ -104,7 +104,8 @@ class LedgerEntryResponse(BaseModel):
     amount: int
     balance_after: int
     task_id: uuid.UUID | None
-    reason: str | None
+    # Fixed customer-facing text per entry type (review 7): NOVA ARI's free-text reasons are never returned here.
+    label: str
     # For the "Credit activity" labels: "Analysis · <project> · <area>", "Monthly allowance · <plan>".
     project_name: str | None
     aoi_name: str | None
@@ -164,3 +165,15 @@ class SubscriptionRequestResponse(BaseModel):
     closed_at: datetime | None
     # True when an open request of this kind already existed (nothing new was sent).
     existing: bool = False
+
+
+class AdminLedgerEntry(LedgerEntryResponse):
+    """NOVA ARI console only: the customer's entry plus the internal reason."""
+    reason: str | None
+
+
+class AdminLedgerPage(BaseModel):
+    items: list[AdminLedgerEntry]
+    total: int
+    limit: int
+    offset: int
