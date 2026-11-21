@@ -82,6 +82,10 @@ def _summary(db: Session, subscription: OrganizationSubscription, seats_used: in
 def get_billing_summary(
     db: Session = Depends(get_db), context: RequestContext = Depends(get_request_context),
 ) -> BillingSummaryResponse:
+    """Write on GET, by design and idempotent (independent review 6): before reading, each subscription is
+    brought to the current billing month, which writes the month's grant (and the previous month's expiry)
+    at most once, under the subscription row lock, keyed grant:<subscription>:<YYYY-MM>. Repeating the GET,
+    or a cross-site GET, can only cause that same single write earlier than the first analysis would."""
     _require_member(db, context)
     ids = [row.id for row in db.query(OrganizationSubscription.id).filter(
         OrganizationSubscription.organization_id == context.organization_id,

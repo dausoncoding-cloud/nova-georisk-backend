@@ -159,6 +159,12 @@ git diff origin/main -U0 -- app/bff/main.py app/bff/session.py app/bff/membershi
 | A17 | `app/services/platform_admin/access.py` `require_platform_admin`; `app/services/platform_admin/cli.py`; `app/api/admin_platform/router.py` | M4 | The NOVA ARI role. Checked from the database on every request: service context refused, active membership required, unrevoked grant required. Granted and revoked only by the deploy-time command. Every console route depends on the internal secret and this check, and organisation routes never read the role. Tests: every console GET returns 403 to an organisation owner; revocation takes effect on the next request; a disabled user is refused; no API module writes `platform_admins`. | Fails closed (403). |
 | A18 | `deploy/nginx/conf.d/app.conf` (HTTPS server of `api.novageorisk.com`) | Security review M1 (owner decision) | The public API host serves only `location = /health`: GET and HEAD, proxied with `X-Internal-Secret` and every `X-Nova-*` header blanked, and no request body. `location /` returns 404 for everything else: `/api/*`, `/docs`, `/openapi.json`, `/auth/*`, `/outputs/*`. The BFF, worker and operator commands reach the API over the Docker network (`http://api:8000`). Checked in nginx 1.27 (`nginx -t` passes): POST/PUT `/health`, `/health/`, `/HEALTH`, `/api/v1/projects` and percent-encoded, double-slash, dot-segment and upper-case variants are 404; `/%68ealth` and `//health` normalise to `/health` (200). | Fails closed (404). |
 
+**Writes on GET (all idempotent, independent review 6):**
+- `GET /api/v1/billing/summary` (customers) and `GET /api/v1/platform-admin/customers` (console) bring each subscription to the current billing month. That writes the monthly grant and last month's expiry at most once per month, under the subscription row lock, with a unique ledger key.
+- `GET /api/v1/platform-admin/customers/{id}` moves the usage buffer from Redis to Postgres.
+- A repeated or cross-site GET can only make these happen earlier; none takes input from the request.
+- The audited admin login-history view is a POST (L4).
+
 Other code worth a look:
 - `app/services/sessions/tracking.py`: the Lua script that ends older sessions.
 - `app/api/v1/endpoints/account_sessions.py`: sign-out per device. A user can only end their own sessions; another user's session returns 404.

@@ -3,9 +3,9 @@
 Every route: internal secret (BFF only) + `require_platform_admin` (live grant in the database, checked
 per request). Every write: a reason, and a `platform_audit` row in the same transaction. Payment and
 credit writes also take an `Idempotency-Key`, so a repeated click records once. Cross-organisation
-login history is the one read that is audited too, so it is a POST (CSRF-protected). Two GETs also write,
-idempotently: reading customers brings each subscription to the current month (the monthly grant, once
-per month) and reading a customer flushes the usage buffer.
+login history is the one read that is audited too, so it is a POST (CSRF-protected). Three GETs also write,
+idempotently: reading customers (here) and GET /api/v1/billing/summary (customers) bring each subscription
+to the current month (the monthly grant, once per month), and reading a customer flushes the usage buffer.
 """
 from __future__ import annotations
 
