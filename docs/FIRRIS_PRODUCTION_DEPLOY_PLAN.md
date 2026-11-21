@@ -195,7 +195,7 @@ Downtime ends when api, bff and worker report healthy.
 2. **Revision labels:** the backend image label is `1ece5d1f…` and the frontend label is `4c441161…`.
 3. **Environment parity at runtime:** compare the sorted env name+value sets of old (rollback set) and new containers inside a Python check that prints only `identical`/`differs`, as `cutover.py` did.
 4. **Health:**
-   - `curl -fsS https://api.novageorisk.com/health` (or the BFF route used before) returns 200.
+   - `curl -fsS https://api.novageorisk.com/health` returns 200. Since the subscriptions release that public host serves only `GET /health`: `https://api.novageorisk.com/api/v1/projects`, `/docs` and `POST /health` must return 404.
    - `curl -fsSI https://app.novageorisk.com/` returns 200 and the new bundle hash appears in `index.html`.
 5. **Worker:** `celery … inspect ping` and `inspect registered` show `nova.tasks.run_engine_analysis`. `docker exec <worker> python -c` checks that `MPLCONFIGDIR` is writable as `nova`.
 6. **OpenAPI at runtime:** run the SHA command from 4.3 with `docker exec <bff>`. It must equal `cd0e4e8a…`.

@@ -16,7 +16,8 @@ The read endpoints (`/billing/*`) work either way. Switching it on before steps 
 **Release Phase A (deploy with enforcement off):**
 1. **Deploy and migrate:** `alembic upgrade head`. The migrations are `a9c3e5f70b12` (M1), `c4e6a8b0d2f1` (M2), `e8b0c2d4f6a3` (M3), `f2c4e6a8b0d5` (M4), `a7b9c1d3e5f2` (M5) and `b3d5f7a9c1e4` (security review); see section 2.
 1a. **Rotate `X-Internal-Secret` (security review M1).** Set a new random `INTERNAL_API_SECRET` for both the API and the BFF (they must match), then restart both.
-   - The public API host now refuses `/api/v1/platform-admin`, `/api/v1/billing` and `/api/v1/account` (404). Everything else on it still accepts the secret alone, so rotating it limits what an old leak can do.
+   - The public API host `api.novageorisk.com` now serves only `GET /health` (owner decision on M1); every other path is 404. Rotating the secret ends whatever an old leak could still reach from inside the network.
+   - **Owner action in the Auth0 dashboard:** remove the dead allowed callback `https://api.novageorisk.com/auth/callback`. That host never served `/auth/*` through the BFF, and now returns 404 for it.
    - Repeat the rotation on a schedule.
 1b. **IP purge cron, from day one (security review L6).** Sign-ins record the full IP address from this deploy on, whether or not enforcement is on. Add the daily cron now:
    ```
@@ -156,7 +157,7 @@ git diff origin/main -U0 -- app/bff/main.py app/bff/session.py app/bff/membershi
 | A15 | `app/api/v1/endpoints/results.py` `get_result_product`: +1 import; +2 lines just before `_protected_file_response` | M4 | Counts a download after every existing check (membership, project access, entitlement, path containment, integrity). Range requests and previews are not counted. | Best-effort, as A14. |
 | A16 | `app/api/v1/endpoints/external_data.py` `download`: +1 import; +1 line after `record_for`/`bytes_for` | M4 | Counts a dataset download after the existing authorisation. | Best-effort, as A14. |
 | A17 | `app/services/platform_admin/access.py` `require_platform_admin`; `app/services/platform_admin/cli.py`; `app/api/admin_platform/router.py` | M4 | The NOVA ARI role. Checked from the database on every request: service context refused, active membership required, unrevoked grant required. Granted and revoked only by the deploy-time command. Every console route depends on the internal secret and this check, and organisation routes never read the role. Tests: every console GET returns 403 to an organisation owner; revocation takes effect on the next request; a disabled user is refused; no API module writes `platform_admins`. | Fails closed (403). |
-| A18 | `deploy/nginx/conf.d/app.conf` (HTTPS server of `api.novageorisk.com`) | Security review M1 | `location ~* ^/api/v1/(platform-admin\|billing\|account)(/\|$) { return 404; }` before `location /`. These routes rest on a session and CSRF that only the gateway and BFF provide, so on the public host (secret only) they do not exist. Checked in nginx 1.27: percent-encoded, double-slash, dot-segment and upper-case variants also return 404; other routes are unchanged. | Fails closed (404). |
+| A18 | `deploy/nginx/conf.d/app.conf` (HTTPS server of `api.novageorisk.com`) | Security review M1 (owner decision) | The public API host serves only `location = /health`: GET and HEAD, proxied with `X-Internal-Secret` and every `X-Nova-*` header blanked, and no request body. `location /` returns 404 for everything else: `/api/*`, `/docs`, `/openapi.json`, `/auth/*`, `/outputs/*`. The BFF, worker and operator commands reach the API over the Docker network (`http://api:8000`). Checked in nginx 1.27 (`nginx -t` passes): POST/PUT `/health`, `/health/`, `/HEALTH`, `/api/v1/projects` and percent-encoded, double-slash, dot-segment and upper-case variants are 404; `/%68ealth` and `//health` normalise to `/health` (200). | Fails closed (404). |
 
 Other code worth a look:
 - `app/services/sessions/tracking.py`: the Lua script that ends older sessions.
@@ -284,6 +285,17 @@ What the subscription tests cover:
 | `python -m app.services.sessions.cli purge --apply` | Daily cron **from Phase A** (step 1b). Removes IP addresses older than 30 days; applies Q9 retention once it is set. |
 | `python -m app.services.platform_admin.cli grant / revoke / list` | Grants and revokes the NOVA ARI role. Deploy time only. |
 
+**Smoke test after deploy:**
+```
+curl -fsS https://api.novageorisk.com/health                                    # 200
+curl -s -o /dev/null -w '%{http_code}\n' https://api.novageorisk.com/api/v1/projects  # 404
+curl -s -o /dev/null -w '%{http_code}\n' https://api.novageorisk.com/docs             # 404
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://api.novageorisk.com/health   # 404
+curl -fsSI https://app.novageorisk.com/                                          # 200
+curl -fsS https://app.novageorisk.com/auth/session                               # 200, authenticated:false
+```
+The app itself is reached only through `app.novageorisk.com` (gateway, BFF).
+
 **Rollback:** set `BILLING_ENFORCEMENT_ENABLED=false` and restart. Nothing is lost.
 
 ### 4.4 Open client questions: where each answer goes
@@ -315,7 +327,7 @@ A fresh-session independent review follows. Each finding from the self-review, a
 
 | Finding | Fix | Test |
 |---|---|---|
-| M1: the public API host accepts the console, billing and account routes with the shared secret alone | `app.conf` returns 404 for `/api/v1/(platform-admin\|billing\|account)` (A18). Rotate `X-Internal-Secret` (§1 step 1a). Whether to restrict the whole host is the owner's decision. | `tests/unit/test_api_host_routes.py`; checked in an nginx 1.27 container |
+| M1: the public API host accepts the console, billing and account routes with the shared secret alone | First, `app.conf` returned 404 for those three route families. Then, on the owner's decision, the host was restricted to `GET /health` only (A18). Rotate `X-Internal-Secret` (§1 step 1a). Remove the dead Auth0 callback on that host (owner). | `tests/unit/test_api_host_routes.py`; checked in an nginx 1.27 container |
 | M2: the signed-out notice told the holder of an old cookie the new sign-in's device, place and time | Fixed text; device details only in the signed-in user's own device list | `test_sessions.py` |
 | L1: a non-ASCII secret header was a 500 in the usage middleware | `hmac.compare_digest` on bytes; counting wrapped so it never raises | `test_non_ascii_internal_secret_header_is_a_plain_404_not_a_500` |
 | L2: contract overrides were untyped and unbounded when adding a customer or subscription | Typed, bounded model (`StrictInt`/`StrictBool`, extra fields refused); `app/services/billing/bounds.py` re-checked in the services; seats and sessions at least 1 | `test_overrides_and_limits_are_typed_and_bounded` |
