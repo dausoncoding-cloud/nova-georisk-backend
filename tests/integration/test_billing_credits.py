@@ -371,3 +371,29 @@ def test_billing_reads_are_organisation_scoped_and_open_to_viewers(client, db_se
     assert all(row["task_id"] is None for row in client.get("/api/v1/billing/ledger", headers=viewer.headers).json()["items"])
     assert client.post("/api/v1/analyses", headers=viewer.headers, json=_payload(viewer)).status_code == 403
     assert client.get("/api/v1/billing/summary").status_code == 403  # service context has no organisation
+
+
+def test_enforcement_off_submission_and_retry_with_an_idempotency_key(client, db_session):
+    """r8.1 regression: with enforcement off there is no subscription, so nothing flushed the new task before its
+    Idempotency-Key row was written (task_id NULL -> 500). The r8 frontend sends a key on every submit and retry."""
+    t = _tenant(db_session, "billing-off-idem", subscribed=False)
+    headers = {**t.headers, "Idempotency-Key": "submit-off-0001"}
+    first = client.post("/api/v1/analyses", headers=headers, json=_payload(t))
+    second = client.post("/api/v1/analyses", headers=headers, json=_payload(t))
+    assert first.status_code == second.status_code == 202, first.text
+    assert first.json()["task"]["id"] == second.json()["task"]["id"] and len(_tasks(db_session, t)) == 1
+    reused = client.post("/api/v1/analyses", headers=headers, json=_payload(t, depth=9.0))
+    assert reused.status_code == 409 and reused.json()["error"]["code"] == "idempotency_key_reused"
+    failed = Task(project_id=t.project.id, aoi_id=t.aoi.id, engine_key="firris", task_type=TaskType.ANALYSIS,
+                  status=TaskStatus.FAILED, input_params={"operation": "flood_mapping", "products": ["flood_depth"],
+                                                          "parameters": {}, "gis_metadata": {}})
+    db_session.add(failed)
+    db_session.commit()
+    retry_headers = {**t.headers, "Idempotency-Key": "retry-off-0001"}
+    retried = client.post(f"/api/v1/tasks/{failed.id}/retry", headers=retry_headers)
+    again = client.post(f"/api/v1/tasks/{failed.id}/retry", headers=retry_headers)
+    assert retried.status_code == again.status_code == 202, retried.text
+    assert retried.json()["id"] == again.json()["id"]
+    keys = db_session.query(SubmissionIdempotencyKey).filter(SubmissionIdempotencyKey.user_id == t.user.id).all()
+    assert len(keys) == 2 and all(key.task_id is not None for key in keys)
+    assert db_session.query(CreditLedgerEntry).count() == 0
