@@ -14,7 +14,7 @@ Enforcement is **off by default**. With it off, nothing changes for customers:
 The read endpoints (`/billing/*`) work either way. Switching it on before steps 1–6 makes **every** new analysis return 402 for any organisation without a subscription.
 
 **Release Phase A (deploy with enforcement off):**
-1. **Deploy and migrate:** `alembic upgrade head`. The migrations are `a9c3e5f70b12` (M1), `c4e6a8b0d2f1` (M2), `e8b0c2d4f6a3` (M3), `f2c4e6a8b0d5` (M4), `a7b9c1d3e5f2` (M5) and `b3d5f7a9c1e4` (security review); see section 2.
+1. **Deploy and migrate:** `alembic upgrade head`. The migrations are `a9c3e5f70b12` (M1), `c4e6a8b0d2f1` (M2), `e8b0c2d4f6a3` (M3), `f2c4e6a8b0d5` (M4), `a7b9c1d3e5f2` (M5), `b3d5f7a9c1e4` and `c5e7a9b1d3f6` (security reviews); see section 2.
 1a. **Rotate `X-Internal-Secret` (security review M1).** Set a new random `INTERNAL_API_SECRET` for both the API and the BFF (they must match), then restart both.
    - The public API host `api.novageorisk.com` now serves only `GET /health` (owner decision on M1); every other path is 404. Rotating the secret ends whatever an old leak could still reach from inside the network.
    - **Owner action in the Auth0 dashboard:** remove the dead allowed callback `https://api.novageorisk.com/auth/callback`. That host never served `/auth/*` through the BFF, and now returns 404 for it.
@@ -119,6 +119,7 @@ The read endpoints (`/billing/*`) work either way. Switching it on before steps 
 | `f2c4e6a8b0d5` | `e8b0c2d4f6a3` | `platform_admins` (NOVA ARI role; command-only), `security_alerts`, `organization_usage_daily`. The downgrade refuses while grants exist. |
 | `a7b9c1d3e5f2` | `f2c4e6a8b0d5` | `subscription_requests` ("Request top-up" and "Request upgrade"; NOVA ARI closes each with a reason) |
 | `b3d5f7a9c1e4` | `a7b9c1d3e5f2` | `payments.request_sha256` (security review L5: one Idempotency-Key, one request) |
+| `c5e7a9b1d3f6` | `b3d5f7a9c1e4` | `console_request_keys` (independent review 3–4: one key namespace for all console writes) |
 
 Both downgrades refuse when they would drop financial or audit rows.
 
@@ -223,7 +224,7 @@ What the subscription tests cover:
 
 ### 4.2 Merge notes (for the owner)
 
-**Alembic chain:** `f1a2b3c4d5e6` (main) → `a9c3e5f70b12` (M1) → `c4e6a8b0d2f1` (M2) → `e8b0c2d4f6a3` (M3) → `f2c4e6a8b0d5` (M4) → `a7b9c1d3e5f2` (M5) → `b3d5f7a9c1e4` (security review L5).
+**Alembic chain:** `f1a2b3c4d5e6` (main) → `a9c3e5f70b12` (M1) → `c4e6a8b0d2f1` (M2) → `e8b0c2d4f6a3` (M3) → `f2c4e6a8b0d5` (M4) → `a7b9c1d3e5f2` (M5) → `b3d5f7a9c1e4` (security review L5) → `c5e7a9b1d3f6` (independent review 3–4).
 - Before merging, check main's head. If it has moved, re-chain `a9c3e5f70b12.down_revision` to it.
 - Each downgrade refuses while financial, audit or admin rows exist.
 
@@ -342,4 +343,16 @@ A fresh-session independent review follows. Each finding from the self-review, a
 | L5: a reused Idempotency-Key with a different request was replayed silently | A fingerprint per key on payments, reversals, added credits and adjustments; a mismatch is 409 (migration `b3d5f7a9c1e4`) | `test_an_idempotency_key_reused_with_a_different_request_is_refused` |
 | L6: full IP addresses are stored from Phase A, and Q9 is open | Purge cron moved to Phase A (§1 step 1b); Q9 goes to the client; 30 days stays the default | — |
 | L7: the usage counter waited on Redis in every request | Background task for API requests, worker pool for downloads, 50 ms timeouts, drops writes when 1000 are pending | `test_a_slow_or_down_redis_never_delays_a_request` |
+
+### 5.1 Independent review (fresh session): no blocking issues; fixed before merge
+
+| # | Finding | Fix | Test |
+|---|---|---|---|
+| 1 | Console Idempotency-Key used a looser rule than A1 | The console router uses `validate_key` (8–128 of `[A-Za-z0-9_\-:.]`) | `test_console_keys_use_the_submission_rule_and_one_namespace` |
+| 2 | `verify_internal_secret` used `secrets.compare_digest` on str (a non-ASCII header was a 500) | `app/core/security.py`: `secret_matches` compares bytes with `hmac.compare_digest` and never raises; the usage middleware uses the same function. ⚠ Shared file: one function added, one line changed, `import secrets` replaced by `import hmac`. | `test_non_ascii_internal_secret_is_refused_not_a_500` (401) |
+| 3 | One Idempotency-Key could be reused across different console actions | `console_request_keys` (key PK, action, fingerprint). Every console write claims its key first; another action or request with the same key is 409 (migration `c5e7a9b1d3f6`) | `test_console_keys_use_the_submission_rule_and_one_namespace` |
+| 4 | Parallel duplicates could surface `IntegrityError` as a 500 | Claims and payment inserts run in savepoints: the loser gets 409 or a replay. Parallel top-up and upgrade requests return the open request (unique index) | `test_parallel_payments_with_one_key_never_500`, `test_parallel_top_up_requests_never_500` (two real connections, plus a forced check-then-insert race) |
+| 5 | The IP purge ran inside the sign-in transaction | Removed from sign-in; the daily cron (Phase A, step 1b) is the only purge | `test_location_is_offline_and_full_ips_are_dropped_after_30_days` |
+| 6 | `GET /billing/summary`'s write was undocumented | Documented in the endpoint, the console router and §3 "Writes on GET" | — |
+| 7 | Owner decision: admin reasons are internal | The customer ledger returns a fixed `label` per entry type ("Monthly allowance", "Analysis", "Top-up", "Credits added by NOVAREX", "Credit adjustment by NOVAREX", "Plan change", "Top-up reversed", "Refund · …" from the recorded cause), never the reason. The console ledger (`AdminLedgerEntry`) and the audit log keep it. Payments already hide admin notes, and requests return no close reason. | `test_admin_reasons_never_reach_customers` (owner and viewer, every customer endpoint) |
 
