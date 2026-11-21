@@ -10,10 +10,11 @@ import re
 import uuid
 from datetime import datetime, timezone
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.billing import BillingPlanPrice
+from app.models.billing import BillingPlanPrice, CreditLedgerEntry
 from app.models.identity import MembershipRole, Organization, OrganizationMembership, User
 from app.models.platform import (BillingPlan, EntitlementStatus, OrganizationEngineEntitlement, OrganizationSubscription,
                                  SubscriptionStatus)
@@ -167,7 +168,6 @@ def change_plan(
     reason = audit.require_reason(reason)
     subscription = ledger.lock_subscription(db, subscription_id)
     previous = _subscription_view(subscription)
-    old_credits = ledger.effective_monthly_credits(db, subscription)
     if plan_key is not None and plan_key != subscription.plan_key:
         _plan_for(db, subscription.family, plan_key)
         subscription.plan_key = plan_key
@@ -183,13 +183,26 @@ def change_plan(
                           target_id=subscription.id, previous=previous, current=current)
     new_credits = ledger.effective_monthly_credits(db, subscription)
     period = ledger.period_of()
-    granted_this_month = ledger.entry_by_key(db, ledger.grant_key(subscription.id, period)) is not None
-    if granted_this_month and new_credits > old_credits and not ledger.has_unlimited_credits(db, subscription):
-        ledger.append_entry(db, subscription, kind="adjustment", bucket="monthly", amount=new_credits - old_credits,
-                            key=f"planchange:{record.id}", actor_user_id=actor.user_id,
-                            reason=f"Plan change this month: allowance {old_credits} -> {new_credits}. {reason}",
-                            metadata={"audit_id": str(record.id)})
+    grant = ledger.entry_by_key(db, ledger.grant_key(subscription.id, period))
+    if grant is not None and not ledger.has_unlimited_credits(db, subscription):
+        # Security review L3: top up only above the highest allowance already given this month (the grant plus
+        # earlier plan-change top-ups), so switching plans up, down and up again never adds credits twice.
+        already = grant.amount + _plan_change_top_ups(db, subscription.id, period)
+        top_up = new_credits - already
+        if top_up > 0:
+            ledger.append_entry(db, subscription, kind="adjustment", bucket="monthly", amount=top_up,
+                                key=f"planchange:{record.id}", actor_user_id=actor.user_id,
+                                reason=f"Plan change this month: allowance {already} -> {new_credits}. {reason}",
+                                metadata={"audit_id": str(record.id), "allowance_before": already,
+                                          "allowance_after": new_credits})
     return subscription
+
+
+def _plan_change_top_ups(db: Session, subscription_id: uuid.UUID, period: str) -> int:
+    return int(db.query(func.coalesce(func.sum(CreditLedgerEntry.amount), 0))
+               .filter(CreditLedgerEntry.subscription_id == subscription_id, CreditLedgerEntry.period == period,
+                       CreditLedgerEntry.kind == "adjustment",
+                       CreditLedgerEntry.idempotency_key.like("planchange:%")).scalar() or 0)
 
 
 def end_sessions(

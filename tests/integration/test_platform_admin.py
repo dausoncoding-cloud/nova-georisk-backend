@@ -488,3 +488,25 @@ def test_overrides_and_limits_are_typed_and_bounded(client, db_session, monkeypa
             console_actions.change_plan(db_session, t.sub.id, plan_key=None, overrides=overrides, reason="x",
                                         actor=admin_actor(admin))
         db_session.rollback()
+
+
+def test_plan_change_top_up_counts_the_highest_allowance_once(client, db_session):
+    """Security review L3: up (top-up), down (nothing taken back), up again (nothing added twice), then higher."""
+    admin = _admin(db_session)
+    t = _tenant(db_session, "pa-updown")  # Researcher: 10 a month
+    assert client.get("/api/v1/billing/summary", headers=t.headers).status_code == 200  # grants 10 this month
+    path = f"{BASE}/subscriptions/{t.sub.id}/plan"
+
+    def move(plan_key, **overrides):
+        body = {"plan_key": plan_key, "reason": f"to {plan_key}"}
+        if overrides:
+            body["overrides"] = overrides
+        assert client.post(path, headers=admin.headers, json=body).status_code == 200
+        return [e.amount for e in db_session.query(CreditLedgerEntry).filter_by(subscription_id=t.sub.id, kind="adjustment")
+                .order_by(CreditLedgerEntry.created_at)]
+
+    assert move("frris_wrris.enterprise") == [240]            # 10 -> 250
+    assert move("frris_wrris.researcher") == [240]            # down: nothing taken back
+    assert move("frris_wrris.enterprise") == [240]            # up again: already had 250 this month
+    assert move("frris_wrris.custom", monthly_credits_override=300) == [240, 50]  # higher still: only the difference
+    assert ledger.balances(db_session, t.sub.id).monthly == 300
