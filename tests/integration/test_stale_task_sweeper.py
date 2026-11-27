@@ -30,6 +30,18 @@ def enforced(monkeypatch):
     monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", True)
 
 
+@pytest.fixture()
+def unenforced(monkeypatch):
+    monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", False)
+
+
+def _subscribed() -> bool:
+    """The suite runs with enforcement ON and OFF (NOVA_TEST_BILLING_ENFORCEMENT, tests/conftest.py). With it ON a
+    submission needs an Active subscription (402 subscription_required otherwise, as in production after Phase B),
+    so the tenant is subscribed exactly when enforcement is on; the sweeper behaviour under test is the same."""
+    return get_settings().billing_enforcement_enabled
+
+
 def _stale(client, db, t, tmp_path, *, hours=5.0):
     """A charged (when enforced) RUNNING task with a reserved half-written result and its output folder."""
     task = _failed_charged_task(client, db, t)
@@ -66,8 +78,8 @@ def test_enforced_stale_task_is_failed_cleaned_and_keeps_the_software_error_refu
     assert len(_entries(db_session, t.sub, "charge")) == 1
 
 
-def test_unenforced_stale_task_is_swept_from_the_task_list_with_no_ledger_entries(client, db_session, tmp_path):
-    t = _tenant(db_session, "sweep-off", subscribed=False)
+def test_unenforced_stale_task_is_swept_from_the_task_list_with_no_ledger_entries(client, db_session, unenforced, tmp_path):
+    t = _tenant(db_session, "sweep-off", subscribed=False)  # enforcement pinned OFF (fixture)
     task, result_id, folder = _stale(client, db_session, t, tmp_path)
     assert client.get("/api/v1/tasks", headers=t.headers).status_code == 200
     _assert_swept(db_session, task, result_id, folder)
@@ -77,7 +89,7 @@ def test_unenforced_stale_task_is_swept_from_the_task_list_with_no_ledger_entrie
 
 @pytest.mark.parametrize("case", ["recent", "live", "liveness_unknown"])
 def test_tasks_that_may_still_run_are_never_swept(client, db_session, tmp_path, _bridge, case):
-    t = _tenant(db_session, f"sweep-keep-{case.replace('_', '-')}", subscribed=False)
+    t = _tenant(db_session, f"sweep-keep-{case.replace('_', '-')}", subscribed=_subscribed())
     task, result_id, folder = _stale(client, db_session, t, tmp_path, hours=3.5 if case == "recent" else 5.0)
     if case == "live":
         _bridge["ids"] = frozenset({str(task.id)})
@@ -90,8 +102,8 @@ def test_tasks_that_may_still_run_are_never_swept(client, db_session, tmp_path, 
 
 
 def test_a_request_only_sweeps_its_own_organization(client, db_session, tmp_path):
-    a = _tenant(db_session, "sweep-org-a", subscribed=False)
-    b = _tenant(db_session, "sweep-org-b", subscribed=False)
+    a = _tenant(db_session, "sweep-org-a", subscribed=_subscribed())
+    b = _tenant(db_session, "sweep-org-b", subscribed=_subscribed())
     task_b, result_b, folder_b = _stale(client, db_session, b, tmp_path)
     assert client.get("/api/v1/tasks", headers=a.headers).status_code == 200
     db_session.expire_all()
@@ -102,7 +114,7 @@ def test_a_request_only_sweeps_its_own_organization(client, db_session, tmp_path
 
 def test_a_stale_task_no_longer_holds_the_organization_capacity(client, db_session, tmp_path, monkeypatch):
     from tests.integration.test_billing_credits import _payload
-    t = _tenant(db_session, "sweep-capacity", subscribed=False)
+    t = _tenant(db_session, "sweep-capacity", subscribed=_subscribed())
     task, result_id, folder = _stale(client, db_session, t, tmp_path)
     monkeypatch.setattr(get_settings(), "firris_max_pending_tasks_per_organization", 1)
     response = client.post("/api/v1/analyses", headers=t.headers, json=_payload(t))
@@ -112,7 +124,7 @@ def test_a_stale_task_no_longer_holds_the_organization_capacity(client, db_sessi
 
 
 def test_repeated_sweeps_do_not_append_events_twice(client, db_session, tmp_path):
-    t = _tenant(db_session, "sweep-twice", subscribed=False)
+    t = _tenant(db_session, "sweep-twice", subscribed=_subscribed())
     task, result_id, folder = _stale(client, db_session, t, tmp_path)
     client.get("/api/v1/tasks", headers=t.headers)
     events = len(_assert_swept(db_session, task, result_id, folder).result_payload["execution_record"]["events"])
