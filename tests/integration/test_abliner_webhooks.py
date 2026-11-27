@@ -553,3 +553,34 @@ def _admin(db):
     access.grant(db, email=None, user_id=admin_t.user.id, reason="operator", operator="test")
     db.commit()
     return admin_t
+
+
+def test_r4_1_a_settlement_error_is_retried_by_abliner_and_settles_exactly_once(client, db_session, monkeypatch):
+    """Review round 4, item 1: a settlement error must not leave the payment to the cron. The event is kept as
+    "error" and answered 503, so Abliner's retry (same webhook id) settles it; after success a retry is a duplicate."""
+    from app.services.billing import payments as billing_payments
+    t = _tenant(db_session, "abw-r4-retry")
+    intent = _intent(db_session, t)
+    real, calls = billing_payments.record_top_up_payment, {"n": 0}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("database hiccup")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(billing_payments, "record_top_up_payment", flaky)
+    payload = _event(intent)
+    first = _send(client, payload)
+    assert first.status_code == 503 and first.json() == {"status": "retry"}  # Abliner retries a non-2xx answer
+    db_session.expire_all()
+    assert db_session.get(AblinerWebhookEvent, payload["id"]).outcome == "error"  # kept, for the record
+    assert db_session.get(PaymentIntent, intent.id).status == "pending" and not _payments(db_session, intent)
+    retry = _send(client, payload)  # Abliner's retry: same webhook id, fresh timestamp
+    assert retry.status_code == 200 and retry.json() == {"status": "ok"}
+    db_session.expire_all()
+    assert db_session.get(PaymentIntent, intent.id).status == "completed"
+    assert db_session.get(AblinerWebhookEvent, payload["id"]).outcome == "settled"
+    assert _send(client, payload).json() == {"status": "duplicate"}  # a retry after success never credits twice
+    assert len(_payments(db_session, intent)) == 1 and _credits(db_session, intent) == 10
+    assert calls["n"] == 2

@@ -37,8 +37,8 @@ class Rejected(Exception):
 
 @dataclass(frozen=True)
 class Outcome:
-    status: str          # ok, duplicate
-    outcome: str         # settled, failed, review, unchanged, already, ignored, duplicate
+    status: str          # ok, duplicate, retry (answered 503 so Abliner redelivers)
+    outcome: str         # settled, failed, review, unchanged, already, ignored, duplicate, error
 
 
 def _header(headers, name: str) -> str:
@@ -112,6 +112,15 @@ def _find(db: Session, remote: settlement.Remote) -> tuple[PaymentIntent | None,
     return None, []
 
 
+def _retryable(db: Session, webhook_id: str) -> AblinerWebhookEvent | None:
+    """The stored event, locked, if its settlement failed (outcome "error"): Abliner's retry settles it. Any other
+    stored outcome is a duplicate. FOR UPDATE serialises concurrent retries; once one has committed a new outcome,
+    the row no longer matches for the next, which is then a duplicate (settlement is also idempotent per intent)."""
+    return (db.query(AblinerWebhookEvent)
+            .filter(AblinerWebhookEvent.webhook_id == webhook_id, AblinerWebhookEvent.outcome == "error")
+            .with_for_update().one_or_none())
+
+
 def process(db: Session, raw_body: bytes, headers) -> Outcome:
     """Verify, dedupe, settle. Commits. Raises Rejected for an unverifiable request: nothing from it is stored,
     only the rejection code and time on the Integrations status."""
@@ -140,8 +149,11 @@ def process(db: Session, raw_body: bytes, headers) -> Outcome:
             db.flush()
     except IntegrityError:
         db.rollback()
-        logger.info("Abliner webhook duplicate webhook=%s", webhook_id)
-        return Outcome("duplicate", "duplicate")
+        record = _retryable(db, webhook_id)
+        if record is None:
+            logger.info("Abliner webhook duplicate webhook=%s", webhook_id)
+            return Outcome("duplicate", "duplicate")
+        logger.info("Abliner webhook redelivered after a settlement error webhook=%s", webhook_id)
     integration_status.webhook(db, "abliner", event)
     intent, others = _find(db, remote)
     if intent is None:
@@ -159,14 +171,18 @@ def process(db: Session, raw_body: bytes, headers) -> Outcome:
         else:
             outcome = settlement.apply(db, intent.id, remote)
     except Exception:
-        # Keep the event (so a retry is a duplicate) and let reconciliation settle; never a 5xx loop.
+        # Security review round 4, item 1: keep the event as "error" (retryable, see _retryable) and answer 503, so
+        # Abliner's retries (about 2 s and 5 s later) settle it; reconciliation remains the safety net after that.
         db.rollback()
-        db.add(AblinerWebhookEvent(webhook_id=webhook_id, event=event, abliner_tx_id=remote.tx_id,
-                                   customer_reference=remote.reference, intent_id=intent.id, outcome="error"))
+        db.merge(AblinerWebhookEvent(webhook_id=webhook_id, event=event, abliner_tx_id=remote.tx_id,
+                                     customer_reference=remote.reference, remote_status=remote.status or None,
+                                     amount=remote.amount, currency=(remote.currency or None) and str(remote.currency)[:3],
+                                     intent_id=intent.id,
+                                     outcome="error"))
         integration_status.error(db, "abliner", "settlement_error")
         db.commit()
         logger.exception("Abliner webhook settlement error webhook=%s intent=%s", webhook_id, intent.id)
-        return Outcome("ok", "error")
+        return Outcome("retry", "error")
     record.outcome = outcome
     db.commit()
     logger.info("Abliner webhook processed webhook=%s intent=%s outcome=%s", webhook_id, intent.id, outcome)
