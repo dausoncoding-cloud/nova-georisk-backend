@@ -50,13 +50,6 @@ def _metadata(bounds):
                            "licence": "unconfirmed; MIT notice belongs to the GitHub repository"}}
 
 
-@pytest.fixture(autouse=True)
-def _fresh_index():
-    bs._ward_index.cache_clear()
-    yield
-    bs._ward_index.cache_clear()
-
-
 @pytest.mark.parametrize("enforcement", [True, False], ids=["enforcement-on", "enforcement-off"])
 def test_ward_layer_upload_second_admin_approval_and_use(enforcement, client, db_session, monkeypatch, tmp_path):
     monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", enforcement)
@@ -88,8 +81,12 @@ def test_ward_layer_upload_second_admin_approval_and_use(enforcement, client, db
     # Another project of the same organisation never sees this layer.
     other = setup_org(db_session)[2]
     assert isinstance(bs.ReviewedWards(db_session, other.id).units(mapping(box(36.0, -1.2, 36.2, -1.0))), bs.NotProvided)
-    # Changed bytes on disk are refused at run time (streamed SHA-256), even with an index already cached.
-    stored = next(tmp_path.rglob("*.geojson"))
+    # The prebuilt index lives beside the dataset, bound to the approved checksum.
+    from app.services.firris import ward_index
+    stored = next(p for p in tmp_path.rglob("*.geojson") if not p.name.startswith("."))
+    record = json.loads(ward_index.paths(stored)[1].read_text())
+    assert record["dataset_sha256"] == hashlib.sha256(data).hexdigest() and record["features"] == 3
+    # Changed bytes on disk are refused at run time (streamed SHA-256), even with a valid index already built.
     stored.write_bytes(data.replace(b"Ikwiriri", b"Ikwiriri2"))
     tampered = bs.ReviewedWards(db_session, project.id).units(mapping(box(36.0, -1.2, 36.2, -1.0)))
     assert isinstance(tampered, bs.NotProvided)

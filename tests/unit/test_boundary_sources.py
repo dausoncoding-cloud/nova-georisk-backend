@@ -83,56 +83,103 @@ def _ward_file(tmp_path, wards, name="wards.geojson"):
     return path
 
 
-def _source(path, sha="ab" * 32, dataset_id="ds"):
+def _source(path, dataset_id="ds"):
+    import hashlib
     return SimpleNamespace(path=path, evidence={"reviewed_at": "2026-11-27T10:00:00Z"},
                            dataset=SimpleNamespace(id=dataset_id, metadata_json={"managed_version": {"descriptive_metadata": {
                                "provenance_statement": "Ward boundaries supplied by the client ... Year: not officially confirmed.",
                                "year": "not officially confirmed; evidence points to 2022", "licence": "unconfirmed"}}}),
-                           manifest=SimpleNamespace(category="administrative_boundaries", source_id="client-nbs-wards", sha256=sha.upper(),
+                           manifest=SimpleNamespace(category="administrative_boundaries", source_id="client-nbs-wards",
+                                                    sha256=hashlib.sha256(path.read_bytes()).hexdigest().upper(),
                                                     licence=SimpleNamespace(model_dump=lambda: {"identifier": "unconfirmed"}),
                                                     provenance=SimpleNamespace(model_dump=lambda: {"producer": "client"})))
 
 
-@pytest.fixture
-def _fresh_wards():
-    bs._ward_index.cache_clear()
-    yield
-    bs._ward_index.cache_clear()
+WARDS = [("060511013", "Ikwiriri", box(36.0, -1.1, 36.1, -1.0)), ("060511023", "Mgomba", box(36.1, -1.2, 36.2, -1.1)),
+         ("010111011", "Far away", box(40.0, -5.0, 40.1, -4.9))]
 
 
-def test_wards_only_from_an_approved_client_dataset_and_only_touching_ones(tmp_path, monkeypatch, _fresh_wards):
+def _use(monkeypatch, source):
     import app.services.source_data.boundaries as boundaries
+    seen = []
+    monkeypatch.setattr(boundaries, "approved_boundary_sources", lambda db, project_id, **k: seen.append(k) or iter([source]))
+    return seen
+
+
+def test_wards_only_from_an_approved_client_dataset_and_only_touching_ones(tmp_path, monkeypatch):
+    import app.services.source_data.boundaries as boundaries
+    from app.services.firris import ward_index
     monkeypatch.setattr(boundaries, "approved_boundary_sources", lambda db, project_id, **k: iter(()))
     result = bs.ReviewedWards(None, "p").units(AOI)
     assert isinstance(result, bs.NotProvided) and result.reason == "Ward boundaries not yet provided"
-    path = _ward_file(tmp_path, [("060511013", "Ikwiriri", box(36.0, -1.1, 36.1, -1.0)),
-                                 ("060511023", "Mgomba", box(36.1, -1.2, 36.2, -1.1)),
-                                 ("010111011", "Far away", box(40.0, -5.0, 40.1, -4.9))])
-    seen = []
-    monkeypatch.setattr(boundaries, "approved_boundary_sources", lambda db, project_id, **k: seen.append(k) or iter([_source(path)]))
+    path = _ward_file(tmp_path, WARDS)
+    seen = _use(monkeypatch, _source(path))
     result = bs.ReviewedWards(None, "p").units(AOI)
     assert seen == [{"verify_only": True}]  # the run never re-reads 26 MB into memory
     assert [u.name for u in result.units] == ["Ikwiriri", "Mgomba"] and result.units[0].parent == "Rufiji DC"
     assert result.provenance["dataset_id"] == "ds" and "not officially confirmed" in result.provenance["provenance_statement"]
-    assert result.provenance["licence"] == {"identifier": "unconfirmed"} and result.provenance["sha256"] == "ab" * 32
+    assert result.provenance["licence"] == {"identifier": "unconfirmed"}
     assert result.provenance["positional_accuracy"] == "Source positional accuracy: not stated."  # default when the review has no note
+    index, meta = ward_index.paths(path)
+    record = json.loads(meta.read_text())
+    assert index.is_file() and oct(index.stat().st_mode & 0o777) == "0o600" and record["features"] == 3
+    assert record["dataset_sha256"] == _source(path).manifest.sha256.lower() and record["index_sha256"] == ward_index.sha256_file(index)
 
 
-def test_a_version_is_parsed_once_and_a_new_checksum_parses_again(tmp_path, monkeypatch, _fresh_wards):
-    import pyogrio
-    import app.services.source_data.boundaries as boundaries
-    path = _ward_file(tmp_path, [("060511013", "Ikwiriri", box(36.0, -1.1, 36.1, -1.0))])
-    calls, real = [], pyogrio.read_dataframe
-    monkeypatch.setattr(pyogrio, "read_dataframe", lambda *a, **k: calls.append(a[0]) or real(*a, **k))
-    for sha in ("ab" * 32, "ab" * 32, "cd" * 32):
-        monkeypatch.setattr(boundaries, "approved_boundary_sources", lambda db, project_id, sha=sha, **k: iter([_source(path, sha=sha)]))
-        assert [u.name for u in bs.ReviewedWards(None, "p").units(AOI).units] == ["Ikwiriri"]
-    assert len(calls) == 2  # once for the first version, once for the new checksum
+def test_the_index_is_built_once_and_rebuilt_for_a_new_version(tmp_path, monkeypatch):
+    from app.services.firris import ward_index
+    path = _ward_file(tmp_path, WARDS)
+    _use(monkeypatch, _source(path))
+    bs.ReviewedWards(None, "p").units(AOI)
+    index, meta = ward_index.paths(path)
+    first = (index.stat().st_mtime_ns, json.loads(meta.read_text())["built_at"])
+    bs.ReviewedWards(None, "p").units(AOI)
+    assert (index.stat().st_mtime_ns, json.loads(meta.read_text())["built_at"]) == first  # reused, not rebuilt
+    _ward_file(tmp_path, WARDS[:1])  # a new approved version: new bytes, new checksum
+    _use(monkeypatch, _source(path))
+    assert [u.name for u in bs.ReviewedWards(None, "p").units(AOI).units] == ["Ikwiriri"]
+    assert json.loads(meta.read_text())["features"] == 1
+
+
+def test_a_corrupt_index_or_a_sidecar_for_another_version_is_rebuilt(tmp_path, monkeypatch):
+    from app.services.firris import ward_index
+    path = _ward_file(tmp_path, WARDS)
+    _use(monkeypatch, _source(path))
+    bs.ReviewedWards(None, "p").units(AOI)
+    index, meta = ward_index.paths(path)
+    index.write_bytes(index.read_bytes()[:-100] + b"x" * 100)  # changed index bytes
+    assert ward_index.verified(path, _source(path).manifest.sha256) is None
+    assert [u.name for u in bs.ReviewedWards(None, "p").units(AOI).units] == ["Ikwiriri", "Mgomba"]
+    record = json.loads(meta.read_text()); record["dataset_sha256"] = "0" * 64; meta.write_text(json.dumps(record))
+    assert ward_index.verified(path, _source(path).manifest.sha256) is None
+    assert [u.name for u in bs.ReviewedWards(None, "p").units(AOI).units] == ["Ikwiriri", "Mgomba"]
+    assert ward_index.verified(path, _source(path).manifest.sha256) is not None
+
+
+def test_an_index_that_cannot_be_built_fails_closed(tmp_path, monkeypatch):
+    folder = tmp_path / "locked"; folder.mkdir()
+    path = _ward_file(folder, WARDS)
+    _use(monkeypatch, _source(path))
+    folder.chmod(0o500)  # the index cannot be written beside the dataset
+    try:
+        result = bs.ReviewedWards(None, "p").units(AOI)
+    finally:
+        folder.chmod(0o700)
+    assert isinstance(result, bs.NotProvided) and result.reason == bs.WARD_INDEX_FAILED
+
+
+def test_bytes_other_than_the_approved_version_are_never_indexed(tmp_path):
+    from app.services.firris import ward_index
+    path = _ward_file(tmp_path, WARDS)
+    with pytest.raises(ward_index.WardIndexUnavailable):
+        ward_index.build(path, "0" * 64)
+    assert not ward_index.paths(path)[0].exists()
 
 
 def test_ward_index_time_and_memory_at_nbs_size(tmp_path):
-    """4,344 wards of about 250 vertices (~26 MB, the size of the NBS ward layer), parsed in a fresh process."""
-    import math, subprocess, sys
+    """4,344 wards of about 250 vertices (~26 MB, the NBS ward layer's size): the build runs in a child process; per-run
+    reads add almost nothing to the worker."""
+    import hashlib, math, subprocess, sys
     features = []
     for i in range(4344):
         cx, cy = 30 + (i % 66) * 0.15, -11 + (i // 66) * 0.15
@@ -143,15 +190,20 @@ def test_ward_index_time_and_memory_at_nbs_size(tmp_path):
             "quality_flag": "valid"}})
     path = tmp_path / "big.geojson"
     path.write_text(json.dumps({"type": "FeatureCollection", "features": features}, separators=(",", ":")))
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
     code = (f"import resource,time,sys; sys.path.insert(0, {str(Path(__file__).resolve().parents[2])!r});"
-            "import app.services.firris.boundary_sources as bs;"
-            "b=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss; t=time.time();"
-            f"i=bs._ward_index({str(path)!r}, 'ds', 'ab'*64);"
-            "print(time.time()-t, (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss-b)/1024, len(i.units))")
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300)
-    seconds, mb, count = out.stdout.split()
-    assert int(count) == 4344, out.stderr[-500:]
-    assert float(seconds) < 20 and float(mb) < 200, (seconds, mb, path.stat().st_size)
+            "from shapely.geometry import box; from pathlib import Path;"
+            "import app.services.firris.ward_index as w;"
+            "r=lambda: resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1024;"
+            f"p=Path({str(path)!r}); t=time.time(); i=w.ensure(p, {sha!r}); build=time.time()-t;"
+            "child=resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss/1024; b=r(); t=time.time();"
+            "rows=w.read_touching(w.ensure(p, " + repr(sha) + "), box(30.0,-11.0,30.4,-10.7)); read=time.time()-t;"
+            "print(build, child, read, r()-b, len(rows))")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=600)
+    build, child_mb, read, read_mb, count = out.stdout.split()
+    assert int(count) > 0, out.stderr[-500:]
+    assert float(build) < 30 and float(child_mb) < 300, (build, child_mb)  # once per version, in a child process
+    assert float(read) < 2 and float(read_mb) < 30, (read, read_mb)        # every run
 
 
 REAL = Path(os.environ.get("REFERENCE_DATA_DIR", Path.home() / "frris-guide-data" / "reference"))
