@@ -90,3 +90,23 @@ The worker's peak varies between runs of the same request (591 vs 628 MiB). The 
 ## 6. Upload window
 
 Prepared after this record, at the owner's request: §7 (addendum).
+
+## 7. Addendum: upload window OPEN (2026-11-27 09:02 UTC)
+
+**Owner decision:** prepare the window for the human admin upload and second-admin approval of the ward layer. **Nothing was uploaded or approved here.** It is settings-only, the same method as r10.1, with no tag.
+
+| Step | Result |
+|---|---|
+| No analysis running | 0 tasks queued or running; broker empty; worker idle (gates of `apply.py`) |
+| Change | API `mem_limit` 512 → **768 MiB**, `memswap_limit` 1,024 → **1,536 MiB**; everything else identical to the r11 compose (asserted). Folder `nova-releases/r11-upload-window-20261127/`; rollback compose = the r11 compose |
+| Apply | `tmux` session `r11-window`: **only the API recreated**, which is also the fresh start (09:02:13 → healthy 09:02:41 UTC, **27.9 s**, about 28 s without the API); nginx reloaded; limit verified on the running container (805,306,368 / 1,610,612,736 bytes); `compose.active.json` updated; no rollback |
+| After the start (09:03 UTC) | API **293.6 MiB** container (RSS 372 MiB) of 768; `MALLOC_ARENA_MAX=2` still set; healthy, 0 errors; app and API health 200; BFF, worker and gateway untouched |
+| Host budget during the window | FRRIS limits **api 768 + worker 640 + bff 448 + gateway 96 = 1,952 MiB** against 1,967 MiB of RAM + 2,543 MiB of swap (2,356 free); host MemAvailable 963 MB, swap 187 MB at 09:03 |
+| Expected upload use | From the measurement on a 418 MiB baseline: about +300 MiB per request (upload, then Validate). From the fresh start at about 294 MiB, about 600 MiB per request, **under the 768 MiB limit** |
+| Ward datasets | 0 (not uploaded) |
+
+**To close the window** (on the owner's word, after the upload and approval):
+1. Set the API back to 512/1,024 MiB the same way (recreate only the API).
+2. Verify the limit.
+3. Run the smoke checks.
+4. Record the close here.
