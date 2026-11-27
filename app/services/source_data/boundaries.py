@@ -13,15 +13,15 @@ from app.models.dataset import Dataset
 from app.services.source_data.readiness import ReadySource, SourceNotReady, load_registered_source
 
 
-def approved_boundary_sources(db: Session, project_id: uuid.UUID):
-    """Skip unapproved sources; never surface another project's catalogue."""
+def approved_boundary_sources(db: Session, project_id: uuid.UUID, *, verify_only: bool = False):
+    """Skip unapproved sources; never surface another project's catalogue. ``verify_only``: see load_registered_source."""
     records = db.query(Dataset).filter(
         Dataset.project_id == project_id,
         Dataset.product_type == "administrative_boundaries",
     ).order_by(Dataset.created_at.desc(), Dataset.id.desc())
     for record in records:
         try:
-            yield load_registered_source(db, record.id, project_id)
+            yield load_registered_source(db, record.id, project_id, verify_only=verify_only)
         except SourceNotReady:
             continue
 

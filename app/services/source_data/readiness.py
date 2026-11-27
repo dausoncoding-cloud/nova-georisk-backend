@@ -26,6 +26,7 @@ class ReadySource:
     data: bytes
     evidence: dict
     managed_aoi_id: uuid.UUID | None = None
+    path: Path | None = None  # the protected file; set by verify_only loads, whose data is b""
 
     def lineage(self) -> dict:
         managed_version = (getattr(self.dataset, "metadata_json", None) or {}).get("managed_version")
@@ -58,7 +59,11 @@ class ReadySource:
 
 
 def load_registered_source(db: Session, dataset_id: uuid.UUID, project_id: uuid.UUID, *, root: Path | None = None,
-                           require_ready: bool = True) -> ReadySource:
+                           require_ready: bool = True, verify_only: bool = False) -> ReadySource:
+    """The approved, ready source. ``verify_only``: every approval/readiness/storage check as usual, and the bytes are
+    proved identical to the validated, attested version by a streamed SHA-256 (manifest and validation report) instead
+    of being re-validated in memory; the result carries ``path`` and no data. For large approved layers read by the
+    worker (FRRIS wards); structural validation already ran at upload and approval for exactly these bytes."""
     record = db.get(Dataset, dataset_id)
     if record is None or record.project_id != project_id:
         raise SourceNotReady("Source dataset is not available in this project")
@@ -94,6 +99,16 @@ def load_registered_source(db: Session, dataset_id: uuid.UUID, project_id: uuid.
         raise SourceNotReady("Source bytes are unavailable in protected storage") from exc
     if not path.is_file() or path.stat().st_size > MAX_BYTES:
         raise SourceNotReady("Source bytes are unavailable or exceed the size limit")
+    if verify_only:
+        import hashlib
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        actual_sha = digest.hexdigest()
+        if actual_sha != manifest.sha256.lower() or report.get("sha256", "").lower() != actual_sha or report.get("analysis_ready") is not False:
+            raise SourceNotReady("Source bytes differ from the validated, attested version")
+        return ReadySource(record, manifest, b"", evidence, managed_aoi_id, path)
     data = path.read_bytes()
     try:
         actual = validate_source_data(manifest, data, "source" + {"csv": ".csv", "geojson": ".geojson", "geotiff": ".tif"}[get_profile(manifest.category)["format"]])

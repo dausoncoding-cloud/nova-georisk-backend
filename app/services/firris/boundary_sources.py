@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import functools
+from dataclasses import dataclass
 import hashlib
 import json
 import re
@@ -131,29 +132,66 @@ class GroupedRegions:
         return BoundaryUnits("L1", units, provenance)
 
 
+WARD_COLUMNS = ("spatial_unit_id", "name", "level", "council_short", "council_name", "region_name", "provenance_status")
+WARD_INDEX_CACHE = 2  # approved ward versions kept parsed per worker process (one is the usual case)
+
+
+@dataclass(frozen=True)
+class WardIndex:
+    units: tuple[Unit, ...]
+    tree: object  # shapely STRtree over the unit geometries
+
+
+@functools.lru_cache(maxsize=WARD_INDEX_CACHE)
+def _ward_index(path: str, dataset_id: str, sha256: str) -> WardIndex | None:
+    """Parse one approved, SHA-verified dataset version once (pyogrio; about 3 s and 50 MB for the 4,344 NBS wards).
+    Keyed by dataset id and checksum, so a new version or changed bytes are never served from an old parse."""
+    import pyogrio
+    from shapely import STRtree
+    available = set(pyogrio.read_info(path)["fields"])
+    frame = pyogrio.read_dataframe(path, columns=[c for c in WARD_COLUMNS if c in available])
+    frame = frame[frame["level"].astype(str).str.strip().str.lower() == "ward"]
+    if frame.empty:
+        return None
+    units = tuple(Unit(id=str(row.spatial_unit_id), name=clean_name(str(row.name), country=""), source_name=str(row.name),
+                       level="L3", geometry=row.geometry, code=str(row.spatial_unit_id),
+                       parent=(str(getattr(row, "council_short", "") or "") or None))
+                  for row in frame.itertuples(index=False))
+    return WardIndex(units, STRtree([u.geometry for u in units]))
+
+
 class ReviewedWards:
-    """L3 wards from the organisation's approved administrative-boundary dataset (client NBS wards) only."""
+    """L3 wards from the project's approved administrative-boundary dataset (the client's ward layer) only.
+
+    Every run applies the full approval and readiness checks and proves the bytes are the approved version (streamed
+    SHA-256); the parsed wards and their spatial index are reused per dataset version, and only the wards touching the
+    analysis area are returned.
+    """
     level = "L3"
 
     def __init__(self, db, project_id: uuid.UUID):
         self.db, self.project_id = db, project_id
 
     def units(self, aoi_geometry: dict) -> BoundaryUnits | NotProvided:
-        from app.services.source_data.boundaries import approved_boundary_sources, boundary_features
+        from app.services.source_data.boundaries import approved_boundary_sources
         aoi = shape(aoi_geometry)
-        for source in approved_boundary_sources(self.db, self.project_id):
-            wards = [f for f in boundary_features(source) if str(f["properties"].get("level", "")).lower() == "ward"]
-            if not wards:
+        for source in approved_boundary_sources(self.db, self.project_id, verify_only=True):
+            if source.manifest.category != "administrative_boundaries" or source.path is None:
                 continue
-            units = [Unit(id=str(f["properties"]["spatial_unit_id"]), name=clean_name(str(f["properties"]["name"]), country=""),
-                          source_name=str(f["properties"]["name"]),
-                          level="L3", geometry=shape(f["geometry"]), code=str(f["properties"]["spatial_unit_id"]))
-                     for f in wards]
-            provenance = {"dataset": "client-supplied NBS ward boundaries (reviewed dataset)",
+            index = _ward_index(str(source.path), str(source.dataset.id), source.manifest.sha256.lower())
+            if index is None:
+                continue
+            touching = [index.units[i] for i in index.tree.query(aoi, predicate="intersects")]
+            touching.sort(key=lambda unit: unit.id)
+            notes = ((source.dataset.metadata_json or {}).get("managed_version") or {}).get("descriptive_metadata") or {}
+            provenance = {"dataset": "client-supplied ward boundaries (reviewed dataset)",
                           "dataset_id": str(source.dataset.id), "source_id": source.manifest.source_id,
                           "sha256": source.manifest.sha256.lower(), "licence": source.manifest.licence.model_dump(),
-                          "reviewed_at": source.evidence.get("reviewed_at")}
-            return BoundaryUnits("L3", [u for u in units if u.geometry.intersects(aoi)], provenance)
+                          "provenance": source.manifest.provenance.model_dump(), "reviewed_at": source.evidence.get("reviewed_at"),
+                          "provenance_statement": notes.get("provenance_statement"), "year": notes.get("year"),
+                          "positional_accuracy": notes.get("positional_accuracy") or "Source positional accuracy: not stated.",
+                          "licence_note": notes.get("licence")}
+            return BoundaryUnits("L3", touching, provenance)
         return NotProvided("L3", WARDS_NOT_PROVIDED)
 
 

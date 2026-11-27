@@ -13,7 +13,7 @@ from app.schemas.source_data import SourceDatasetManifest
 from app.services.source_data.catalogue import get_profile
 from app.services.source_data.validators import validate_source_data, SourceDataValidationError
 
-MAX_UPLOAD_BYTES=16*1024*1024
+MAX_UPLOAD_BYTES=50*1024*1024  # External data upload route only (owner decision 2026-11-27: the NBS ward layer is 26 MB); nginx allows 50m on this route only
 EXTENSIONS={'csv':'.csv','geojson':'.geojson','geotiff':'.tif'}
 CREDENTIAL=re.compile(rb'-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----|"type"\s*:\s*"service_account"|["\'](?:client_secret|access_token|refresh_token|private_key|password)["\']\s*:',re.I)
 
@@ -28,7 +28,7 @@ def inspect_upload(category,data,filename):
     fmt=profile['format']
     if not filename or '/' in filename or '\\' in filename or '\x00' in filename or not filename.lower().endswith(EXTENSIONS[fmt]):
         raise HTTPException(422,'Use the category’s supported CSV, GeoJSON or .tif format with a plain filename. Archives and executables are not accepted.')
-    if not 0<len(data)<=MAX_UPLOAD_BYTES:raise HTTPException(413,'Dataset must be nonempty and at most 16 MiB.')
+    if not 0<len(data)<=MAX_UPLOAD_BYTES:raise HTTPException(413,'Dataset must be nonempty and at most 50 MiB.')
     scan(data)
     if data.startswith((b'MZ',b'\x7fELF',b'#!',b'PK\x03\x04',b'PK\x05\x06')):raise HTTPException(422,'Executable and archive content is prohibited.')
     try:
