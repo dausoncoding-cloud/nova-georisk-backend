@@ -140,6 +140,17 @@
 - **3:** the r3–r9 artifacts archives, about 4.4 GB. The precondition is met: the r11 archive is copied off the server with equal checksums. Waiting for the owner, as stage 1 stopped.
 - **4:** the build cache, 3.34 GB reclaimable. Only once r12 is confirmed stable.
 
+**Stage 2: r3–r9 artifacts archives removed (owner approval, 2026-11-27):**
+- **What was removed:** 42 files, 4,785,760,977 B, all in `nova-releases/r3…r9/backup/`: the 12 artifacts archives (base and incremental) and their snapshot files, nothing else.
+- **Why:** they are superseded by two newer copies:
+  - the r11 archive, copied off the server to `~/nova-backups/20261127-r11-artifacts/`; its checksums were re-verified just before the deletion;
+  - the r12 archive, whose restore check (§3) matched the live volume.
+- **References checked first:** no rollback compose, rollback script, cron job, `nova-ops` file or r10–r12 folder refers to them.
+- **Records kept unchanged:** the releases' `cutover-result.json` and `cutover.out`, and the deploy-record docs, still name the removed paths as a historical record.
+- **Kept:** the r10, r11 and r12 archives. The two files in `report-polish-edcb5d9-20261114/` were not part of the approval and are untouched.
+- **Free disk:** 6.7 GB (86 %) → **11 GB (77 %)**.
+- **Still on hold:** items 1, 2, 4 and 5.
+
 **Engine-project containers** (`nova-georisk-engine-{postgres,redis,nginx}`):
 - They keep `json-file` without limits.
 - Adding limits means recreating postgres, redis and the edge nginx from `~/nova-georisk-engine/docker-compose.yml`, which is outside the release path. A daemon-wide default needs root and affects only new containers.
