@@ -28,7 +28,8 @@ PACKAGE_KEYS = ("exposure_by_admin_unit", "flood_exposure_by_admin_unit")
 BOUNDARY_PACKAGE_NOTE = (
     "Administrative boundaries: geoBoundaries (Runfola, D. et al. 2020, PLoS ONE 15(4): e0231866), Tanzania districts from "
     "the National Bureau of Statistics / UN OCHA ROSA, licence CC BY 3.0 IGO; regions are built by merging those districts. "
-    "Ward boundaries, when present, are the client's NBS dataset under the licence recorded when it was reviewed. The "
+    "Ward boundaries, when present, are the client-supplied ward dataset as approved in the External data review; its "
+    "provenance (year and licence, as recorded) is stated with the ward table, in the workbook and in the GeoPackage. The "
     "per-unit figures are estimates, not people affected.")
 
 
@@ -47,10 +48,22 @@ def source_text(level: dict[str, Any], *, cite: bool = True) -> str:
                 f"{prov.get('year_represented')} ({prov.get('release')}); licence {prov.get('licence')}.{grouped}"
                 + (f" {prov.get('citation')}" if cite else ""))
     if prov.get("dataset_id"):
-        licence = prov.get("licence") or {}
-        name = licence.get("name") if isinstance(licence, dict) else licence
-        return f"Boundaries: {prov.get('dataset')} (dataset {prov.get('dataset_id')}, reviewed {prov.get('reviewed_at')}); licence {name}."
+        statement = provenance_line(level)
+        return (f"Boundaries: {prov.get('dataset')} (dataset {prov.get('dataset_id')}, reviewed {str(prov.get('reviewed_at') or '')[:10]}); "
+                f"licence {licence_text(prov)}." + (f" Provenance: {statement}" if statement else ""))
     return "Boundaries: source not recorded."
+
+
+def licence_text(prov: dict[str, Any]) -> str | None:
+    licence = prov.get("licence")
+    if isinstance(licence, dict):
+        return licence.get("identifier") or licence.get("name")
+    return licence
+
+
+def provenance_line(level: dict[str, Any]) -> str | None:
+    """The review's provenance statement for a client-supplied layer (shown with every table and GIS layer of it)."""
+    return (level.get("provenance") or {}).get("provenance_statement") or None
 
 
 def limitations(record: dict[str, Any] | None) -> list[str]:
@@ -83,7 +96,7 @@ def table_rows(record: dict[str, Any] | None) -> list[dict[str, Any]]:
                             "unit area (km²)": row.get("unit_area_km2"), "area inside the AOI (km²)": row.get("area_in_aoi_km2"),
                             "share of the unit inside the AOI (%)": None if share is None else share * 100,
                             "boundary source": prov.get("dataset"), "boundary id": prov.get("boundaryID") or prov.get("dataset_id"),
-                            "boundary licence": prov.get("licence") if isinstance(prov.get("licence"), str) else (prov.get("licence") or {}).get("name"),
+                            "boundary licence": licence_text(prov), "boundary provenance": provenance_line(level),
                             "status": "assessed"})
     return out or [{"level": None, "status": "not available"}]
 
@@ -137,7 +150,8 @@ def _gdf(level: dict[str, Any], pieces: list, extent_keys: list[str]):
     import geopandas as gpd
     geometry = dict(pieces)
     prov = level.get("provenance") or {}
-    licence = prov.get("licence") if isinstance(prov.get("licence"), str) else (prov.get("licence") or {}).get("name")
+    licence = licence_text(prov)
+    statement = provenance_line(level)
     records = []
     for row in level["rows"]:
         if row["unit_id"] not in geometry:
@@ -152,7 +166,7 @@ def _gdf(level: dict[str, Any], pieces: list, extent_keys: list[str]):
             item[f"bld_{key}"] = v.get("buildings")
             item[f"b65_{key}"] = v.get("buildings_065")
         item.update(source=prov.get("dataset"), source_id=prov.get("boundaryID") or prov.get("dataset_id"), licence=licence,
-                    geometry=geometry[row["unit_id"]])
+                    provenance=statement, geometry=geometry[row["unit_id"]])
         records.append(item)
     return gpd.GeoDataFrame(records, geometry="geometry", crs="EPSG:4326")
 
