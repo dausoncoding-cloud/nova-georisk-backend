@@ -10,7 +10,7 @@ from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 revision = "e8a0c2d4f6b1"
-down_revision = "d7f9b1c3e5a8"
+down_revision = "f3b5d7e9a1c4"  # security review M4 migration sits between the two
 branch_labels = None
 depends_on = None
 
