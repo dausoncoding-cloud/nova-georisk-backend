@@ -1,6 +1,6 @@
 # Abliner Mobile Money payments: release record
 
-Branch `feat/abliner-payments` (backend and frontend). Backend rebased on `origin/main` `3568318` (r11 and its addenda; r12 is not on main yet, see §4.4). Design: `docs/ABLINER_PAYMENTS_PLAN.md`.
+Branch `feat/abliner-payments` (backend and frontend). Backend rebased on `main` `2f90ed0` (r12, tag `firris-science-2-r12`; see §4.4). Design: `docs/ABLINER_PAYMENTS_PLAN.md`.
 **Not merged, not deployed.** The independent review's findings and their fixes are in §4; the reviewer re-verifies before merge.
 
 Ships switched off: `ABLINER_PAYMENTS_ENABLED=false`. Billing enforcement is unchanged.
@@ -96,8 +96,19 @@ Note from the same documentation check: the main `GET /api/v1/transactions` exam
 
 ### 4.4 Rebase and tests
 
-- Both branches rebased on `origin/main` `3568318` with no textual conflict. Semantic conflicts resolved: M1 above; `e8a0c2d4f6b1` now revises `f3b5d7e9a1c4` (one linear head). r12 (`feat/frris-worker-memory`) is not merged yet; it overlaps only `app/core/config.py` (3 lines), so the next rebase is expected to be trivial.
+- First rebase on `origin/main` `3568318` (r11): no textual conflict. Semantic conflicts resolved: M1 above; `e8a0c2d4f6b1` now revises `f3b5d7e9a1c4` (one linear head).
+- Second rebase on `main` `2f90ed0` (r12, 2026-11-27): no textual conflict; `git range-diff` shows every commit patch-identical. r12 adds no migration; each branch still has one Alembic head, linear from `c5e7a9b1d3f6` (`f3b5d7e9a1c4` here, `e8a0c2d4f6b1` on the decisions branch). The r12 stale-task sweeper fails tasks through the existing `persist_worker_failure` / `refund_failed_task` path, so no code change was needed. Two test-only fixes, no assertion changed:
+  - r12's `tests/integration/test_stale_task_sweeper.py` was written where the suite never ran with enforcement ON; its unsubscribed tenants got 402 `subscription_required`. The "unenforced" test now pins enforcement OFF; the others subscribe exactly when enforcement is ON.
+  - `test_plan_payment_reactivates_and_extends_but_never_lifts_a_suspension` (on main since 2f50c14) used `date.today()` (container UTC) while `payments._end_of` correctly uses Africa/Dar_es_Salaam: it failed from 00:00 to 03:00 EAT in both modes (reproduced at 21:17Z). It now takes today on the billing calendar. This flake is on main too.
+- Earlier (first rebase): `test_submission_matrix` source-bound enforcement-ON cases inserted a second `frris_wrris` subscription (`uq_subscription_org_family`); they now reuse the tenant's subscription.
 - Production `alembic current` (read-only, `docker exec` in the running API container, 2026-11-27): `c5e7a9b1d3f6 (head)`.
 - `docker-compose.test.yml` passes `NOVA_TEST_BILLING_ENFORCEMENT` into the container. Engine tenants (FRRIS, source-bound, platform engines) get an Active Enterprise subscription (`tests/integration/billing_fixtures.py`), so the whole suite runs with enforcement ON as well as OFF.
-- Test counts: in the hand-off report of 2026-11-27 (unit, integration OFF/ON, migration round trip, per branch head).
+- Test counts after the r12 rebase (sequential runs, 2026-11-27/28; integration through `docker-compose.test.yml up`, which seeds pre-Phase-0 data, upgrades to head and runs `verify_phase05_schema.py` first):
+
+  | Branch head | Unit OFF | Unit ON | Integration OFF | Integration ON | Migration round trip |
+  |---|---|---|---|---|---|
+  | `feat/abliner-payments` | 1412 passed | 1412 passed | 362 passed | 362 passed | OK (head `f3b5d7e9a1c4`, down to `c5e7a9b1d3f6` and back, verify before and after) |
+  | `feat/subscription-client-decisions` | 1412 passed | 1412 passed | 404 passed | 404 passed | OK (head `e8a0c2d4f6b1`, same) |
+
+  Unit and round trip ran on the heads before the date-fix commit, which changes only `tests/integration/test_billing_accounts.py`; integration ran on the final heads, between 00:20 and 01:00 EAT.
 
