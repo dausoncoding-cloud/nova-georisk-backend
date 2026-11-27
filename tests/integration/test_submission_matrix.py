@@ -28,12 +28,22 @@ def _queue(monkeypatch):
 
 
 def _subscribe(db, organization_id):
-    """An active Researcher subscription with credits, linked to the organisation's FRRIS entitlement."""
+    """An active Researcher subscription with credits, linked to the organisation's FRRIS entitlement.
+
+    One subscription per organisation and family (uq_subscription_org_family). Engine-test tenants already get one
+    from tests/integration/billing_fixtures.subscribe (source-bound path), so that row is reused and set to the
+    matrix's plan instead of inserting a second one.
+    """
     catalogue.seed_catalogue(db)
-    subscription = OrganizationSubscription(organization_id=organization_id, plan_key="frris_wrris.researcher", family="frris_wrris",
-                                            status=SubscriptionStatus.ACTIVE, starts_at=datetime.now(timezone.utc) - timedelta(days=1),
-                                            source="matrix-test", monthly_credits_override=10)
-    db.add(subscription)
+    subscription = db.query(OrganizationSubscription).filter_by(organization_id=organization_id, family="frris_wrris").one_or_none()
+    if subscription is None:
+        subscription = OrganizationSubscription(organization_id=organization_id, family="frris_wrris")
+        db.add(subscription)
+    subscription.plan_key = "frris_wrris.researcher"
+    subscription.status = SubscriptionStatus.ACTIVE
+    subscription.starts_at = datetime.now(timezone.utc) - timedelta(days=1)
+    subscription.source = "matrix-test"
+    subscription.monthly_credits_override = 10
     db.flush()
     entitlement = db.query(OrganizationEngineEntitlement).filter_by(organization_id=organization_id, engine_key="firris").one()
     entitlement.subscription_id = subscription.id
