@@ -1,4 +1,4 @@
-# FRRIS worker memory: light Celery parent, gc.freeze, stale RUNNING-task sweeper (prepared; NOT merged, NOT deployed)
+# FRRIS worker memory: light Celery parent, gc.freeze, stale RUNNING-task sweeper (deployed as r12, 2026-11-27)
 
 **Prepared:** 2026-11-27. **Branch:** `feat/frris-worker-memory` from `main` after r11 (`3568318`). **Owner decision:** options A + C + the sweeper. **B is not approved:** it is only to be done if the post-A peak on a real run stays above about 560 MiB, and reported first.
 
@@ -49,9 +49,24 @@
 | Heavy parent + `gc.freeze()` | 319 MiB (−24) |
 | Light parent | 243 MiB (−100) |
 
-**Post-A peak on a real run:** pending until r12. B is decided from that figure.
+**Post-A peak on a real run (r12, 2026-11-27 16:51 UTC; the Rufiji request with wards; `docs/FRRIS_PRODUCTION_DEPLOY_RECORD_R12.md` §6):**
 
-## 4. Equality check (mandatory, on the r12 real run)
+| | r11 (with wards) | r12 |
+|---|---|---|
+| Run time | 292 s | **231 s** |
+| Worker peak, `docker stats` | 640 MiB (at the limit) | **543 MiB** |
+| Worker cgroup `memory.peak` (includes page cache) | 640 MiB | 640 MiB |
+| Worker cgroup `memory.events max` | 6,778 | **469** |
+| Worker cgroup swap peak | not sampled | 44 MiB |
+| Host MemAvailable minimum / swap maximum | 385 MB / 325 MB | **459 MB / 156 MB** |
+| Worker idle | about 351 MiB | **110 MiB** |
+
+**For the B decision:**
+- By the r11 measure (`docker stats`), the post-A peak is **543 MiB, below the about-560 MiB trigger**.
+- The margin is small: 17 MiB from one run, while the same request has varied by up to 37 MiB between runs.
+- The cgroup charge still reaches the limit near the end, but mostly as reclaimable page cache: limit hits are down 93 %, swap is 44 MiB, OOM kills 0.
+
+## 4. Equality check (mandatory, on the r12 real run): **EQUAL** (result `9c01264f…` v12 against v10 `3a106c75…`, all figures below and the whole `flood_exposure` block, timings removed)
 
 - **The Rufiji re-run must reproduce exactly:**
   - whole area: **57,361 people** and **7,461 buildings**;
@@ -116,7 +131,7 @@ The files were classified by comparing a hash only; no value was printed. All ar
 - **Live value (keep; needed for rollback):** r8.1, r9, r10, r10.1, r11 and the upload-window folders, and `firris-2f1b2dc/compose.active.json`.
 - **Not a secret:** the `backend-source/docker-compose*.test.yml` copies contain only the repository's placeholder test secrets.
 
-## 7. r12 deploy plan (on the owner's word)
+## 7. r12 deploy plan (done 2026-11-27: `docs/FRRIS_PRODUCTION_DEPLOY_RECORD_R12.md`)
 
 1. Merge to `main` (merge commit).
 2. Fresh off-server database backup.
