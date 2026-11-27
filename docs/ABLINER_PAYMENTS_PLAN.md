@@ -66,7 +66,7 @@
   - a new deposit is documented as 201, so we accept any 2xx;
   - `idempotent_replay: true` is treated as the same intent.
 - **What is stored:** our reference, the idempotency key, the Abliner transaction ID, and later the webhook `data.id` (a UUID; the documentation uses different ID shapes in the two places) and `provider_reference`.
-- **Not stored:** the full phone number is kept only until Abliner's reply. After that the intent keeps a masked number (`2557•••••678`) and a SHA-256 of it (to detect "same phone busy"). The full number is sent to Abliner and nowhere else.
+- **Not stored:** the full phone number is kept only until Abliner's reply. After that the intent keeps a masked number (`2557•••••678`) only. (An unsalted SHA-256 was planned and built, but it is reversible for a 9-digit number and nothing read it; it was dropped after the security review, M4, migration `f3b5d7e9a1c4`.) The full number is sent to Abliner and nowhere else.
 
 **Other calls:**
 - **`GET /api/v1/transactions?customer_reference=<ref>`** for reconciliation (§5). The documentation also gives `?idempotency_key=`; we use it as a fallback.
@@ -321,7 +321,7 @@ A refused deposit (an Abliner 4xx with no `transaction_id`) marks the intent `fa
 
 - **`payment_intents`:**
   - `id`, `organization_id`, `subscription_id`, `purpose` (`top_up` | `renewal`), `credits`, `covers_from` / `covers_until`, `amount`, `currency`;
-  - `phone_masked`, `phone_sha256`, `reference` (unique), `idempotency_key` (unique);
+  - `phone_masked` (no hash: security review M4), `reference` (unique), `idempotency_key` (unique);
   - `abliner_tx_id`, `abliner_event_tx_id`, `provider_reference`;
   - `status` (`created` | `pending` | `pending_unknown` | `completed` | `failed` | `expired` | `review`), `failure_code`, `payment_id` (FK `payments`), `created_by_user_id`, timestamps;
   - a partial unique index: one open intent per subscription and purpose.
