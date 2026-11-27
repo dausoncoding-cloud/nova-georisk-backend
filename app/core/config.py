@@ -117,7 +117,9 @@ class Settings(BaseSettings):
     billing_storage_block_at_limit: bool = True
     billing_storage_warning_percents: list[int] = [90]
     # Q7 (decided 2026-11-21): an Expired or Cancelled organisation keeps viewing and downloads for 2 days.
-    billing_view_grace_days: int | None = 2
+    # Security review H1: unset by default (viewing never closes). The owner sets BILLING_VIEW_GRACE_DAYS=2 in the
+    # server environment at the Phase B step; even then the sweep closes nothing while billing enforcement is off.
+    billing_view_grace_days: int | None = None
 
     # --- Seller identity on payment receipts and My subscription (Q6, decided 2026-11-21) ---
     # Configuration only, so a change of seller (for example to NOVAREX Ltd) needs no code change.

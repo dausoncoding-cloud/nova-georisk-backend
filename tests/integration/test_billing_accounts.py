@@ -280,12 +280,14 @@ def test_sweep_expires_ended_subscriptions_dry_run_first(client, db_session, enf
 
 
 def test_grace_period_of_two_days_closes_viewing_and_reactivation_reopens(client, db_session, monkeypatch):
+    # Phase B: enforcement on and BILLING_VIEW_GRACE_DAYS=2 set by the owner (security review H1: unset by default).
+    monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", True)
+    monkeypatch.setattr(get_settings(), "billing_view_grace_days", 2)
     t = _tenant(db_session, "grace", credits=3)
     task_path = f"/api/v1/tasks/{_submit(client, t).json()['task']['id']}"
     statuses.change_status(db_session, t.sub.id, "canceled", reason="Customer left", actor=ADMIN)
     t.sub.status_changed_at = datetime.now(timezone.utc) - timedelta(days=1, hours=23)
     db_session.commit()
-    assert get_settings().billing_view_grace_days == 2  # Q7 (decided 2026-11-21)
     assert statuses.sweep(db_session, apply=True, actor=ADMIN) == []  # inside the 2 days: still viewable
     assert client.get(task_path, headers=t.headers).status_code == 200
     t.sub.status_changed_at = datetime.now(timezone.utc) - timedelta(days=2, minutes=1)

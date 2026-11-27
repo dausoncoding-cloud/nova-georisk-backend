@@ -10,8 +10,9 @@
 Engine entitlements are what gate viewing and downloads (`require_engine_entitlement`), so a status
 change leaves them alone and only the submission check (`submission.block_code`) refuses new analyses.
 The one exception is the Q7 grace period: once an Expired or Cancelled subscription has been in that
-status longer than `billing_view_grace_days` (unset until the client decides), `sweep` closes its
-entitlements. Reactivation reopens exactly the entitlements the sweep closed.
+status longer than `billing_view_grace_days`, `sweep` closes its entitlements. Reactivation reopens exactly
+the entitlements the sweep closed. Security review H1: the grace applies only while billing enforcement is on and
+the setting is set (unset by default; the owner sets it at Phase B). With enforcement off nothing closes.
 """
 from __future__ import annotations
 
@@ -96,9 +97,17 @@ def change_status(
     return subscription
 
 
+def grace_days_in_force() -> int | None:
+    """H1: the Q7 viewing grace, or None when viewing never closes (setting unset, or billing enforcement off)."""
+    settings = get_settings()
+    if not settings.billing_enforcement_enabled:
+        return None
+    return settings.billing_view_grace_days
+
+
 def access_ends_at(subscription: OrganizationSubscription) -> datetime | None:
     """Q7: when viewing and downloads close for an Expired or Cancelled subscription (None: not ending)."""
-    grace_days = get_settings().billing_view_grace_days
+    grace_days = grace_days_in_force()
     if grace_days is None or subscription.status not in {SubscriptionStatus.EXPIRED, SubscriptionStatus.CANCELED}:
         return None
     since = subscription.status_changed_at or subscription.ends_at
@@ -108,8 +117,8 @@ def access_ends_at(subscription: OrganizationSubscription) -> datetime | None:
 def sweep(db: Session, *, apply: bool, actor: audit.Actor, now: datetime | None = None) -> list[dict]:
     """Automatic status rules, for the operator command (dry run unless `apply`):
     1. an Active or Trial subscription past its end (or trial end) becomes Expired;
-    2. with `billing_view_grace_days` set, an Expired or Cancelled subscription older than the grace
-       period has its linked entitlements closed, which ends viewing and downloads.
+    2. with `billing_view_grace_days` set AND billing enforcement on (H1), an Expired or Cancelled subscription
+       older than the grace period has its linked entitlements closed, which ends viewing and downloads.
     """
     now = now or datetime.now(timezone.utc)
     actions: list[dict] = []
@@ -119,7 +128,7 @@ def sweep(db: Session, *, apply: bool, actor: audit.Actor, now: datetime | None 
         .order_by(OrganizationSubscription.organization_id, OrganizationSubscription.family)
         .all()
     )
-    grace_days = get_settings().billing_view_grace_days
+    grace_days = grace_days_in_force()
     for (subscription_id,) in candidates:
         subscription = db.get(OrganizationSubscription, subscription_id)
         ended = subscription.ends_at is not None and subscription.ends_at <= now
