@@ -4,8 +4,8 @@ If the worker's main process dies (for example an out-of-memory kill of the Cele
 bridge (``persist_worker_failure``) never runs: the task stays RUNNING for good, the redelivered message is refused
 because the task is no longer QUEUED, and the task keeps counting against the organization's pending-task cap.
 
-A FRRIS task is swept when BOTH hold:
-  * it has been RUNNING for more than ``firris_stale_running_seconds`` (default 4 h, equal to the hard time limit, so
+FRRIS tasks are swept when BOTH hold:
+  * it has been RUNNING for more than the stale-running setting (default 4 h, equal to the hard time limit, so
     a live execution would already have been stopped and failed by Celery); and
   * no live worker reports it as executing (Celery ``inspect active``). If the broker cannot be asked, nothing is swept.
 
