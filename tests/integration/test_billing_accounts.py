@@ -143,7 +143,9 @@ def test_plan_payment_reactivates_and_extends_but_never_lifts_a_suspension(db_se
     past = datetime.now(timezone.utc) - timedelta(days=3)
     t.sub.ends_at = past
     db_session.commit()
-    today = date.today()
+    # "Today" on the billing calendar (Africa/Dar_es_Salaam), as payments._end_of uses: date.today() is the
+    # container's UTC date, a day behind from 00:00 to 03:00 EAT, which made this fail in that window.
+    today = datetime.now(ledger._zone()).date()
     payments.record_plan_payment(db_session, t.sub.id, amount=150_000, method="bank_transfer", paid_on=today,
                                  covers_from=today, covers_until=today + timedelta(days=30), reference="BT-1",
                                  actor=ADMIN, key=_key())
