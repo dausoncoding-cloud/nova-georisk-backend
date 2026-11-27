@@ -103,9 +103,16 @@ def create(db: Session, *, organization_id: uuid.UUID, user_id: uuid.UUID, subsc
     if not get_settings().abliner_payments_enabled:
         raise PublicAPIError(404, "payments_unavailable", "Mobile Money payments are not available.")
     request_key = f"customer:{organization_id}:{request_key}"
+    try:
+        number = phones.normalise(phone_number)
+    except phones.PhoneInvalid as exc:
+        raise PublicAPIError(422, "invalid_phone", str(exc)) from None
     existing = db.query(PaymentIntent).filter(PaymentIntent.request_key == request_key).one_or_none()
     if existing is not None:
-        if existing.created_by_user_id != user_id or existing.subscription_id != subscription_id or existing.purpose != purpose:
+        # L7: the phone is part of the request. Only the masked form is kept (M4), so two numbers with the same
+        # first 4 and last 3 digits replay the first intent, whose push already went to the first number.
+        if (existing.created_by_user_id != user_id or existing.subscription_id != subscription_id
+                or existing.purpose != purpose or existing.phone_masked != phones.masked(number)):
             raise PublicAPIError(409, "idempotency_key_reused", "This Idempotency-Key was already used for a different request.")
         return existing, True
     subscription = db.get(OrganizationSubscription, subscription_id)
@@ -114,10 +121,6 @@ def create(db: Session, *, organization_id: uuid.UUID, user_id: uuid.UUID, subsc
     quote = offer(db, subscription, purpose)
     if not quote.available:
         raise PublicAPIError(409, quote.unavailable_code, quote.unavailable_message)
-    try:
-        number = phones.normalise(phone_number)
-    except phones.PhoneInvalid as exc:
-        raise PublicAPIError(422, "invalid_phone", str(exc)) from None
     recent = db.query(PaymentIntent).filter(PaymentIntent.organization_id == organization_id,
                                             PaymentIntent.created_at > _now() - ORG_WINDOW).count()
     if recent >= ORG_LIMIT:
@@ -126,7 +129,7 @@ def create(db: Session, *, organization_id: uuid.UUID, user_id: uuid.UUID, subsc
     intent = PaymentIntent(
         id=intent_id, organization_id=organization_id, subscription_id=subscription.id, purpose=purpose,
         credits=quote.credits, covers_from=quote.covers_from, covers_until=quote.covers_until, amount=quote.amount,
-        currency="TZS", phone_masked=phones.masked(number), phone_sha256=phones.digest(number),
+        currency="TZS", phone_masked=phones.masked(number),
         reference=_reference(intent_id), idempotency_key=str(uuid.uuid4()), request_key=request_key,
         status="created", created_by_user_id=user_id)
     try:
@@ -182,7 +185,7 @@ def create_test(db: Session, *, admin_user_id: uuid.UUID, subscription_id: uuid.
     intent_id = uuid.uuid4()
     intent = PaymentIntent(
         id=intent_id, organization_id=subscription.organization_id, subscription_id=subscription.id, purpose="test",
-        amount=TEST_AMOUNT, currency="TZS", phone_masked=phones.masked(number), phone_sha256=phones.digest(number),
+        amount=TEST_AMOUNT, currency="TZS", phone_masked=phones.masked(number),
         reference=_reference(intent_id), idempotency_key=str(uuid.uuid4()), request_key=f"operator:{intent_id}",
         status="created", created_by_user_id=admin_user_id)
     try:

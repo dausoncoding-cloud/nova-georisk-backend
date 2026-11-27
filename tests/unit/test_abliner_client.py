@@ -132,6 +132,6 @@ def test_phone_rejected(raw):
         phones.normalise(raw)
 
 
-def test_phone_is_masked_and_hashed():
+def test_phone_is_masked_and_never_hashed():
     assert phones.masked("255712345678") == "2557•••••678"
-    assert phones.digest("255712345678") == hashlib.sha256(b"255712345678").hexdigest()
+    assert not hasattr(phones, "digest")  # security review M4: no hash of the number is computed or kept

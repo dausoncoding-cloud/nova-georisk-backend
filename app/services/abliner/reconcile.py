@@ -3,6 +3,9 @@
 Open intents (created, pending, pending_unknown) older than ABLINER_RECONCILE_MIN_AGE_MINUTES (3) are looked up
 at Abliner by our reference (customer_reference), falling back to the intent's Idempotency-Key, at most 50 per
 run (Abliner allows 120 reads a minute):
+- the transaction used is the one with our reference, else the one whose id is the intent's abliner_tx_id; any
+  other transaction Abliner returns is handed to settlement, which sends a reported result to review and never
+  credits it (security review M3: a reference-less deposit of a common amount is not this payment);
 - completed -> settle (settlement.apply; a late result for an expired intent goes to review there);
 - failed -> failed;
 - no result (pending, unknown, or not found) and older than ABLINER_INTENT_EXPIRY_MINUTES (30) -> expired.
@@ -38,14 +41,28 @@ class Report:
         self.counts[outcome] = self.counts.get(outcome, 0) + 1
 
 
+def _pick(intent: PaymentIntent, items: list[dict]) -> dict | None:
+    """M3: our own transaction first (our reference, then our Abliner id); otherwise whatever came back, which
+    settlement will refuse to credit."""
+    if not items:
+        return None
+    for item in items:
+        if item.get("customer_reference") == intent.reference:
+            return item
+    if intent.abliner_tx_id:
+        for item in items:
+            if not item.get("customer_reference") and str(item.get("id") or "") == intent.abliner_tx_id:
+                return item
+    return items[0]
+
+
 def _lookup(client: AblinerClient, intent: PaymentIntent) -> settlement.Remote | None:
     items = client.transactions(customer_reference=intent.reference)
     if not items:
         items = client.transactions(idempotency_key=intent.idempotency_key)
-    matches = [item for item in items if item.get("customer_reference") in (None, intent.reference)]
-    if not matches:
+    item = _pick(intent, items)
+    if item is None:
         return None
-    item = matches[0]
     return settlement.Remote(
         status=str(item.get("status") or "")[:30], tx_id=str(item.get("id") or "")[:80] or None,
         amount=_int(item.get("amount")), currency=item.get("currency"),

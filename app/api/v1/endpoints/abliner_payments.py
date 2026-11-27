@@ -66,7 +66,8 @@ def create_payment(body: CreatePaymentRequest, db: Session = Depends(get_db),
 def list_payments(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db),
                   context: RequestContext = Depends(get_request_context)) -> list[PaymentIntentResponse]:
     _require_billing_role(db, context)
-    rows = (db.query(PaymentIntent).filter(PaymentIntent.organization_id == context.organization_id)
+    rows = (db.query(PaymentIntent).filter(PaymentIntent.organization_id == context.organization_id,
+                                           PaymentIntent.purpose != "test")  # L5: the operator's test is not theirs
             .order_by(PaymentIntent.created_at.desc()).limit(limit).all())
     return [_view(row) for row in rows]
 
@@ -76,6 +77,6 @@ def get_payment(intent_id: uuid.UUID, db: Session = Depends(get_db),
                 context: RequestContext = Depends(get_request_context)) -> PaymentIntentResponse:
     _require_billing_role(db, context)
     intent = db.get(PaymentIntent, intent_id)
-    if intent is None or intent.organization_id != context.organization_id:
+    if intent is None or intent.organization_id != context.organization_id or intent.purpose == "test":
         raise PublicAPIError(404, "payment_not_found", "Payment not found.")
     return _view(intent)

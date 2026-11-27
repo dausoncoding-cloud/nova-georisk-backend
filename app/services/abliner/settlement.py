@@ -4,8 +4,14 @@ Under the intent row lock:
 - open intent + remote "completed" with the expected amount, currency and reference -> the existing payments
   service (actor "system:abliner", key "abliner:<intent id>"), so the ledger, platform audit, the shared
   console key namespace, fingerprints and reversal rules all apply; intent -> completed;
+- the remote transaction must be this intent's (security review M3): its customer_reference equals our reference,
+  or, when it carries no reference, its id equals the intent's abliner_tx_id. Anything else that reports a result
+  -> "review", no credits;
 - any mismatch, or a "completed" arriving for an intent already expired or failed -> "review", no credits;
 - remote "failed" -> failed, no credits;
+- a completed intent hearing anything but "completed" or an in-progress status (a reversal, refund, failure or an
+  unknown event; security review M5) -> "review" with an `abliner.alert` audit row. The credits stay until NOVA ARI
+  reverses the payment in the console;
 - anything else -> unchanged.
 Re-running is idempotent: a terminal intent returns at once, and the payment key replays.
 Never logs a phone number, a payload or a header; only intent and Abliner IDs.
@@ -37,6 +43,11 @@ class Remote:
     provider_reference: str | None = None
     completed_at: datetime | None = None
     source: str = "webhook"          # webhook, reconciliation, operator
+    event: str | None = None         # the webhook's event name, when there is one
+
+
+# What a completed intent may still hear without anyone looking (late or repeated deliveries).
+QUIET_AFTER_COMPLETED = frozenset({"completed", "pending", "processing", "initiated"})
 
 
 def _lock(db: Session, intent_id: uuid.UUID) -> PaymentIntent | None:
@@ -56,6 +67,31 @@ def _review(db: Session, intent: PaymentIntent, why: str, remote: Remote) -> str
     return "review"
 
 
+def _alert(db: Session, intent: PaymentIntent, why: str, remote: Remote) -> str:
+    """M5: something happened to money we already counted. Review queue plus a distinct audit row."""
+    outcome = _review(db, intent, why, remote)
+    audit.record(db, SYSTEM, "abliner.alert", reason=f"{why} (Abliner {remote.tx_id or intent.abliner_tx_id or '-'})",
+                 organization_id=intent.organization_id, target_type="payment_intent", target_id=intent.id,
+                 current={"remote_status": remote.status, "event": remote.event, "payment_id": str(intent.payment_id),
+                          "source": remote.source})
+    return outcome
+
+
+def belongs_to(intent: PaymentIntent, remote: Remote) -> bool:
+    """M3: the remote transaction is this intent's own."""
+    if remote.reference:
+        return remote.reference == intent.reference
+    return bool(remote.tx_id) and remote.tx_id == intent.abliner_tx_id
+
+
+def flag(db: Session, intent_id: uuid.UUID, why: str, remote: Remote) -> str:
+    """Send an intent to review from outside apply() (for example a transaction id shared by two intents)."""
+    intent = _lock(db, intent_id)
+    if intent is None or intent.status == "review":
+        return "already"
+    return _review(db, intent, why, remote)
+
+
 def _paid_on(remote: Remote) -> date:
     moment = remote.completed_at or datetime.now(timezone.utc)
     return moment.astimezone(ledger._zone()).date()
@@ -66,28 +102,38 @@ def apply(db: Session, intent_id: uuid.UUID, remote: Remote) -> str:
     intent = _lock(db, intent_id)
     if intent is None:
         return "unchanged"
-    if remote.tx_id and remote.source == "webhook":
-        intent.abliner_event_tx_id = intent.abliner_event_tx_id or remote.tx_id[:80]
     status = (remote.status or "").lower()
+    if intent.status == "completed":
+        if status in QUIET_AFTER_COMPLETED:
+            return "already"
+        if not belongs_to(intent, remote):
+            return _review(db, intent, f"Abliner reported '{status or remote.event or 'an unknown event'}' for a "
+                                       "transaction that is not this payment's.", remote)
+        return _alert(db, intent, f"Abliner reported '{status or remote.event or 'an unknown event'}' after the "
+                                  "payment was completed and credited. Reverse it in the console if the money went back.",
+                      remote)
     if intent.status not in OPEN_STATUSES:
         if status == "completed" and intent.status in {"expired", "failed"}:
             # Money moved after we stopped waiting: never a silent credit; a person decides.
             return _review(db, intent, f"Abliner reported completed after the payment was {intent.status}.", remote)
         return "already"
+    if status not in {"completed", "failed"}:
+        return "unchanged"
+    if not belongs_to(intent, remote):
+        return _review(db, intent, f"Abliner reported {status} for a transaction that is not this payment's "
+                                   "(no matching reference or transaction id).", remote)
+    if remote.tx_id and remote.source == "webhook":
+        intent.abliner_event_tx_id = intent.abliner_event_tx_id or remote.tx_id[:80]
     if status == "failed":
         intent.status, intent.failure_code = "failed", intent.failure_code or "abliner_failed"
         db.flush()
         logger.info("Abliner payment failed intent=%s abliner=%s", intent.id, remote.tx_id or intent.abliner_tx_id)
         return "failed"
-    if status != "completed":
-        return "unchanged"
     problems = []
     if remote.amount is not None and int(remote.amount) != intent.amount:
         problems.append(f"amount {remote.amount} instead of {intent.amount}")
     if (remote.currency or "TZS").upper() != intent.currency:
         problems.append(f"currency {remote.currency} instead of {intent.currency}")
-    if remote.reference and remote.reference != intent.reference:
-        problems.append("a different reference")
     if remote.amount is None:
         problems.append("no amount reported")
     if problems:

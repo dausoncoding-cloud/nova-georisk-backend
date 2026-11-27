@@ -48,8 +48,8 @@ class PaymentIntent(UUIDPrimaryKeyMixin, Base):
     covers_until: Mapped[date | None] = mapped_column(Date, nullable=True)
     amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="TZS")
+    # Masked only (security review M4): the full number goes to Abliner once and is never stored, hashed or logged.
     phone_masked: Mapped[str] = mapped_column(String(32), nullable=False)
-    phone_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     # Our reference: Abliner's customer_reference, and the key we correlate webhooks and reconciliation on.
     reference: Mapped[str] = mapped_column(String(40), nullable=False, unique=True)
     # Sent as Idempotency-Key on POST /deposits; one per intent, never regenerated.

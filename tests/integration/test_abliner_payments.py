@@ -122,6 +122,20 @@ def test_one_open_payment_per_purpose_and_request_replay(client, db_session, abl
     assert reused.status_code == 409 and reused.json()["error"]["code"] == "idempotency_key_reused"
 
 
+def test_l7_a_replay_with_a_different_phone_is_refused(client, db_session, abliner):
+    """Security review L7: the phone is part of the request. Only the masked form is stored (M4)."""
+    t = _tenant(db_session, "ab-l7")
+    key = _key()
+    first = _pay(client, t, key=key, phone="0712 345 678")
+    assert first.status_code == 201
+    assert _pay(client, t, key=key, phone="+255712345678").json()["id"] == first.json()["id"]  # same number
+    other = _pay(client, t, key=key, phone="0754 999 111")
+    assert other.status_code == 409 and other.json()["error"]["code"] == "idempotency_key_reused"
+    assert len(abliner.calls) == 1
+    intent = db_session.get(PaymentIntent, uuid.UUID(first.json()["id"]))
+    assert intent.phone_masked == "2557•••••678" and not hasattr(intent, "phone_sha256")  # M4
+
+
 def test_roles_flag_scope_and_validation(client, db_session, abliner, monkeypatch):
     t = _tenant(db_session, "ab-roles")
     viewer = User(issuer="https://identity.billing.test/", subject=str(uuid.uuid4()), email="v@ab.test")
@@ -149,7 +163,7 @@ def test_organisation_rate_limit(client, db_session, abliner):
     t = _tenant(db_session, "ab-rate")
     for index in range(5):
         db_session.add(PaymentIntent(organization_id=t.org.id, subscription_id=t.sub.id, purpose="top_up", credits=10,
-                                     amount=100_000, currency="TZS", phone_masked="2557•••••678", phone_sha256="0" * 64,
+                                     amount=100_000, currency="TZS", phone_masked="2557•••••678",
                                      reference=f"NOVA-RATE{index}", idempotency_key=str(uuid.uuid4()),
                                      request_key=f"r-{uuid.uuid4()}", status="failed", created_by_user_id=t.user.id))
     db_session.commit()

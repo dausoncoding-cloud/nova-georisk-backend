@@ -85,7 +85,7 @@ def _remote(payload: dict) -> tuple[str | None, settlement.Remote]:
         return event, settlement.Remote(status="completed", tx_id=str(payload.get("id") or "")[:80] or None,
                                         amount=_int(payload.get("amount")), currency=payload.get("currency"),
                                         reference=str(payload.get("reference") or "")[:80] or None,
-                                        completed_at=_time(payload.get("paid_at")))
+                                        completed_at=_time(payload.get("paid_at")), event=event)
     data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
     remote_status = str(data.get("status") or ("completed" if event == "transaction.completed" else
                                                "failed" if event == "transaction.failed" else ""))[:30]
@@ -93,17 +93,23 @@ def _remote(payload: dict) -> tuple[str | None, settlement.Remote]:
         status=remote_status, tx_id=str(data.get("id") or "")[:80] or None, amount=_int(data.get("amount")),
         currency=data.get("currency"), reference=str(data.get("customer_reference") or "")[:80] or None,
         provider_reference=str(data.get("provider_reference") or "")[:120] or None,
-        completed_at=_time(data.get("completed_at")))
+        completed_at=_time(data.get("completed_at")), event=event)
 
 
-def _find(db: Session, remote: settlement.Remote) -> PaymentIntent | None:
+def _find(db: Session, remote: settlement.Remote) -> tuple[PaymentIntent | None, list[PaymentIntent]]:
+    """The intent by our reference (unique), else by Abliner's transaction id. Returns (intent, others): `others`
+    are further intents carrying the same transaction id (security review L4), which must never happen; then
+    nothing is settled and every one of them goes to review."""
     if remote.reference:
         intent = db.query(PaymentIntent).filter(PaymentIntent.reference == remote.reference).one_or_none()
         if intent is not None:
-            return intent
+            return intent, []
     if remote.tx_id:
-        return db.query(PaymentIntent).filter(PaymentIntent.abliner_tx_id == remote.tx_id).one_or_none()
-    return None
+        rows = (db.query(PaymentIntent).filter(PaymentIntent.abliner_tx_id == remote.tx_id)
+                .order_by(PaymentIntent.created_at, PaymentIntent.id).limit(10).all())
+        if rows:
+            return rows[0], rows[1:]
+    return None, []
 
 
 def process(db: Session, raw_body: bytes, headers) -> Outcome:
@@ -112,8 +118,8 @@ def process(db: Session, raw_body: bytes, headers) -> Outcome:
     try:
         verify(raw_body, headers)
     except Rejected as exc:
-        integration_status.error(db, "abliner", f"webhook_{exc.code}")
-        db.commit()
+        if integration_status.unverified_error(db, "abliner", exc.code):  # L3: throttled, never hides a real error
+            db.commit()
         raise
     try:
         payload = json.loads(raw_body)
@@ -137,7 +143,7 @@ def process(db: Session, raw_body: bytes, headers) -> Outcome:
         logger.info("Abliner webhook duplicate webhook=%s", webhook_id)
         return Outcome("duplicate", "duplicate")
     integration_status.webhook(db, "abliner", event)
-    intent = _find(db, remote)
+    intent, others = _find(db, remote)
     if intent is None:
         record.outcome = "ignored"
         db.commit()
@@ -145,7 +151,13 @@ def process(db: Session, raw_body: bytes, headers) -> Outcome:
         return Outcome("ok", "ignored")
     record.intent_id = intent.id
     try:
-        outcome = settlement.apply(db, intent.id, remote)
+        if others:  # L4: one Abliner transaction, several payments: a person decides, nothing is credited
+            why = f"Abliner transaction id is shared by {len(others) + 1} payments."
+            outcome = "review"
+            for item in [intent, *others]:
+                settlement.flag(db, item.id, why, remote)
+        else:
+            outcome = settlement.apply(db, intent.id, remote)
     except Exception:
         # Keep the event (so a retry is a duplicate) and let reconciliation settle; never a 5xx loop.
         db.rollback()

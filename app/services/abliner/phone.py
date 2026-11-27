@@ -1,7 +1,7 @@
-"""Tanzanian Mobile Money numbers: normalise to 255 + 9 digits (2556… / 2557…), mask and hash."""
+"""Tanzanian Mobile Money numbers: normalise to 255 + 9 digits (2556… / 2557…) and mask. No hash is kept
+(security review M4: an unsalted hash of a 9-digit number is the number)."""
 from __future__ import annotations
 
-import hashlib
 import re
 
 MESSAGE = "Enter a Tanzanian mobile number (for example 0712 345 678)."
@@ -29,6 +29,3 @@ def normalise(raw: str | None) -> str:
 def masked(phone: str) -> str:
     return f"{phone[:4]}{'•' * 5}{phone[-3:]}"
 
-
-def digest(phone: str) -> str:
-    return hashlib.sha256(phone.encode()).hexdigest()

@@ -47,7 +47,7 @@ def _intent(db, t, *, purpose="top_up", status="pending", age_minutes=0, amount=
         credits=10 if purpose == "top_up" else None,
         covers_from=today if purpose == "renewal" else None,
         covers_until=today + timedelta(days=29) if purpose == "renewal" else None,
-        phone_masked="2557•••••678", phone_sha256="0" * 64, reference=f"NOVA-{uuid.uuid4().hex[:8].upper()}",
+        phone_masked="2557•••••678", reference=f"NOVA-{uuid.uuid4().hex[:8].upper()}",
         idempotency_key=str(uuid.uuid4()), request_key=f"r-{uuid.uuid4()}", status=status,
         abliner_tx_id=f"tx_{uuid.uuid4().hex[:8]}", created_by_user_id=t.user.id,
         created_at=datetime.now(timezone.utc) - timedelta(minutes=age_minutes))
@@ -133,7 +133,7 @@ def test_duplicates_and_signatures(client, db_session):
     assert other.status == "pending" and db_session.query(AblinerWebhookEvent).count() == 1  # nothing stored
     status = db_session.get(IntegrationStatus, "abliner")
     db_session.refresh(status)
-    assert status.last_error_code == "webhook_stale_timestamp"
+    assert status.last_error_code == "webhook_invalid_signature"  # L3: the second rejection within a minute is not written
     no_secret = client.post(PATH, content=b"{}", headers={"x-webhook-timestamp": "1"})
     assert no_secret.status_code == 401
 
@@ -380,13 +380,176 @@ def test_operator_test_payment_adds_no_credits_and_is_labelled_test_only(client,
     assert db_session.query(CreditLedgerEntry).filter_by(subscription_id=t.sub.id).count() == before  # 0 credits
     recorded = db_session.query(PlatformAudit).filter_by(action="payment.record_test", target_id=str(payment.id)).one()
     assert recorded.actor_label == "system:abliner" and recorded.reason.startswith("TEST:")
-    view = client.get(f"/api/v1/billing/abliner/payments/{intent.id}", headers=t.headers).json()
-    assert view["message"] == "Test payment received. No credits were added."
-    listed = client.get("/api/v1/billing/payments", headers=t.headers).json()["items"]
-    assert [item["purpose"] for item in listed] == ["test"]
+    # Security review L5: the operator's test is NOVA ARI's, not the customer's: hidden from their lists.
+    assert client.get(f"/api/v1/billing/abliner/payments/{intent.id}", headers=t.headers).status_code == 404
+    assert client.get("/api/v1/billing/payments", headers=t.headers).json()["items"] == []
     # Then reversed in the console, like any payment: nothing to take back from the ledger.
     reversal = payments.reverse_payment(db_session, payment.id, reason="Live test done", key="admin:reverse-live-test",
                                         actor=audit.Actor(user_id=admin_t.user.id, label="Admin"))
     db_session.commit()
     assert reversal.payment.amount == -500 and reversal.entry is None
+    assert client.get("/api/v1/billing/payments", headers=t.headers).json()["items"] == []  # its reversal too (L5)
     assert db_session.query(CreditLedgerEntry).filter_by(subscription_id=t.sub.id).count() == before
+
+
+# --- Security review fixes (M3, M5, L3, L4, L5, L7) ---------------------------------------------------------------
+
+def _credits(db, intent):
+    return sum(row.amount for row in db.query(CreditLedgerEntry).filter(
+        CreditLedgerEntry.subscription_id == intent.subscription_id, CreditLedgerEntry.kind == "top_up"))
+
+
+def test_m3_a_reference_less_completed_deposit_of_a_common_amount_never_credits(db_session):
+    """Abliner's idempotency-key fallback returns someone's reference-less completed deposit of the same amount:
+    review, no payment, no credits."""
+    t = _tenant(db_session, "abw-m3")
+    intent = _intent(db_session, t, age_minutes=5)  # TZS 100,000, the common top-up amount
+    remote = Remote()
+    stranger = {"id": "tx_someone_else", "type": "deposit", "status": "completed", "amount": intent.amount,
+                "currency": "TZS", "customer_reference": None, "completed_at": "2026-11-21T08:00:00Z"}
+    remote.items = {intent.reference: [], None: [stranger]}  # reference query empty; the fallback returns it
+    report = reconcile.run(db_session, remote.client(), apply=True)
+    assert report.counts == {"review": 1}
+    db_session.refresh(intent)
+    assert intent.status == "review" and "not this payment's" in intent.review_reason
+    assert not _payments(db_session, intent) and _credits(db_session, intent) == 0
+    # A different, non-empty reference is not ours either.
+    other = _intent(db_session, _tenant(db_session, "abw-m3-b"), age_minutes=5)
+    remote.items = {other.reference: [], None: [{**stranger, "customer_reference": "NOVA-SOMEONE"}]}
+    reconcile.run(db_session, remote.client(), apply=True)
+    db_session.refresh(other)
+    assert other.status == "review" and not _payments(db_session, other)
+
+
+def test_m3_reference_less_transaction_with_our_own_abliner_id_settles(db_session):
+    t = _tenant(db_session, "abw-m3-own")
+    intent = _intent(db_session, t, age_minutes=5)
+    remote = Remote()
+    own = {"id": intent.abliner_tx_id, "type": "deposit", "status": "completed", "amount": intent.amount,
+           "currency": "TZS", "customer_reference": None, "completed_at": "2026-11-21T08:00:00Z"}
+    decoy = {**own, "id": "tx_decoy"}
+    remote.items = {intent.reference: [], None: [decoy, own]}  # ours is picked even when it is not first
+    assert reconcile.run(db_session, remote.client(), apply=True).counts == {"settled": 1}
+    db_session.refresh(intent)
+    assert intent.status == "completed" and len(_payments(db_session, intent)) == 1
+
+
+def test_m3_settlement_refuses_a_transaction_that_is_not_the_intents(db_session):
+    t = _tenant(db_session, "abw-m3-unit")
+    probe = _intent(db_session, t)
+    assert settlement.belongs_to(probe, settlement.Remote(status="completed", reference=probe.reference))
+    assert settlement.belongs_to(probe, settlement.Remote(status="completed", tx_id=probe.abliner_tx_id))
+    assert not settlement.belongs_to(probe, settlement.Remote(status="completed", tx_id="tx_other"))
+    assert not settlement.belongs_to(probe, settlement.Remote(status="completed"))
+    assert not settlement.belongs_to(probe, settlement.Remote(status="completed", tx_id=probe.abliner_tx_id,
+                                                              reference="NOVA-OTHER"))  # a reference must be ours
+    db_session.delete(probe)
+    db_session.commit()
+    for remote in (settlement.Remote(status="completed", tx_id="tx_other"),
+                   settlement.Remote(status="completed"),
+                   settlement.Remote(status="failed", tx_id="tx_other")):
+        intent = _intent(db_session, t)
+        remote = settlement.Remote(**{**remote.__dict__, "amount": intent.amount, "currency": "TZS"})
+        assert settlement.apply(db_session, intent.id, remote) == "review"
+        db_session.commit()
+        db_session.refresh(intent)
+        assert intent.status == "review" and intent.payment_id is None  # review is not open: the next may start
+    assert not _payments(db_session, intent) and _credits(db_session, intent) == 0
+
+
+@pytest.mark.parametrize("status,event", [("reversed", "transaction.reversed"), ("refunded", "transaction.refunded"),
+                                          ("failed", "transaction.failed"), ("", "transaction.chargeback")])
+def test_m5_a_reversal_or_unknown_event_after_completion_goes_to_review_with_an_alert(client, db_session, status, event):
+    t = _tenant(db_session, f"abw-m5-{event.split('.')[1]}")
+    intent = _intent(db_session, t)
+    assert _send(client, _event(intent)).status_code == 200
+    db_session.refresh(intent)
+    assert intent.status == "completed" and _credits(db_session, intent) == 10
+    late = _event(intent, status=status or "completed", event=event)
+    if not status:
+        late["data"].pop("status")
+    assert _send(client, late).json() == {"status": "ok"}
+    db_session.refresh(intent)
+    assert intent.status == "review" and "after the payment was completed" in intent.review_reason
+    assert _credits(db_session, intent) == 10 and len(_payments(db_session, intent)) == 1  # a person reverses it
+    alerts = db_session.query(PlatformAudit).filter(PlatformAudit.action == "abliner.alert",
+                                                    PlatformAudit.target_id == str(intent.id)).all()
+    assert len(alerts) == 1
+    queue = client.get("/api/v1/platform-admin/mobile-payments", headers=_admin(db_session).headers).json()
+    assert str(intent.id) in {item["id"] for item in queue["items"]}
+
+
+def test_m5_late_pending_or_repeated_completed_after_completion_stays_quiet(client, db_session):
+    t = _tenant(db_session, "abw-m5-quiet")
+    intent = _intent(db_session, t)
+    _send(client, _event(intent))
+    for status in ("pending", "completed", "processing"):
+        assert _send(client, _event(intent, status=status)).status_code == 200
+    db_session.refresh(intent)
+    assert intent.status == "completed"
+    assert not db_session.query(PlatformAudit).filter(PlatformAudit.action == "abliner.alert",
+                                                      PlatformAudit.target_id == str(intent.id)).count()
+
+
+def test_l3_unverified_rejections_are_throttled_and_never_hide_a_real_error(client, db_session):
+    from app.services.integrations import status as integration_status
+
+    t = _tenant(db_session, "abw-l3")
+    intent = _intent(db_session, t)
+    for _ in range(20):
+        assert _send(client, _event(intent), secret="whsec_wrong").status_code == 401
+    row = db_session.get(IntegrationStatus, "abliner")
+    db_session.refresh(row)
+    first = row.last_error_at
+    assert row.last_error_code == "webhook_invalid_signature"
+    later = first + timedelta(seconds=61)
+    assert integration_status.unverified_error(db_session, "abliner", "stale_timestamp", now=later)  # a minute on
+    db_session.commit()
+    integration_status.error(db_session, "abliner", "settlement_error")  # a real error, from settlement
+    db_session.commit()
+    real_at = db_session.get(IntegrationStatus, "abliner").last_error_at
+    assert not integration_status.unverified_error(db_session, "abliner", "invalid_signature",
+                                                   now=real_at + timedelta(hours=2))
+    assert integration_status.unverified_error(db_session, "abliner", "invalid_signature",
+                                               now=real_at + timedelta(hours=25))  # older than a day: may replace it
+    db_session.rollback()
+
+
+def test_l4_a_transaction_id_shared_by_two_intents_settles_neither(client, db_session):
+    t = _tenant(db_session, "abw-l4")
+    first = _intent(db_session, t)
+    second = _intent(db_session, _tenant(db_session, "abw-l4-b"))
+    second.abliner_tx_id = first.abliner_tx_id
+    db_session.commit()
+    payload = _event(first)
+    payload["data"]["customer_reference"] = None
+    payload["data"]["id"] = first.abliner_tx_id
+    response = _send(client, payload)
+    assert response.status_code == 200 and response.json() == {"status": "ok"}
+    for intent in (first, second):
+        db_session.refresh(intent)
+        assert intent.status == "review" and "shared by 2 payments" in intent.review_reason
+        assert not _payments(db_session, intent)
+
+
+def test_l5_the_operator_test_payment_is_not_shown_to_the_customer(client, db_session):
+    t = _tenant(db_session, "abw-l5")
+    test_intent = _intent(db_session, t, purpose="test", amount=500)
+    assert _send(client, _event(test_intent)).status_code == 200
+    db_session.refresh(test_intent)
+    assert test_intent.status == "completed"
+    own = _intent(db_session, t, purpose="renewal", amount=150_000)
+    listed = client.get("/api/v1/billing/abliner/payments", headers=t.headers).json()
+    assert [item["id"] for item in listed] == [str(own.id)]
+    assert client.get(f"/api/v1/billing/abliner/payments/{test_intent.id}", headers=t.headers).status_code == 404
+    payments = client.get("/api/v1/billing/payments", headers=t.headers).json()
+    assert all(item["purpose"] != "test" for item in payments["items"]) and payments["total"] == 0
+    admin_view = client.get("/api/v1/platform-admin/mobile-payments?state=all", headers=_admin(db_session).headers).json()
+    assert str(test_intent.id) in {item["id"] for item in admin_view["items"]}  # NOVA ARI still sees it
+
+
+def _admin(db):
+    admin_t = _tenant(db, f"abw-admin-{uuid.uuid4().hex[:8]}", plan_key="frris_wrris.internal")
+    access.grant(db, email=None, user_id=admin_t.user.id, reason="operator", operator="test")
+    db.commit()
+    return admin_t
