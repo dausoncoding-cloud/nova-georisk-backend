@@ -110,3 +110,43 @@ Prepared after this record, at the owner's request: §7 (addendum).
 2. Verify the limit.
 3. Run the smoke checks.
 4. Record the close here.
+
+## 8. Addendum: upload window CLOSED (2026-11-27 10:10 UTC)
+
+**Between open and close (owner and second admin, not by me):**
+- The ward dataset was uploaded at 09:24:46 UTC (v1, SHA-256 `6051c2b6a06d4f91…`, the approved file, attached to an AOI) and is **Approved for Analysis**.
+- A ward run before 10:10 built the index at **10:01:00 UTC**: 4,344 wards; the index is 21,557,248 B and the sidecar 256 B, both mode 600; the sidecar names `6051c2b6a06d4f91…`.
+- No API errors or out-of-memory events during the window; the API was at 496 MiB of 768 at 10:09.
+
+| Step | Result |
+|---|---|
+| Gates | 0 tasks queued or running; broker empty; worker idle |
+| Change | API back to **512 / 1,024 MiB**; the target is the r11 compose, asserted to differ from the window compose only in the API limits. Folder `nova-releases/r11-upload-window-close-20261127/`; rollback = the window compose |
+| Apply | `tmux` session `r11-window-close`: **only the API recreated** (10:10:00 → healthy 10:10:27, **26.6 s**); limit verified on the running container (536,870,912 / 1,073,741,824 B); `compose.active.json` = the r11 compose; no rollback |
+| After | Limits api 512, bff 448, worker 640, gateway 96 MiB; all healthy, 0 restarts; `MALLOC_ARENA_MAX=2` on the API; enforcement off; 0 API errors |
+| Edge (outside) | 26 MB to the upload route **401**; 52.5 MB there **413**; 26 MB to `/api/v1/analyses`, the review sub-route, `/api/v1/source-datasets` and the API host **413** each |
+| Health (outside) | API `/health` 200; `/api/v1/projects` on the API host 404; app `/` and `/auth/session` 200; `/api/v1/results` without a session 401 |
+
+**Real submission:**
+- **What was sent:** the known-good Rufiji request (hazard and Exposure on), in the ward dataset's project, **twice with one Idempotency-Key**.
+- **Submit:** **202 / 202, the same task** `928085bb-4191-4b80-84f5-4415a72068d7`.
+- **Run:** 10:11:45 → 10:16:37 UTC, **292 s**, COMPLETED; 0 worker errors.
+- **Result:** **`696696eb-3623-4e05-abe5-0692e567e74c`**.
+  - L1 Pwani and L2 Rufiji (Pwani) assessed.
+  - **L3 assessed: Mgomba, Umwe, Ikwiriri (Rufiji DC) and Mtunda (Kibiti DC)**, the expected four.
+  - The run reused the 10:01 index.
+
+**Memory during the run** (2 s samples, `run-mem.log` in the close folder):
+
+| | Value |
+|---|---|
+| Host MemAvailable | minimum **385 MB** (10:16:24), above the 300 MB alert |
+| Swap | maximum **325 MB** |
+| Worker | **peak 640 MiB, at its limit** (10:16:24). The run took 292 s against 181 s at 08:56 (591 MiB peak, without wards), so the worker likely ran partly in swap |
+| API / BFF | peaks 488 / 107 MiB. The API was at 447 of 512 MiB after the run, having started at 348 at 10:10 |
+| After (10:18) | MemAvailable 778 MB, swap 251 MB |
+
+**Findings for the owner:**
+- The worker now reaches its limit during an Exposure run with wards. The run completes but slows; the margin to the kernel killing it is the 640 MiB of swap allowance above the limit.
+- The Exposure-peak investigation (owner decision: a separate task) is now the priority.
+- My SSH session to the host was closed by the remote host at about 10:16, at the memory peak. The host did not reboot, every container stayed up, and no OOM event was seen. The link to memory pressure is not proven.
