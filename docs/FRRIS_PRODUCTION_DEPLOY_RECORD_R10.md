@@ -115,3 +115,47 @@ The ward upload and the second-admin approval follow `docs/FRRIS_WARDS_EXTERNAL_
 - the licence check ticked only as "verified as recorded: unconfirmed".
 
 Then a run with Exposure on, to see the four Rufiji wards with the provenance line.
+
+## 7. Addendum r10.1 (2026-11-27): worker and BFF memory limits
+
+**Owner approval:** "Approved: apply the memory change", 2026-11-27. Compose-only; no code change and no image rebuild, so **no new tag** (the repository tags code releases). The running code stays `firris-science-2-r10`.
+
+| Item | Value |
+|---|---|
+| Change | **Worker:** `mem_limit` 512 → **640 MiB**, `memswap_limit` 1,024 → **1,280 MiB**. **BFF:** 384 → **448 MiB**, 768 → **896 MiB**. Everything else identical to the r10 compose (asserted by `make_candidate.py`) |
+| Backup | **Fresh**: the data had changed since the pre-r10 backup (the r10 smoke run). Off-server DB dump in `~/nova-backups/20261127-r10.1/`: 2,707,186 B, 38 TABLE DATA entries, SHA-256 `7c09a92ce40c762d0db0291d498e7e084c6c284fa73b0ec92b2c2831a197e192` (server stream = local copy), `pg_restore --list` OK. The outputs were not touched by this change |
+| Apply | `nova-releases/r10.1-mem-20261127/apply.py` in `tmux` session `r101`, with automatic rollback to the r10 compose. Gates: broker empty, worker idle. **Only the worker and BFF were recreated** (07:07:03 → healthy 07:07:32 UTC, **29.1 s**); nginx reloaded; the limits were verified on the running containers (worker 640/1,280 MiB, BFF 448/896 MiB); `compose.active.json` updated. No rollback |
+| Untouched | api (started 06:51:59) and gateway (06:52:30), same images (rev `40caa8c` / `0a196a1`) |
+| Logs | 0 errors in api, bff and worker; the gateway logged one `/healthz/bff` connection refused at 07:07:08, while the BFF was being recreated |
+
+**Smoke tests (repeated):**
+- **Health:** API host `/health` 200 and `/api/v1/projects` 404; app `/` and `/auth/session` 200; `/api/v1/results` without a session 401. Enforcement is `false` on api, bff and worker; the worker answers ping; the reference bind is still read-only.
+- **Edge route test (from the workstation):**
+
+| Request | Result |
+|---|---|
+| 26 MB to the upload route | **401** (reached the BFF) |
+| 52.5 MB to the upload route | **413** |
+| 26 MB to `/api/v1/analyses`, `/api/v1/source-datasets` and the API host | **413** each |
+
+- **Real submission:**
+  - **Request:** the known-good Rufiji request, hazard and Exposure on, twice with one key.
+  - **Submit:** **202 / 202, the same task** `a561f52a-60c7-40a6-967b-d24cb9ff4ef2`.
+  - **Run:** 07:19:49 → 07:22:49 UTC, **180 s**, COMPLETED; 0 worker errors.
+  - **Result:** **`5ca6d4fb-7d6a-47b6-b3af-88f981ddf2fe`**: L1 Pwani and L2 Rufiji assessed; L3 "Ward boundaries not yet provided". The ward dataset is **not uploaded** (0 administrative-boundary datasets).
+
+**Memory and swap observation** (2 s samples, `obs-mem.log`):
+
+| Window | Host MemAvailable | Swap used | Containers |
+|---|---|---|---|
+| Idle, 07:09–07:19 UTC (10 min, 148 samples, 0 tasks) | 687–887 MB | 92–99 MB | worker about 240 MiB; BFF 85–99 MiB; **API grew 358 → 434 MiB while idle** |
+| **Analysis run**, 07:19:40–07:23:50 (62 samples) | **minimum 408 MB** (07:21:57) | **maximum 243 MB** (07:22:50) | **worker peak 628 MiB of 640**; BFF 113 MiB; API 432 MiB |
+| After (07:23:52) | 773 MB | 166 MB | worker 240/640, BFF 97/448, API 418/512, gateway 3/96 MiB |
+
+**Findings:**
+- **The worker's working set for an Exposure run is about 630 MiB.** Under r10 it was capped at 512 MiB, and the excess went to the container's swap. It now runs in RAM, so the host's lowest available memory during the run is lower than under r10 (408 MB, against 604 MB). It stayed above the 300 MB alert.
+- **Wards:** once the ward layer is approved, the first ward parse per worker process adds about 114 MB. That exceeds the new 640 MiB limit too, so it would use the worker's swap allowance (1,280 MiB, slower but not killed). The host's lowest available memory during such a run would be about 300 MB.
+- **Options (owner decision):**
+  - the prebuilt indexed GeoPackage per ward version (measured: +64 MB once at build time, about 0 MB per run);
+  - or a larger server (4 GB) before the ward layer is approved.
+- **The API's idle growth** (358 → 434 MiB, limit 512 MiB) is worth watching.
