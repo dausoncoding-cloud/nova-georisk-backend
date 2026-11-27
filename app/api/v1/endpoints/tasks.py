@@ -22,6 +22,7 @@ from app.models.task import TaskStatus, TaskType
 from app.schemas.common import TaskPage, TaskStatusResponse, TaskArchiveResponse
 from app.services.billing import refunds as billing_refunds
 from app.services.billing import submission as billing
+from app.services.tasks import stale_sweeper
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"], dependencies=[Depends(verify_internal_secret)])
 
@@ -50,6 +51,7 @@ def list_tasks(
     query = db.query(Task).join(Project, Task.project_id == Project.id)
     if not context.is_service:
         require_active_membership(db, context)
+        stale_sweeper.sweep(db, context.organization_id)  # r12: this organization's stale RUNNING tasks only
         query = query.filter(
             Project.organization_id == context.organization_id,
             Task.engine_key.in_(active_engine_keys(db, context.organization_id)),
@@ -83,6 +85,8 @@ def get_task_status(
     require_active_membership(db, context)
     require_project_access(task.project, context)
     require_engine_entitlement(db, context, task.engine_key)
+    if task.status == TaskStatus.RUNNING and not context.is_service:
+        stale_sweeper.sweep(db, task.project.organization_id)  # r12; access to this project already checked
     return serialize_task(task, _latest_result(db, task.id))
 
 

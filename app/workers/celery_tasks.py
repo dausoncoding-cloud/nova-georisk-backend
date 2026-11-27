@@ -7,6 +7,11 @@ Result row(s), flip status -> Completed/Failed.
 """
 from __future__ import annotations
 
+# Worker memory (r12): this module is imported by the Celery parent process and by the API on submission. It must stay
+# light: the engines (Earth Engine, pyogrio, sklearn, matplotlib, rasterio ...) are imported inside the task, in the
+# forked child that runs it (max_tasks_per_child=1), so the parent never holds them and the child never copies them.
+# tests/unit/test_worker_memory.py guards this.
+import gc
 import logging
 import shutil
 import uuid
@@ -19,11 +24,7 @@ from app.db.session import SessionLocal
 from app.models.result import Result
 from app.models.aoi import AOI
 from app.models.project import Project
-from app.services.source_data.boundaries import revalidate_boundary_aoi
 from app.models.task import Task, TaskStatus
-from app.platform.engines import get_engine_adapter
-from app.platform.engines.base import EngineExecutionContext
-from app.platform.result_exports import artifact_fingerprint
 from sqlalchemy import func
 from app.services.tasks.execution import (append_event, execution_record, claim_task,
     validate_execution, validate_workload, validate_source_snapshots)
@@ -31,9 +32,18 @@ from geoalchemy2.shape import to_shape
 from shapely.geometry import mapping
 from celery.worker.request import Request
 from celery.exceptions import Ignore, Reject, Retry
+from celery.signals import worker_init
 from billiard.einfo import ExceptionWithTraceback
 
 logger = logging.getLogger(__name__)
+
+
+@worker_init.connect
+def freeze_parent_heap(**_kwargs) -> None:
+    """r12 (option C): move the parent's objects out of the garbage collector's reach before the pool forks, so a
+    task child's collections do not write to (and so copy) the pages it shares with the parent."""
+    gc.collect()
+    gc.freeze()
 
 
 def persist_worker_failure(task_id, error):
@@ -240,6 +250,7 @@ def run_flood_screening_atlas(self, task_id: str) -> None:
         result.provenance = manifest.provenance
         result.output_files = {}
         relative_directory = Path(str(task.project_id)) / str(task.aoi_id) / str(result.id)
+        from app.platform.result_exports import artifact_fingerprint
         for product in manifest.products:
             relative_path = relative_directory / product["filename"]
             size, checksum = artifact_fingerprint(output_root / relative_path)
@@ -324,6 +335,9 @@ def execute_engine_task(db, task_id: uuid.UUID) -> None:
         aoi = db.get(AOI, task.aoi_id)
         if aoi is None:
             raise ValueError("Analysis AOI is unavailable")
+        from app.platform.engines import get_engine_adapter  # heavy: imported in the task process only
+        from app.platform.engines.base import EngineExecutionContext
+        from app.services.source_data.boundaries import revalidate_boundary_aoi
         revalidate_boundary_aoi(db, aoi)
         adapter = get_engine_adapter(task.engine_key)
         metadata = dict(params.get("gis_metadata") or {})
