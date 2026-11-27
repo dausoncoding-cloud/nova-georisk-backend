@@ -74,19 +74,83 @@ def test_regions_wait_for_approval_then_are_grouped_from_districts(patched):
     assert approved.provenance["grouping"]["region_lookup"]["boundaryID"] == "B1"
 
 
-def test_wards_only_from_an_approved_client_dataset(monkeypatch):
+def _ward_file(tmp_path, wards, name="wards.geojson"):
+    features = [{"type": "Feature", "geometry": mapping(geom), "properties": {
+        "spatial_unit_id": sid, "name": nm, "level": "ward", "observed_at": "2026-11-22T00:00:00Z", "quality_flag": "valid",
+        "council_short": "Rufiji DC", "provenance_status": "unconfirmed"}} for sid, nm, geom in wards]
+    path = tmp_path / name
+    path.write_text(json.dumps({"type": "FeatureCollection", "features": features}))
+    return path
+
+
+def _source(path, sha="ab" * 32, dataset_id="ds"):
+    return SimpleNamespace(path=path, evidence={"reviewed_at": "2026-11-27T10:00:00Z"},
+                           dataset=SimpleNamespace(id=dataset_id, metadata_json={"managed_version": {"descriptive_metadata": {
+                               "provenance_statement": "Ward boundaries supplied by the client ... Year: not officially confirmed.",
+                               "year": "not officially confirmed; evidence points to 2022", "licence": "unconfirmed"}}}),
+                           manifest=SimpleNamespace(category="administrative_boundaries", source_id="client-nbs-wards", sha256=sha.upper(),
+                                                    licence=SimpleNamespace(model_dump=lambda: {"identifier": "unconfirmed"}),
+                                                    provenance=SimpleNamespace(model_dump=lambda: {"producer": "client"})))
+
+
+@pytest.fixture
+def _fresh_wards():
+    bs._ward_index.cache_clear()
+    yield
+    bs._ward_index.cache_clear()
+
+
+def test_wards_only_from_an_approved_client_dataset_and_only_touching_ones(tmp_path, monkeypatch, _fresh_wards):
     import app.services.source_data.boundaries as boundaries
-    monkeypatch.setattr(boundaries, "approved_boundary_sources", lambda db, project_id: iter(()))
+    monkeypatch.setattr(boundaries, "approved_boundary_sources", lambda db, project_id, **k: iter(()))
     result = bs.ReviewedWards(None, "p").units(AOI)
     assert isinstance(result, bs.NotProvided) and result.reason == "Ward boundaries not yet provided"
-    ward = {"type": "Feature", "geometry": mapping(box(36.0, -1.1, 36.1, -1.0)),
-            "properties": {"spatial_unit_id": "TZ-W1", "name": "Ikwiriri", "level": "ward"}}
-    source = SimpleNamespace(data=json.dumps({"features": [ward]}), dataset=SimpleNamespace(id="ds"), evidence={"reviewed_at": "t"},
-                             manifest=SimpleNamespace(category="administrative_boundaries", source_id="nbs", sha256="AB",
-                                                      licence=SimpleNamespace(model_dump=lambda: {"name": "client"})))
-    monkeypatch.setattr(boundaries, "approved_boundary_sources", lambda db, project_id: iter([source]))
+    path = _ward_file(tmp_path, [("060511013", "Ikwiriri", box(36.0, -1.1, 36.1, -1.0)),
+                                 ("060511023", "Mgomba", box(36.1, -1.2, 36.2, -1.1)),
+                                 ("010111011", "Far away", box(40.0, -5.0, 40.1, -4.9))])
+    seen = []
+    monkeypatch.setattr(boundaries, "approved_boundary_sources", lambda db, project_id, **k: seen.append(k) or iter([_source(path)]))
     result = bs.ReviewedWards(None, "p").units(AOI)
-    assert [u.name for u in result.units] == ["Ikwiriri"] and result.provenance["dataset_id"] == "ds"
+    assert seen == [{"verify_only": True}]  # the run never re-reads 26 MB into memory
+    assert [u.name for u in result.units] == ["Ikwiriri", "Mgomba"] and result.units[0].parent == "Rufiji DC"
+    assert result.provenance["dataset_id"] == "ds" and "not officially confirmed" in result.provenance["provenance_statement"]
+    assert result.provenance["licence"] == {"identifier": "unconfirmed"} and result.provenance["sha256"] == "ab" * 32
+
+
+def test_a_version_is_parsed_once_and_a_new_checksum_parses_again(tmp_path, monkeypatch, _fresh_wards):
+    import pyogrio
+    import app.services.source_data.boundaries as boundaries
+    path = _ward_file(tmp_path, [("060511013", "Ikwiriri", box(36.0, -1.1, 36.1, -1.0))])
+    calls, real = [], pyogrio.read_dataframe
+    monkeypatch.setattr(pyogrio, "read_dataframe", lambda *a, **k: calls.append(a[0]) or real(*a, **k))
+    for sha in ("ab" * 32, "ab" * 32, "cd" * 32):
+        monkeypatch.setattr(boundaries, "approved_boundary_sources", lambda db, project_id, sha=sha, **k: iter([_source(path, sha=sha)]))
+        assert [u.name for u in bs.ReviewedWards(None, "p").units(AOI).units] == ["Ikwiriri"]
+    assert len(calls) == 2  # once for the first version, once for the new checksum
+
+
+def test_ward_index_time_and_memory_at_nbs_size(tmp_path):
+    """4,344 wards of about 250 vertices (~26 MB, the size of the NBS ward layer), parsed in a fresh process."""
+    import math, subprocess, sys
+    features = []
+    for i in range(4344):
+        cx, cy = 30 + (i % 66) * 0.15, -11 + (i // 66) * 0.15
+        ring = [[round(cx + 0.07 * math.cos(2 * math.pi * k / 250), 6), round(cy + 0.07 * math.sin(2 * math.pi * k / 250), 6)] for k in range(250)]
+        ring.append(ring[0])
+        features.append({"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [ring]}, "properties": {
+            "spatial_unit_id": f"{i:09d}", "name": f"Ward {i}", "level": "ward", "observed_at": "2026-11-22T00:00:00Z",
+            "quality_flag": "valid"}})
+    path = tmp_path / "big.geojson"
+    path.write_text(json.dumps({"type": "FeatureCollection", "features": features}, separators=(",", ":")))
+    code = (f"import resource,time,sys; sys.path.insert(0, {str(Path(__file__).resolve().parents[2])!r});"
+            "import app.services.firris.boundary_sources as bs;"
+            "b=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss; t=time.time();"
+            f"i=bs._ward_index({str(path)!r}, 'ds', 'ab'*64);"
+            "print(time.time()-t, (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss-b)/1024, len(i.units))")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300)
+    seconds, mb, count = out.stdout.split()
+    assert int(count) == 4344, out.stderr[-500:]
+    assert float(seconds) < 20 and float(mb) < 200, (seconds, mb, path.stat().st_size)
 
 
 REAL = Path(os.environ.get("REFERENCE_DATA_DIR", Path.home() / "frris-guide-data" / "reference"))
