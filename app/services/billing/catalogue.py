@@ -106,8 +106,22 @@ def plan_limits_from_file(catalogue: dict, item: dict) -> dict:
             "refund_on_data_failure": item.get("refund_on_data_failure", refund_default)}
 
 
+def catalogue_version_of(plan: BillingPlan) -> int:
+    """The catalogue file version this plan was last seeded or brought up to (security review M2)."""
+    value = (plan.metadata_json or {}).get("catalogue_version")
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+def plan_on_current_catalogue(plan: BillingPlan, catalogue: dict | None = None) -> bool:
+    """M2: True once `apply-catalogue --apply` (or a fresh seed) has brought this plan to the loaded file. Until
+    then its prices may be an earlier file's, and Mobile Money must not charge them."""
+    return catalogue_version_of(plan) >= int((catalogue or load_catalogue())["version"])
+
+
 def apply_catalogue(db: Session, *, apply: bool, actor, catalogue: dict | None = None) -> list[dict]:
-    """Differences between the database and the file, applied as audited changes when `apply`."""
+    """Differences between the database and the file, applied as audited changes when `apply`. Every plan is also
+    stamped with the file's version (M2), which is what lets Mobile Money charge its prices."""
+    from app.services.billing import audit
     from app.services.platform_admin import actions
 
     catalogue = catalogue or load_catalogue()
@@ -139,6 +153,20 @@ def apply_catalogue(db: Session, *, apply: bool, actor, catalogue: dict | None =
                 if apply:
                     actions.new_price_version(db, plan.key, reason=reason, actor=actor,
                                               source=f"plans.v{catalogue['version']}.json", **price)
+    for family, plans in catalogue["plans"].items():  # M2: last, so a stamped plan has the file's prices
+        for item in plans:
+            plan = db.get(BillingPlan, item["key"])
+            if plan is None or plan_on_current_catalogue(plan, catalogue):
+                continue
+            previous = catalogue_version_of(plan)
+            changes.append({"plan": plan.key, "change": "catalogue_version", "from": previous,
+                            "to": int(catalogue["version"])})
+            if apply:
+                plan.metadata_json = {**(plan.metadata_json or {}), "catalogue_version": int(catalogue["version"])}
+                db.flush()
+                audit.record(db, actor, "plan.catalogue_version", reason=reason, organization_id=None,
+                             target_type="plan", target_id=plan.key, previous={"catalogue_version": previous},
+                             current={"catalogue_version": int(catalogue["version"])})
     db.flush()
     return changes
 

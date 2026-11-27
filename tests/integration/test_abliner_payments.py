@@ -62,8 +62,61 @@ def _pay(client, t, purpose="top_up", phone=PHONE, headers=None, key=None):
                        json={"subscription_id": str(t.sub.id), "purpose": purpose, "phone": phone})
 
 
+def _as_production_before_apply_catalogue(db, plan_key="frris_wrris.researcher"):
+    """Security review M2: the plan as production has it after the migration and before `apply-catalogue --apply`:
+    the plans.v1.json prices in force and the plan stamped catalogue version 1. Set explicitly, so the test no
+    longer depends on whether an earlier test left v1 (migration seed) or v2 (fixture re-seed) rows behind."""
+    import json
+    from pathlib import Path
+
+    from app.models.platform import BillingPlan
+    from app.services.billing import audit, catalogue
+    from app.services.platform_admin import actions
+
+    v1 = json.loads(Path(catalogue.CATALOGUE_PATH).with_name("plans.v1.json").read_text(encoding="utf-8"))
+    family = plan_key.split(".")[0]
+    item = next(entry for entry in v1["plans"][family] if entry["key"] == plan_key)
+    actions.new_price_version(db, plan_key, monthly_price=item["monthly_price"],
+                              top_up_credit_price=catalogue.top_up_credit_price(v1, family, item),
+                              reason="test: v1 prices in force", actor=audit.Actor.command("pytest"),
+                              source="plans.v1.json")
+    plan = db.get(BillingPlan, plan_key)
+    plan.metadata_json = {**(plan.metadata_json or {}), "catalogue_version": 1}
+    db.commit()
+
+
+def test_m2_mobile_money_never_charges_v1_prices(client, db_session, abliner):
+    from app.services.billing import audit, catalogue
+
+    t = _tenant(db_session, "ab-m2")
+    _as_production_before_apply_catalogue(db_session)
+    assert catalogue.current_price(db_session, "frris_wrris.researcher").top_up_credit_price == 10_000  # v1
+    offers = {i["purpose"]: i for i in client.get(f"/api/v1/billing/abliner/offers?subscription_id={t.sub.id}",
+                                                  headers=t.headers).json()["offers"]}
+    for purpose in ("top_up", "renewal"):
+        assert offers[purpose]["available"] is False and offers[purpose]["unavailable_code"] == "catalogue_not_applied"
+        assert offers[purpose]["amount"] is None  # the v1 amount is not even quoted
+    refused = _pay(client, t)
+    assert refused.status_code == 409 and refused.json()["error"]["code"] == "catalogue_not_applied"
+    assert abliner.calls == [] and db_session.query(PaymentIntent).filter_by(subscription_id=t.sub.id).count() == 0
+    # The owner runs apply-catalogue --apply: the v2 price is charged.
+    planned = catalogue.apply_catalogue(db_session, apply=True, actor=audit.Actor.command("apply-catalogue"))
+    db_session.commit()
+    assert {"plan": "frris_wrris.researcher", "change": "catalogue_version", "from": 1, "to": 2} in planned
+    offers = {i["purpose"]: i for i in client.get(f"/api/v1/billing/abliner/offers?subscription_id={t.sub.id}",
+                                                  headers=t.headers).json()["offers"]}
+    assert (offers["top_up"]["available"], offers["top_up"]["amount"]) == (True, 150_000)
+    assert _pay(client, t).json()["amount"] == 150_000
+
+
 def test_offers_follow_plan_prices_and_the_gateway_limits(client, db_session, abliner, monkeypatch):
+    from app.services.billing import audit, catalogue
+
     t = _tenant(db_session, "ab-offers")
+    # Deterministic start (M2): whatever earlier tests left, the v1 state, then the v2 catalogue applied.
+    _as_production_before_apply_catalogue(db_session)
+    catalogue.apply_catalogue(db_session, apply=True, actor=audit.Actor.command("apply-catalogue"))
+    db_session.commit()
     offers = client.get(f"/api/v1/billing/abliner/offers?subscription_id={t.sub.id}", headers=t.headers).json()
     by = {item["purpose"]: item for item in offers["offers"]}
     assert offers["enabled"] is True

@@ -439,4 +439,7 @@ def test_apply_catalogue_moves_a_v1_database_to_the_decided_v2_prices_and_limits
     assert db_session.get(BillingPlan, "megis.internal").session_limit == 3  # Q8: Internal exempt
     assert catalogue.apply_catalogue(db_session, apply=True, actor=actor) == []
     events = db_session.query(PlatformAudit).filter(PlatformAudit.actor_label == "operator command: apply-catalogue").all()
-    assert {event.action for event in events} == {"plan.price", "plan.limits"} and len(events) == len(planned)
+    assert {event.action for event in events} == {"plan.price", "plan.limits", "plan.catalogue_version"}
+    assert len(events) == len(planned)
+    # Security review M2: every plan is stamped with the file's version, which is what Mobile Money checks.
+    assert all(catalogue.plan_on_current_catalogue(plan) for plan in db_session.query(BillingPlan))

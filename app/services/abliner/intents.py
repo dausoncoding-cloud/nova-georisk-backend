@@ -64,6 +64,11 @@ def offer(db: Session, subscription: OrganizationSubscription, purpose: str, tod
     plan = db.get(BillingPlan, subscription.plan_key) if subscription.plan_key else None
     if plan is None or plan.is_internal:
         return _unavailable(purpose, "internal_plan", "The Internal plan is not paid for.")
+    if not catalogue.plan_on_current_catalogue(plan):
+        # Security review M2: prices from an earlier catalogue file are never charged by Mobile Money. The owner
+        # runs `billing.cli apply-catalogue --apply` before ABLINER_PAYMENTS_ENABLED=true.
+        return _unavailable(purpose, "catalogue_not_applied",
+                            "Mobile Money is not available for this plan yet. " + CONTACT)
     price = catalogue.current_price(db, plan.key)
     if purpose == "top_up":
         if not ledger.is_current(subscription):  # Q7: top-up credits are usable only with an active plan
