@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from app.models.identity import MembershipRole, Organization, OrganizationMembership, User
 from app.models.platform import EntitlementStatus, OrganizationEngineEntitlement
 from app.models.project import Project
+from tests.integration.billing_fixtures import subscribe
 
 
 def _identity(db_session, organization, role=MembershipRole.ANALYST, user=None):
@@ -72,6 +73,8 @@ def test_firris_project_and_analysis_require_organization_entitlement(
     _, blocked_headers = _identity(db_session, blocked, MembershipRole.OWNER)
     _, enabled_headers = _identity(db_session, enabled, MembershipRole.OWNER)
     _grant(db_session, enabled)
+    db_session.flush()
+    subscribe(db_session, enabled.id)  # enforcement ON needs an Active subscription (billing_fixtures)
     db_session.commit()
 
     assert client.get("/api/v1/engines", headers=blocked_headers).json() == []
