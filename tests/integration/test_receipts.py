@@ -150,6 +150,11 @@ def test_abliner_settled_and_test_payments_get_receipts(client, db_session, sell
     test = payments.record_test_payment(db_session, t.sub.id, amount=500, method="mobile_money", paid_on=date.today(),
                                         actor=audit.Actor(user_id=None, label="system:abliner"), key=f"abliner:{uuid.uuid4()}")
     db_session.commit()
-    text = _text(client.get(f"/api/v1/billing/payments/{test.payment.id}/receipt", headers=t.headers).content)
+    # Security review L5: the customer never sees the operator's test; NOVA ARI downloads it from the console.
+    assert client.get(f"/api/v1/billing/payments/{test.payment.id}/receipt", headers=t.headers).status_code == 404
+    admin = _tenant(db_session, "rc-test-ari", plan_key="frris_wrris.internal")
+    access.grant(db_session, email=None, user_id=admin.user.id, reason="operator", operator="test")
+    db_session.commit()
+    text = _text(client.get(f"/api/v1/platform-admin/payments/{test.payment.id}/receipt", headers=admin.headers).content)
     assert "TEST" in text and "no credits, not a sale" in text and "TEST-" in text
     assert db_session.query(PaymentReceipt).filter_by(payment_id=test.payment.id).one().series == "test"

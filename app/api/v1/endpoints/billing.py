@@ -218,7 +218,9 @@ def get_payment_receipt(payment_id: uuid.UUID, db: Session = Depends(get_db),
         raise PublicAPIError(403, "billing_role_required", "Only organisation owners and admins can see payments.")
     payment = db.get(Payment, payment_id)
     receipt = receipts.for_payment(db, payment_id) if payment is not None else None
-    if payment is None or payment.organization_id != context.organization_id or receipt is None:
+    # Security review L5: the operator's gateway test is NOVA ARI's, not the customer's (the console still has it).
+    if (payment is None or payment.organization_id != context.organization_id or receipt is None
+            or payment.purpose == "test"):
         raise PublicAPIError(404, "receipt_not_found", "Receipt not found.")
     return receipts.response(db, receipt)
 
