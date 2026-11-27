@@ -36,6 +36,9 @@ PROVENANCE_STATEMENT = (
     "confirmed; evidence points to 2022. Licence: unconfirmed; the MIT notice belongs to the GitHub repository, not to "
     "the original data owner. Client statement of 23 Nov 2026: the data are public, and the client agreed to proceed "
     "with the data at hand.")
+# The schema requires a number for GeoJSON (positional_uncertainty_m); 0.11 m is only the conversion rounding.
+POSITIONAL_ACCURACY = ("Source positional accuracy: not stated by the source (the 0.11 m in the manifest is the conversion's "
+                       "coordinate rounding only).")
 SPELLING = [  # display only; the delivered name is kept in council_name
     ("Halmashuari ", "Halmashauri "),
     ("Halmashauri ya Manispaa Kigoma Ujiji", "Halmashauri ya Manispaa ya Kigoma Ujiji"),
@@ -124,13 +127,14 @@ def main(shp: str, out_dir: str) -> None:
         "source_id": f"client-nbs-wards-{DELIVERED}", "crs": "EPSG:4326", "vertical_datum": None, "units": "boundary_polygon",
         "temporal_coverage": {"start": OBSERVED_AT, "end": OBSERVED_AT},
         "geographic_coverage": {"west": west, "south": south, "east": east, "north": north},
-        # The source states no positional accuracy. 0.11 m is only the conversion's coordinate rounding (6 decimals); the
-        # uncertainty block says so. The uploading admin may change it.
+        # Mandatory number for GeoJSON. The source states no positional accuracy: 0.11 m is only the conversion's
+        # coordinate rounding (6 decimals), labelled as such here and in management.positional_accuracy.
         "spatial_resolution": None, "positional_uncertainty_m": 0.11, "spatial_unit_reference": "ward (Kata)",
         "quality_assessment": {"method": "Geometry validity, ward overlaps and gaps, nesting in councils and regions, duplicate "
                                          "codes (validation of 22 Nov 2026; scripts/convert_nbs_wards.py)",
                                "assessed_at": f"{DELIVERED}T12:00:00Z", "assessor": "NOVAREX operator", "status": "passed"},
-        "uncertainty": {"measure": "Coordinate rounding of the conversion only (6 decimals); the source states no positional accuracy",
+        "uncertainty": {"measure": "Conversion coordinate rounding only (6 decimals), NOT the source's positional accuracy, "
+                                   "which the source does not state",
                         "value": 0.11, "unit": "m"},
         "licence": {"identifier": "unconfirmed (MIT notice belongs to the GitHub repository)",
                     "permitted_use": "Client instruction of 23 Nov 2026: proceed with the data at hand; data described by the client as public",
@@ -140,6 +144,7 @@ def main(shp: str, out_dir: str) -> None:
                        "source_uri": "github.com/Heed725/Tanzania_Admin_Shapefiles (identical files)",
                        "acquisition_method": "Delivered by the client as a 7z archive; converted with scripts/convert_nbs_wards.py"},
         "management": {"provenance_statement": PROVENANCE_STATEMENT, "year": "not officially confirmed; evidence points to 2022",
+                       "positional_accuracy": POSITIONAL_ACCURACY,
                        "licence": "unconfirmed; MIT notice belongs to the GitHub repository",
                        "duplicate_codes_made_unique": [d["spatial_unit_id"] for d in duplicates]},
     }

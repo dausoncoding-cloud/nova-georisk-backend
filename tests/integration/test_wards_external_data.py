@@ -39,13 +39,14 @@ def _metadata(bounds):
             "spatial_resolution": None, "positional_uncertainty_m": 0.11, "spatial_unit_reference": "ward (Kata)",
             "quality_assessment": {"method": "Geometry validity, overlaps, gaps, nesting, duplicate codes", "assessed_at": "2026-11-22T12:00:00Z",
                                    "assessor": "NOVAREX operator", "status": "passed"},
-            "uncertainty": {"measure": "Coordinate rounding only; the source states no positional accuracy", "value": 0.11, "unit": "m"},
+            "uncertainty": {"measure": "Conversion coordinate rounding only (6 decimals), NOT the source's positional accuracy, which the source does not state", "value": 0.11, "unit": "m"},
             "licence": {"identifier": "unconfirmed (MIT notice belongs to the GitHub repository)",
                         "permitted_use": "Client instruction of 23 Nov 2026: proceed with the data at hand", "redistribution": "restricted"},
             "provenance": {"producer": "Described by the client as NBS (not officially confirmed)", "custodian": "Client (supplied 22 Nov 2026)",
                            "source_uri": "github.com/Heed725/Tanzania_Admin_Shapefiles (identical files)",
                            "acquisition_method": "Delivered by the client; converted with scripts/convert_nbs_wards.py"},
             "management": {"provenance_statement": STATEMENT, "year": "not officially confirmed; evidence points to 2022",
+                           "positional_accuracy": "Source positional accuracy: not stated by the source (0.11 m is the conversion rounding only).",
                            "licence": "unconfirmed; MIT notice belongs to the GitHub repository"}}
 
 
@@ -83,6 +84,7 @@ def test_ward_layer_upload_second_admin_approval_and_use(enforcement, client, db
     assert [u.name for u in result.units] == ["Ikwiriri", "Mgomba"] and {u.parent for u in result.units} == {"Rufiji DC"}
     assert result.provenance["provenance_statement"] == STATEMENT and result.provenance["sha256"] == hashlib.sha256(data).hexdigest()
     assert result.provenance["licence"]["identifier"].startswith("unconfirmed")
+    assert result.provenance["positional_accuracy"].startswith("Source positional accuracy: not stated")
     # Another project of the same organisation never sees this layer.
     other = setup_org(db_session)[2]
     assert isinstance(bs.ReviewedWards(db_session, other.id).units(mapping(box(36.0, -1.2, 36.2, -1.0))), bs.NotProvided)

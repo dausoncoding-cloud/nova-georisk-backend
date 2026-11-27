@@ -115,6 +115,7 @@ def test_wards_only_from_an_approved_client_dataset_and_only_touching_ones(tmp_p
     assert [u.name for u in result.units] == ["Ikwiriri", "Mgomba"] and result.units[0].parent == "Rufiji DC"
     assert result.provenance["dataset_id"] == "ds" and "not officially confirmed" in result.provenance["provenance_statement"]
     assert result.provenance["licence"] == {"identifier": "unconfirmed"} and result.provenance["sha256"] == "ab" * 32
+    assert result.provenance["positional_accuracy"] == "Source positional accuracy: not stated."  # default when the review has no note
 
 
 def test_a_version_is_parsed_once_and_a_new_checksum_parses_again(tmp_path, monkeypatch, _fresh_wards):

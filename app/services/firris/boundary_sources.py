@@ -189,6 +189,7 @@ class ReviewedWards:
                           "sha256": source.manifest.sha256.lower(), "licence": source.manifest.licence.model_dump(),
                           "provenance": source.manifest.provenance.model_dump(), "reviewed_at": source.evidence.get("reviewed_at"),
                           "provenance_statement": notes.get("provenance_statement"), "year": notes.get("year"),
+                          "positional_accuracy": notes.get("positional_accuracy") or "Source positional accuracy: not stated.",
                           "licence_note": notes.get("licence")}
             return BoundaryUnits("L3", touching, provenance)
         return NotProvided("L3", WARDS_NOT_PROVIDED)

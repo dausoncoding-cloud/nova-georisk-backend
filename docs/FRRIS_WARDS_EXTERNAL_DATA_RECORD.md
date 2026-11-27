@@ -15,7 +15,7 @@
 
 **Deviation from the request, for the owner:**
 - **`quality_flag`:** it stays `valid`. The validator accepts only `valid` for every category ("Only quality_flag=valid observations may be ingested"); it is a data-quality gate, and the geometry and fields are valid. The unconfirmed provenance is recorded in `provenance_status = unconfirmed`, in the manifest and in the statement.
-- **`positional_uncertainty_m`:** required for GeoJSON. The source states none, so the metadata gives **0.11 m, the conversion rounding only**, and says so in the uncertainty block. The admin may change it before upload.
+- **`positional_uncertainty_m`:** the schema **requires a number** for GeoJSON. The owner decided (27 Nov 2026) not to record 0.11 m as the source's accuracy. The manifest keeps 0.11 m only as a value labelled "Conversion coordinate rounding only (6 decimals), NOT the source's positional accuracy". The review notes carry `positional_accuracy` = "Source positional accuracy: not stated by the source". That note is part of the provenance line in the report, workbook, CSV, GeoPackage and Results card.
 
 ## 2. The converted layer
 

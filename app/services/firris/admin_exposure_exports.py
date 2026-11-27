@@ -62,8 +62,11 @@ def licence_text(prov: dict[str, Any]) -> str | None:
 
 
 def provenance_line(level: dict[str, Any]) -> str | None:
-    """The review's provenance statement for a client-supplied layer (shown with every table and GIS layer of it)."""
-    return (level.get("provenance") or {}).get("provenance_statement") or None
+    """The review's provenance statement for a client-supplied layer, with its positional-accuracy note (shown with every
+    table and GIS layer of it)."""
+    prov = level.get("provenance") or {}
+    parts = [prov.get("provenance_statement"), prov.get("positional_accuracy")]
+    return " ".join(p for p in parts if p) or None
 
 
 def limitations(record: dict[str, Any] | None) -> list[str]:

@@ -164,7 +164,8 @@ def _with_wards(aoi, project_id, **kwargs):
              au.Unit("060711131", "Mtunda", "L3", box(36.3, -1.7, 36.7, -0.9), code="060711131", parent="Kibiti DC")]
     levels["L3"] = au.BoundaryUnits("L3", wards, {"dataset": "client-supplied ward boundaries (reviewed dataset)", "dataset_id": "ds-1",
                                                   "licence": {"identifier": "unconfirmed (MIT notice belongs to the GitHub repository)"},
-                                                  "reviewed_at": "2026-11-27T10:00:00Z", "provenance_statement": STATEMENT})
+                                                  "reviewed_at": "2026-11-27T10:00:00Z", "provenance_statement": STATEMENT,
+                                                  "positional_accuracy": "Source positional accuracy: not stated by the source."})
     return levels
 
 
@@ -177,13 +178,14 @@ def test_approved_wards_carry_the_provenance_line_in_report_workbook_and_geopack
     text = _text(tmp_path / output.output_files["scientific_report_pdf"]["path"])
     assert "Ikwiriri (Rufiji DC)" in text and "Provenance: Ward boundaries supplied by the client" in text
     assert "evidence points to 2022" in text and "Licence: unconfirmed" in text
+    assert "Source positional accuracy: not stated" in text and "0.11" not in text
     gpkg = tmp_path / output.output_files["exposure_by_admin_unit_gpkg"]["path"]
     assert {name for name, _ in pyogrio.list_layers(gpkg)} >= {"wards", "about"}
     with sqlite3.connect(gpkg) as db:
         assert "evidence points to 2022" in dict(db.execute("select table_name, description from gpkg_contents").fetchall())["wards"]
-    assert set(pyogrio.read_dataframe(gpkg, layer="wards")["provenance"]) == {STATEMENT}
+    assert set(pyogrio.read_dataframe(gpkg, layer="wards")["provenance"]) == {STATEMENT + " Source positional accuracy: not stated by the source."}
     about = pyogrio.read_dataframe(gpkg, layer="about")
     assert any("evidence points to 2022" in v for v in about[about["item"] == "Layer wards"]["value"])
     rows = list(load_workbook(tmp_path / output.output_files["firris_excel_report"]["path"], read_only=True)["Exposure by admin unit"].iter_rows(values_only=True))
     column = rows[0].index("boundary provenance")
-    assert {r[column] for r in rows[1:] if r[0] == "Ward"} == {STATEMENT}
+    assert {r[column] for r in rows[1:] if r[0] == "Ward"} == {STATEMENT + " Source positional accuracy: not stated by the source."}
