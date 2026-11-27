@@ -315,7 +315,7 @@ The app itself is reached only through `app.novageorisk.com` (gateway, BFF).
 | Q4 roll-over / top-up expiry | Unused monthly credits expire at month end; top-ups do not | `BILLING_MONTHLY_CREDITS_ROLL_OVER=false` (default, unchanged), `BILLING_TOP_UP_CREDITS_EXPIRE=false` |
 | Q5 storage | Warn at 90% and 100%; at 100% new analyses stop until space is freed or added; viewing and downloads always allowed. "Free up space" and "Request extra storage" (price per GB TBD) | `BILLING_STORAGE_BLOCK_AT_LIMIT=true`, `BILLING_STORAGE_WARNING_PERCENTS=[90]`; `storage_extra_gb_price` in `plans.v2.json` (null) |
 | Q6 receipts / VAT | PDF payment receipt for every recorded payment (Abliner-settled included), "Payment receipt – not a TRA fiscal receipt"; test payments in a TEST series. Seller identity and VAT mode are settings (default VAT none) | `SELLER_LEGAL_NAME`, `SELLER_TIN`, `SELLER_ADDRESS`, `SELLER_LOGO_PATH`, `SELLER_VAT_MODE`, `SELLER_VAT_RATE_PERCENT` |
-| Q7 expiry | New analyses stop; view/download for 2 days, then access closes; Renew plan (Mobile Money too); top-ups only with an active plan | `BILLING_VIEW_GRACE_DAYS=2`; the `sweep-statuses --apply` cron closes access |
+| Q7 expiry | New analyses stop; view/download for 2 days, then access closes; Renew plan (Mobile Money too); top-ups only with an active plan | `BILLING_VIEW_GRACE_DAYS=2`, set in the server environment **at Phase B** (default unset, security review H1); the `sweep-statuses --apply` cron closes access, and only while billing enforcement is on |
 | Q8 sessions | 1 active session per user on all customer plans; a new sign-in ends the old one with the existing notice. The Internal plan keeps 3 (owner, 2026-11-21) | `plans.v2.json` `session_limit: 1` (Internal: 3) |
 | Q9 IP retention | 30 days agreed; privacy notice on the sign-in page and under "Your sessions" | `SESSION_IP_RETENTION_DAYS=30` (unchanged); login-history retention stays `SESSION_HISTORY_RETENTION_DAYS` (unset, kept) |
 
@@ -413,22 +413,38 @@ branch.** If the Abliner review changes that branch, this one is rebased onto it
 | C1 | `app/api/v1/endpoints/billing.py` `delete_result_files`; `app/services/billing/storage.py` | Deletes customer files: role (owner/admin), organisation match, `require_project_access`, `require_engine_entitlement`, typed confirmation, row lock, artifact-root containment per file (a path outside is skipped and logged; tested), audit row | 403 / 404 / 409 / 422; 503 if a file cannot be removed |
 | C2 | `GET /billing/payments/{id}/receipt`, `GET /platform-admin/payments/{id}/receipt`; `app/services/billing/receipts.py` | Owner/admin of the payment's organisation, or platform admin. PDF with `no-store`, `nosniff`, attachment. Never prints admin notes or reasons. | 403 / 404 / 503 |
 | C3 | `app/services/billing/payments.py` `_insert_payment` +1 line | Issues the receipt in the same transaction (counter row lock). | A failure rolls back the payment |
-| C4 | `app/core/config.py` | Seller and VAT settings; `billing_storage_block_at_limit` default true; `billing_view_grace_days` default 2; validated VAT mode and storage percents | Invalid settings refuse to start |
+| C4 | `app/core/config.py` | Seller and VAT settings; `billing_storage_block_at_limit` default true (applies only to new analyses, and only while enforcement is on); `billing_view_grace_days` default **unset** (security review H1; was 2); validated VAT mode and storage percents | Invalid settings refuse to start |
+| C5 | `app/services/billing/statuses.py` `grace_days_in_force`, `sweep`, `access_ends_at` (review H1) | The Q7 grace is in force only when billing enforcement is on and the setting is set. With enforcement off the sweep closes no entitlement and the summary shows no `access_ends_at`. | Fails safe: viewing and downloads stay open |
+| C6 | `app/services/billing/catalogue.py` `apply_catalogue`, `plan_on_current_catalogue`; `app/services/abliner/intents.py` `offer` (review M2) | `apply-catalogue` stamps each plan with the file's version (audited `plan.catalogue_version`). Mobile Money refuses `catalogue_not_applied` (no amount quoted) for a plan on an older version. | Fails closed: no Mobile Money payment until the catalogue is applied |
+| C7 | `GET /billing/payments/{id}/receipt` (review L5) | 404 for the operator's TEST receipt; the console route still serves it. | 404 |
 
-No change to the BFF, the gateway, auth or sessions code. The session limit change is data.
+No change to the BFF, the gateway, auth or sessions code. The session limit change is data. The security-review fixes (§6.4) touch none of the A1–A18 hunks; rows A1–A18 are unchanged.
 
 ### 6.3 Turn-on checklist additions (after the Abliner checklist)
 
-1. Deploy and migrate: `alembic upgrade head` runs `e8a0c2d4f6b1`, which numbers the existing payments' receipts.
-2. `python -m app.services.billing.cli apply-catalogue`: read the dry run. Expect:
+1. Deploy and migrate: `alembic upgrade head` runs `d7f9b1c3e5a8`, `f3b5d7e9a1c4` and `e8a0c2d4f6b1` (the last numbers the existing payments' receipts). Leave `BILLING_VIEW_GRACE_DAYS` unset.
+2. **Required before `ABLINER_PAYMENTS_ENABLED=true` (security review M2; Abliner checklist step 8).** `python -m app.services.billing.cli apply-catalogue`: read the dry run. Expect:
    - Researcher top-up 15,000 per credit;
    - MEGIS 25,000 per credit;
    - `refund_on_data_failure` true;
-   - `session_limit` 1 on every customer plan, 3 on Internal.
+   - `session_limit` 1 on every customer plan, 3 on Internal;
+   - `catalogue_version` 1 → 2 on every plan (until then Mobile Money answers `catalogue_not_applied`).
 
    Then run it again with `--apply`.
 3. Set the seller settings on the server, then restart `api`: `SELLER_LEGAL_NAME`, `SELLER_TIN`, `SELLER_ADDRESS`, optionally `SELLER_LOGO_PATH` (a PNG or JPEG readable by the API container), and `SELLER_VAT_MODE` (`none` unless told otherwise). Download one receipt from the console to check it. Changing the seller later (for example to NOVAREX Ltd) is the same step; receipts already drawn keep the old seller.
-4. The `sweep-statuses --apply` cron must run at least hourly, because the 2-day grace is enforced by the sweep.
+4. **At the Phase B step (with `BILLING_ENFORCEMENT_ENABLED=true`), not before (security review H1):** set `BILLING_VIEW_GRACE_DAYS=2` in the server environment and restart `api` and `worker`. The `sweep-statuses --apply` cron must then run at least hourly, because the 2-day grace is enforced by the sweep. Before Phase B the setting stays unset, and even if set, the sweep closes nothing while enforcement is off.
 5. **Sessions:** with enforcement on, one session per user on every customer plan; the Internal plan keeps 3.
 6. **Storage:** at 100% new analyses stop (with enforcement on). Tell customers near their limit before Phase B, and point them to "Free up space" and "Request extra storage".
 7. **Still open:** the final MEGIS price (Q2), and the price per extra GB (Q5b; NOVA ARI quotes until it is set in the plans file).
+
+### 6.4 Independent security review (2026-11-27): findings on this branch and their fixes
+
+The full list (H1, M1–M5, L1–L9), with tests, is in `docs/ABLINER_PAYMENTS_RELEASE_RECORD.md` §4. On this branch:
+
+| Finding | Fix | Rows | Tests |
+|---|---|---|---|
+| H1 the grace default (2 days) let the existing daily `sweep-statuses --apply` cron close viewing and downloads with enforcement off | Default unset; set `BILLING_VIEW_GRACE_DAYS=2` only via the server environment at Phase B (§6.3 step 4); the sweep skips the grace while enforcement is off | C4, C5 | `test_expiry_decisions.py::test_h1_the_grace_is_unset_by_default`, `test_h1_with_enforcement_off_the_sweep_never_closes_viewing_or_downloads` (expired/cancelled × grace unset/set); the Phase B tests set enforcement and grace explicitly |
+| M2 Mobile Money charged v1 prices until `apply-catalogue --apply`; the offer test depended on test order | Catalogue-version stamp per plan; `catalogue_not_applied` until applied; §6.3 step 2 required before the Abliner flag | C6 | `test_abliner_payments.py::test_m2_mobile_money_never_charges_v1_prices`; the offer test sets the v1 state explicitly; `test_apply_catalogue_*` asserts every plan stamped |
+| L5 (part) the customer could download the operator's TEST receipt | 404 on the customer route | C7 | `test_receipts.py::test_abliner_settled_and_test_payments_get_receipts` |
+| Rebase | `e8a0c2d4f6b1` revises `f3b5d7e9a1c4` (the M4 migration on the Abliner branch); one linear head | — | migration round trip |
+
