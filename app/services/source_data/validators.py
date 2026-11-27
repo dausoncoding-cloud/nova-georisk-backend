@@ -76,10 +76,14 @@ def _properties(properties: dict, profile: dict, manifest: SourceDatasetManifest
     required = profile["required_fields"]
     if not isinstance(properties, dict) or not set(required).issubset(properties):
         _fail("Required source fields are missing")
-    if set(properties) != set(required):
+    optional = profile.get("optional_fields") or {}  # declared per category in the catalogue; anything else is refused
+    if not set(properties) <= set(required) | set(optional):
         _fail("Undeclared source fields are not accepted")
     for key, kind in required.items():
         _field(properties[key], kind, manifest)
+    for key, kind in optional.items():
+        if key in properties:
+            _field(properties[key], kind, manifest)
     if manifest.category in {'flood_impact_records', 'dss_records'}:
         for key, kind in required.items():
             if kind in {'number', 'nonnegative_number', 'nonnegative_integer'} and (not isinstance(properties[key], (int, float)) or isinstance(properties[key], bool)):
