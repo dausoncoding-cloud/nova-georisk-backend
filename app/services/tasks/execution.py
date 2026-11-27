@@ -111,6 +111,8 @@ def validate_workload(params):
 def admit_task(db, project):
     """Serialize organization admission in PostgreSQL; no broker-only count race."""
     key = int.from_bytes(hashlib.sha256((str(project.organization_id) + ":firris:admission").encode()).digest()[:8], "big", signed=True)
+    from app.services.tasks import stale_sweeper  # r12: stale RUNNING tasks must not hold the organization's capacity
+    stale_sweeper.sweep(db, project.organization_id)
     db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
     pending = db.query(Task).join(Project).filter(Project.organization_id == project.organization_id,
         Task.engine_key == "firris", Task.status.in_([TaskStatus.QUEUED, TaskStatus.RUNNING])).count()

@@ -68,6 +68,7 @@ class Settings(BaseSettings):
 
     # --- FIRRIS bounded queue/input policy ---
     firris_max_pending_tasks_per_organization: int = 32
+    firris_stale_running_seconds: int = 14400  # stale-task sweeper: RUNNING longer than this with no live worker
     firris_max_request_bytes: int = 16777216
     firris_max_prepared_cells: int = 1000000
     firris_max_feature_layers: int = 32
@@ -173,6 +174,8 @@ class Settings(BaseSettings):
             or self.celery_worker_max_memory_per_child_kb <= 0
         ):
             raise ValueError("Celery task and worker resource limits must be positive and ordered.")
+        if self.firris_stale_running_seconds < self.celery_task_time_limit_seconds:
+            raise ValueError("The stale-task limit must not be shorter than the Celery hard time limit.")
         if min(self.firris_max_pending_tasks_per_organization, self.firris_max_request_bytes,
                self.firris_max_prepared_cells, self.firris_max_feature_layers) <= 0:
             raise ValueError("FRRIS admission/input capacity limits must be positive")
