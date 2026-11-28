@@ -316,3 +316,17 @@ Left in place pending the owner's decision. Rollback, if wanted: §5.2 item 2.
 - **`platform_audit`:** gains `subscription.backfill_create` and `subscription.backfill_undo`.
 
 *UI after the undo* (the same method, with fresh production responses for the owner and an admin): the Subscription link is **hidden**, and no page shows a billing element. `/subscription` typed directly shows only "This organisation has no subscription yet. Contact NOVA ARI.", the same text as the r13 render before the backfill.
+
+### 5.5 Test organization: created
+
+Run in tmux (`bp1-testorg-dry`, `bp1-testorg-apply`) with `create-test-organization`.
+
+- **Dry run:** `create nova-payments-test`, Internal plan, 0 members, no engines.
+- **`--apply`** with the reason "TZS 500 Abliner live test (billing phase 1, 2026-11-28, owner instruction); not a customer":
+  - slug **`nova-payments-test`** ("NOVA ARI payment test (not a customer)");
+  - organization `cc2ca7c9-5164-41a5-bd2c-19e26ef5f9ee`;
+  - **subscription `67cbdfac-acde-4de6-baee-f25de5aeb1c5`** (`frris_wrris.internal`, ACTIVE, source `test-organization`, metadata `{"purpose": "abliner-live-test", "test_organization": true}`);
+  - 0 members, 0 entitlements, 0 projects;
+  - audit `organization.test_created` 1 and `subscription.test_created` 1.
+- A repeat dry run answers `exists` with the same IDs.
+- NOVAREX's billing summary still has no subscription for the owner or the admin, so nothing changes for NOVAREX users.
