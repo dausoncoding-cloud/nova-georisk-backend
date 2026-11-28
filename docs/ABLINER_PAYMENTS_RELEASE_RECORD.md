@@ -143,3 +143,85 @@ No failures, no skips added, no assertion weakened. `nginx -t` (nginx:1.27-alpin
 
   Unit and round trip ran on the heads before the date-fix commit, which changes only `tests/integration/test_billing_accounts.py`; integration ran on the final heads, between 00:20 and 01:00 EAT.
 
+
+## 5. Enable day, phase 1 (2026-11-28; production r14, every billing flag OFF)
+
+Owner instruction 2026-11-28: phase 1, with no Abliner key on the server yet. Flags stay OFF, no secret is touched, Abliner is not called, the cron is not installed and no code is deployed. The TZS 500 test happens only after fix round r6 (§5.0) is merged and deployed as r15.
+
+### 5.0 Docs check against https://abliner.net/docs (step 0, read-only)
+
+Gaps that go to fix round **r6** (another session, reviewed; no code was changed here):
+1. **Reconciliation amount field (medium-high).** The docs' `GET /transactions?limit=` example uses `amount_cents`, while the single lookup uses `amount`. `reconcile._lookup` reads only `amount`, so a list item with only `amount_cents` sends every reconciled payment to review instead of settling it. Fix: `amount`, else `amount_cents / 100` when it divides evenly; review on disagreement.
+2. **`409 request_in_progress` / `idempotency_conflict` mark the intent `failed` (low-medium).** The original may still be running and a push may be live, so the intent should be `pending_unknown`.
+3. **`withdrawal.*` events are not explicitly ignored (low).** Fix: ignore them and require `data.type == "deposit"`.
+4. **Lookup by `?id=` (small).** Add it as a third reconcile lookup.
+
+To record in the live test (§5.6): the deposit reply's `data.id` (docs example `tx_…`) against the webhook's `data.id` (a UUID); and whether `amount` or only `amount_cents` appears in the webhook and in `GET /transactions`.
+
+As documented: Idempotency-Key (stored per intent, one attempt); deposit signing (`x-abliner-*`); `callback_url` on every request; webhook HMAC, ±300 s and dedupe on `x-webhook-id`; `customer_reference` matching; phone `255` + 9 digits; limits TZS 500–3,000,000.
+
+### 5.1 Steps left until the first real TZS 500 payment (in order)
+
+| # | Step | Who | Status |
+|---|---|---|---|
+| 1 | Backup and rollback plan for the data steps (§5.2) | Claude | done |
+| 2 | `apply-catalogue --apply`, catalogue v2 (§5.3) | Claude | phase 1 |
+| 3 | Backfill: NOVAREX (`legacy`) on the Internal plan (§5.4) | Claude | phase 1 |
+| 4 | `create-test-organization --apply` (§5.5) | Claude | phase 1 |
+| 5 | Fix round r6 (§5.0 items 1–4): review, merge | another session; owner approves | open |
+| 6 | Deploy r15 with every flag OFF (needs the template change in §5.6, note 1) | Claude | open |
+| 7 | In the Abliner dashboard: create a **new** API key "NOVA-GeoRisk production" and **rotate** the webhook signing secret, at the moment of entering them. The dashboard callback URL **stays empty**, because `callback_url` is sent per request | **owner only** | open |
+| 8 | Over SSH, enter both values with the §5.6 procedure; restart api and worker only | **owner only** (secrets) | open |
+| 9 | Check the values are loaded without printing them (§5.6); edge check: an empty POST to the webhook now answers `401 invalid_signature` (today `503 webhook_not_configured`) | Claude or owner (no secret needed) | open |
+| 10 | `integrations.cli check` → Abliner `connected` (the first call to Abliner); console Test connection | Claude (CLI, with the owner's go); owner (console) | open |
+| 11 | Install the reconcile cron (§3 step 6): dry run first, then the line; freshness check prints `RECONCILE-OK`. **Hard prerequisite**: Abliner retries a webhook only twice | Claude, with the owner's go | open |
+| 12 | Live TZS 500 test on the test organization (§5.7): run `test-payment` and type the phone; approve on the phone | **owner only** (own phone, own admin e-mail) | open |
+| 13 | Check rows, audit and the two uncertain points (§5.7) | Claude | open |
+| 14 | Reverse the test payment in the console with a reason | **owner only** (platform admin) | open |
+| 15 | Delete the old API key "NOVAPAY" (created 5 Oct 2026) in the Abliner dashboard | **owner only** | open |
+| 16 | Remove the test organization (§5.7) | owner (console) | open |
+
+Done in earlier releases: the migrations, the edge webhook location (r13; hashes in the R13 record), and the edge checks for GET/PUT/DELETE 403 and 70 KB POST 413 (r14 smoke).
+After step 16 and outside this phase: `ABLINER_PAYMENTS_ENABLED=true` (§3 step 9), and enforcement only on the owner's separate decision.
+
+### 5.2 Backup and rollback plan for the data steps
+
+**Backup** (before any change; on the workstation in `~/nova-backups/20261128-pre-billing-phase1/`, all files listed in `SHA256SUMS`):
+- `production-db-20261128-pre-billing-phase1.dump`: 4,986,824 B, SHA-256 `592937dd2cf483b655d710814225d04e045ca13c2168cf8a3c01229886d49c57` (equal to the server stream), `pg_restore --list` OK with 43 TABLE DATA entries.
+- Read-only CSV snapshots of the touched tables:
+
+  | Table | Rows |
+  |---|---|
+  | `organizations` | 1 |
+  | `organization_subscriptions` | 0 |
+  | `organization_engine_entitlements` | 1 |
+  | `billing_plans` | 14 |
+  | `billing_plan_prices` | 12 |
+  | `credit_ledger_entries` | 0 |
+  | `organization_memberships` | 4 |
+
+  `platform_audit` had 11 rows, the newest from 2026-11-21.
+
+**What each step writes:**
+- **`apply-catalogue`:**
+  - `billing_plans`: limit columns, and `metadata_json.catalogue_version` 1 → 2;
+  - **new** rows in `billing_plan_prices` (append-only versions; the old ones stay);
+  - `platform_audit` rows.
+- **Backfill:**
+  - one new `organization_subscriptions` row (NOVAREX, `frris_wrris.internal`, active, source `backfill`);
+  - its `organization_engine_entitlements` row is linked to it (`subscription_id`);
+  - `platform_audit`.
+- **Test organization:**
+  - one `organizations` row with no members, entitlements or projects;
+  - one `organization_subscriptions` row (source `test-organization`);
+  - `platform_audit`.
+
+With enforcement OFF, none of these changes access, credits or analyses. The visible effect is the "Subscription" link and page for NOVAREX (checked in §5.4).
+
+**Rollback, smallest first** (each by hand, inside one transaction, services running):
+1. **Catalogue:** add a newer price version with the old prices and set the old limits, through the console's plan actions (audited), using the snapshot values. Price versions are append-only by design, so no row is deleted. Return `catalogue_version` to 1 only if Mobile Money must refuse the plans again; with the payments flag OFF nothing is charged anyway.
+2. **Backfill:** set the NOVAREX entitlement's `subscription_id` back to its snapshot value (NULL), then delete the backfilled subscription, but only while it has no ledger entries and no payments. Record an audit row with the reason. Otherwise, cancel it in the console.
+3. **Test organization:** cancel its subscription in the console (the documented removal). Deleting the rows is possible only while there are no payments or intents for it.
+4. **Last resort:** restore the dump above with `pg_restore --clean` into `nova_georisk_firris_2f1b2dc`, with api, bff and worker stopped. This loses anything written after 2026-11-28 ~14:30 UTC, so use it only if 1–3 cannot be used.
+
+Audit rows are never deleted: they record what happened, including the rollback.
