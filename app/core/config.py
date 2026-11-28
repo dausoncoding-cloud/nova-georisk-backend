@@ -198,6 +198,10 @@ class Settings(BaseSettings):
         environment = self.app_env.strip().lower()
         if self.seller_vat_mode not in {"none", "inclusive", "exclusive"} or not 0 <= self.seller_vat_rate_percent <= 100:
             raise ValueError("SELLER_VAT_MODE is none, inclusive or exclusive; SELLER_VAT_RATE_PERCENT is 0-100.")
+        if self.billing_view_grace_days is not None and self.billing_view_grace_days < 1:
+            # Security review round 4, item 3: 0 or less would close viewing and downloads the moment it applies.
+            raise ValueError("BILLING_VIEW_GRACE_DAYS must be unset or a whole number of days, 1 or more "
+                             f"(got {self.billing_view_grace_days}).")
         if any(not 1 <= value <= 99 for value in self.billing_storage_warning_percents):
             raise ValueError("BILLING_STORAGE_WARNING_PERCENTS are between 1 and 99 (100% is always a warning).")
         if (
