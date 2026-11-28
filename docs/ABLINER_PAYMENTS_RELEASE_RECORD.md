@@ -36,12 +36,15 @@ Other shared files, one line each: `app/models/__init__.py` and `app/db/migratio
 
 ## 3. Turn-on checklist (owner)
 
-1. Deploy with `ABLINER_PAYMENTS_ENABLED=false`. Run the migrations (`d7f9b1c3e5a8` then `f3b5d7e9a1c4` on `c5e7a9b1d3f6`; with the decisions branch, `e8a0c2d4f6b1` follows). Install the edge file with the new webhook location (B1e) and reload the edge after `nginx -t`.
-2. **Edge check (read-only):** a `POST` with a body over 64 KB must get 413 from the edge. an empty `POST https://app.novageorisk.com/api/v1/webhooks/abliner` must return `401 {"status":"rejected","code":"invalid_signature"}`. That reply comes from the BFF route (edge → BFF directly), not the SPA and not the session proxy's "Authentication required". A `GET` on the same path must get the session proxy's 401. `api.novageorisk.com` must still return 404 for everything but `/health`.
+1. Deploy with `ABLINER_PAYMENTS_ENABLED=false`. Run the migrations (`d7f9b1c3e5a8` then `f3b5d7e9a1c4` on `c5e7a9b1d3f6`; with the decisions branch, `e8a0c2d4f6b1` follows). Install the edge files with the new webhook location (B1e) and its rate-limit zone: `production-edge/frontend-app.conf` **and** `production-edge/app.conf` (the zone `nova_release_webhook` is declared there). Then:
+   - run `nginx -t` in the edge container and reload only if it passes (no restart);
+   - **confirm the installed edge files are the repository's:** `sha256sum` of each installed file equals `sha256sum` of the same file at the deployed commit (`git show <commit>:deploy/nginx/production-edge/<file> | sha256sum`). Record both hashes in the deploy record.
+2. **Edge check (read-only):** a `POST` with a body over 64 KB must get 413 from the edge. an empty `POST https://app.novageorisk.com/api/v1/webhooks/abliner` must return `401 {"status":"rejected","code":"invalid_signature"}`. That reply comes from the BFF route (edge → BFF directly), not the SPA and not the session proxy's "Authentication required". A `GET` (or any method but `POST`) on the same path must get **403 from the edge** (`limit_except POST`, round 4 item 5). `api.novageorisk.com` must still return 404 for everything but `/health`.
 3. Over SSH, set `ABLINER_API_KEY` and `ABLINER_WEBHOOK_SECRET` in the server environment file, then `docker compose up -d api worker`. The BFF needs neither.
 4. `docker compose exec api python -m app.services.integrations.cli check`: Abliner must be `"test": "connected"`. Then check the console's NOVA ARI → Integrations → Test connection.
 5. In the Abliner dashboard, set the webhook URL `https://app.novageorisk.com/api/v1/webhooks/abliner`. It is also sent with each deposit.
 6. Install the reconciliation cron: `*/10 * * * * flock -n /tmp/abliner-reconcile.lock docker compose exec -T api python -m app.services.abliner.cli reconcile --apply >> /var/log/nova/abliner-reconcile.log 2>&1`.
+   **Confirm both crons exist on the server** (`crontab -l` as the deploy user): the Abliner reconciliation line above, and the daily IP purge `python -m app.services.sessions.cli purge --apply` (docs/PLATFORM_SUBSCRIPTIONS_RELEASE_RECORD.md step 1b). After the first run, check `/var/log/nova/abliner-reconcile.log` has an entry.
 7. **Live test (TZS 500, 0 credits):**
    - Run `… python -m app.services.abliner.cli test-payment --subscription-id <id> --admin-email <your NOVA ARI e-mail> --operator "<name>"`. It's a dry run first; then add `--apply` and type the phone at the prompt.
    - Approve it on the phone. Expect:
@@ -93,6 +96,29 @@ Note from the same documentation check: the main `GET /api/v1/transactions` exam
 - L2: `x-webhook-id` is not covered by the HMAC. A captured signed body could be replayed under a new id within ±5 minutes. Settlement is idempotent, so at most an extra event row or a repeated review audit.
 - L6: the 5-per-10-minutes organisation limit is count-then-insert, so parallel requests can exceed it; the one-open-intent unique index still bounds it.
 - L9: the receipt GET freezes the seller identity (a write on GET, no CSRF); the only effect is freezing it early.
+
+### 4.5 Independent review, round 4 (2026-11-28): fixes
+
+Each is its own commit with a test that fails before and passes after (item 6 is test-only, see its row).
+
+| Item | Change | Files | Test |
+|---|---|---|---|
+| 1 Settlement error left the payment to the cron | Event kept as `error` and answered **503**; a redelivery of an `error` row is processed again (row FOR UPDATE); any other stored outcome stays a duplicate; settlement idempotent per intent | `app/services/abliner/webhooks.py`, `app/api/v1/endpoints/abliner_webhooks.py` | `test_abliner_webhooks.py::test_r4_1_a_settlement_error_is_retried_by_abliner_and_settles_exactly_once` |
+| 2 Swept tasks were not refunded | Sweeper's `StaleTaskError` maps to cause `stale_task`, always refunded through `refund_failed_task` (key `refund:<task id>`), only on RUNNING/QUEUED → FAILED; a late worker discards its result; COMPLETED never refunded; OFF unchanged (nothing charged) | `app/services/billing/refunds.py`, `app/workers/celery_tasks.py`, `app/services/tasks/stale_sweeper.py` | `test_stale_task_sweeper.py::test_enforced_stale_task_is_failed_cleaned_and_refunded_once`, `::test_a_swept_task_is_never_refunded_twice`, `::test_a_completed_task_is_never_refunded`, `::test_unenforced_…_no_ledger_entries` |
+| 3 `BILLING_VIEW_GRACE_DAYS` unvalidated | Unset or a whole number ≥ 1, otherwise start-up is refused with a clear message (decisions branch) | `app/core/config.py` | `tests/unit/test_billing_view_grace_setting.py` |
+| 4 Missing currency taken as TZS | No currency → review "no currency reported", no credit (webhook and reconciliation). Abliner documents `"currency"` in webhook `data` and in the lookup form of `GET /transactions` that reconciliation uses | `app/services/abliner/settlement.py` | `test_abliner_webhooks.py::test_r4_4_*` (2) |
+| 5 Edge webhook location | `limit_except POST { deny all; }` and its own zone `nova_release_webhook` (5 r/s, burst 20) declared in `production-edge/app.conf`; `gateway.conf` already POST-only with its own zone (unchanged, now asserted). `nginx -t` OK for both; throwaway running edge: GET/HEAD/PUT/DELETE 403, POST passed upstream, 70 KB POST 413 | `deploy/nginx/production-edge/frontend-app.conf`, `deploy/nginx/production-edge/app.conf` | `tests/unit/test_upload_limits.py::test_r4_5_*` |
+| 6 Reference-less event through the webhook | Test-only. No reference and an id that is not ours → stored `ignored`, payment untouched, no credit (no intent to put in review); our id with someone else's reference → review, no credit. The webhook path already behaved so before M3 | — | `test_abliner_webhooks.py::test_r4_6_*` |
+| 7 Nits | Model comment (no SHA-256); `scripts/verify_phase05_schema.py` asserts the **migrated** column is gone (fails at `d7f9b1c3e5a8`, passes at head); migration docstring: downgrade re-adds a NULLABLE column | `app/models/abliner.py`, `scripts/verify_phase05_schema.py`, `f3b5d7e9a1c4_…py` | the schema verify in every integration run and round trip |
+
+Test counts (sequential, one suite at a time, 2026-11-28; integration through `docker-compose.test.yml up`: seed, upgrade to head, `verify_phase05_schema.py`, then pytest):
+
+| Branch @ commit | Unit OFF | Unit ON | Integration OFF | Integration ON | Migration round trip |
+|---|---|---|---|---|---|
+| feat/abliner-payments @ 53730d5 | 1414 passed | 1414 passed | 376 passed | 376 passed | head f3b5d7e9a1c4 → c5e7a9b1d3f6 → head, schema verified both ways, `phone_sha256` absent at head, present at d7f9b1c3e5a8 |
+| feat/subscription-client-decisions @ 0b50d03 | 1425 passed | 1425 passed | 418 passed | 418 passed | head e8a0c2d4f6b1 → c5e7a9b1d3f6 → head, schema verified both ways, single head |
+
+No failures, no skips added, no assertion weakened. `nginx -t` (nginx:1.27-alpine, throwaway container, stub certificates) passes for `deploy/nginx/production-edge/*.conf` and for the gateway `deploy/nginx/conf.d/*.conf`. OpenAPI regeneration changes nothing on either head. The docs-only commit after these runs changes no code.
 
 ### 4.4 Rebase and tests
 

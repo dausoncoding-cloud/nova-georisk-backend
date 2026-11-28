@@ -113,7 +113,7 @@
       - `transaction.completed` / `transaction.failed`: find the intent by `data.customer_reference` (our reference), falling back to `data.id` / `abliner_tx_id`.
       - `checkout.paid` (conflict c): accepted if it arrives and matched by `reference`. We don't create checkouts, so normally there's no match; it is recorded and ignored, never required.
       - Unknown events or references: recorded, 200, no action.
-   7. **Settle inline** under the intent row lock (§4). Typically under 200 ms, inside Abliner's 8 s window. If settling fails unexpectedly, the event is still stored as received, the answer is 200, and reconciliation retries the settlement.
+   7. **Settle inline** under the intent row lock (§4). Typically under 200 ms, inside Abliner's 8 s window. If settling fails unexpectedly, the event is stored with outcome `error` and the answer is **503**, so Abliner's retries (about 2 s and 5 s later) settle it: a redelivery whose stored row is `error` is processed again, any other stored outcome stays a duplicate (security review round 4, item 1). Reconciliation remains the safety net after the last retry.
    8. **Answer:** 200 `{"status": "ok"}`.
 - **Stored per event (`abliner_webhook_events`):** `webhook_id` (PK), received time, event name, signature OK, `data.id`, `customer_reference`, status, amount, currency, intent ID, outcome (`settled` / `failed` / `duplicate` / `ignored` / `mismatch` / `error`). No raw body and no phone number.
 
