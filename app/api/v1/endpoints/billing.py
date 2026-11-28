@@ -5,7 +5,9 @@ admins only. Nothing here writes billing data: payments, top-ups and status chan
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+import uuid
+
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -22,10 +24,14 @@ from app.models.task import Task
 from app.schemas.billing import (Allowance, BillingSummaryResponse, CreditSummary, LedgerEntryResponse, LedgerPage,
                                  PaymentPage, PaymentResponse, PlanCatalogueResponse, PlanLimits, PlanOption,
                                  SubscriptionRequestCreate, SubscriptionRequestResponse, SubscriptionSummary,
-                                 TopUpOffer)
+                                 TopUpOffer, DeleteFilesRequest, SellerIdentity, DeleteFilesResponse, StorageOverview, StoredResultItem)
 from app.models.platform_admin import SubscriptionRequest
 from app.services.billing import requests as billing_requests
-from app.services.billing import catalogue, ledger, limits
+from app.services.billing import audit, catalogue, ledger, limits, receipts, statuses
+from app.services.billing import storage as billing_storage
+from app.core.entitlements import active_engine_keys, require_engine_entitlement
+from app.core.security import require_project_access
+from app.models.result import Result
 from app.services.billing.labels import customer_label
 from app.services.billing import submission as billing
 
@@ -76,8 +82,17 @@ def _summary(db: Session, subscription: OrganizationSubscription, seats_used: in
                               used_percent=0.0 if unlimited else usage.used_percent,
                               level=None if unlimited else usage.level, unlimited=unlimited),
         can_submit=code is None or not billing.enforcement_enabled(),
-        block_code=code, block_message=message,
+        block_code=code, block_message=message, access_ends_at=statuses.access_ends_at(subscription),
     )
+
+
+def _seller() -> SellerIdentity | None:
+    settings = get_settings()
+    if not settings.seller_legal_name.strip():
+        return None
+    return SellerIdentity(legal_name=settings.seller_legal_name.strip(), tin=settings.seller_tin.strip() or None,
+                          address=settings.seller_address.strip() or None, vat_mode=settings.seller_vat_mode,
+                          vat_rate_percent=settings.seller_vat_rate_percent)
 
 
 @router.get("/summary", response_model=BillingSummaryResponse)
@@ -104,7 +119,7 @@ def get_billing_summary(
              for subscription_id in ids]
     return BillingSummaryResponse(enforcement_enabled=billing.enforcement_enabled(), subscriptions=items,
                                   seats=_allowance(seats), storage=_allowance(storage),
-                                  storage_blocks_at_limit=get_settings().billing_storage_block_at_limit)
+                                  storage_blocks_at_limit=get_settings().billing_storage_block_at_limit, seller=_seller())
 
 
 @router.get("/ledger", response_model=LedgerPage)
@@ -183,12 +198,31 @@ def get_payments(
         Payment.organization_id == context.organization_id, Payment.reverses_payment_id.isnot(None))}
     families = dict(db.query(OrganizationSubscription.id, OrganizationSubscription.family).filter(
         OrganizationSubscription.organization_id == context.organization_id))
-    return PaymentPage(items=[PaymentResponse(
+    numbers = receipts.numbers(db, [row.id for row in rows])
+    return PaymentPage(items=[PaymentResponse(receipt_number=numbers.get(row.id),
         id=row.id, created_at=row.created_at, paid_on=row.paid_on, family=families.get(row.subscription_id),
         purpose=row.purpose, amount=row.amount, currency=row.currency, method=row.method, reference=row.reference,
         credits=row.credits, covers_from=row.covers_from, covers_until=row.covers_until,
         reverses_payment_id=row.reverses_payment_id, reversed=row.id in reversed_ids) for row in rows],
         total=total, limit=limit, offset=offset)
+
+
+@router.get("/payments/{payment_id}/receipt", response_class=Response,
+            responses={200: {"content": {"application/pdf": {}}, "description": "The payment receipt (PDF)."}})
+def get_payment_receipt(payment_id: uuid.UUID, db: Session = Depends(get_db),
+                        context: RequestContext = Depends(get_request_context)) -> Response:
+    """Q6: the PDF receipt of one of this organisation's payments (owners and admins). The first download freezes
+    the seller identity onto the receipt (a write on GET)."""
+    membership = _require_member(db, context)
+    if membership.role.value not in {OrganizationRole.OWNER.value, OrganizationRole.ADMIN.value}:
+        raise PublicAPIError(403, "billing_role_required", "Only organisation owners and admins can see payments.")
+    payment = db.get(Payment, payment_id)
+    receipt = receipts.for_payment(db, payment_id) if payment is not None else None
+    # Security review L5: the operator's gateway test is NOVA ARI's, not the customer's (the console still has it).
+    if (payment is None or payment.organization_id != context.organization_id or receipt is None
+            or payment.purpose == "test"):
+        raise PublicAPIError(404, "receipt_not_found", "Receipt not found.")
+    return receipts.response(db, receipt)
 
 
 def _require_billing_role(db: Session, context: RequestContext):
@@ -204,7 +238,15 @@ def _request_view(db: Session, row: SubscriptionRequest, existing: bool = False)
     return SubscriptionRequestResponse(
         id=row.id, subscription_id=row.subscription_id, kind=row.kind, plan_key=row.plan_key,
         plan_name=plan.name if plan else None, credits=row.credits, status=row.status, created_at=row.created_at,
-        closed_at=row.closed_at, existing=existing)
+        closed_at=row.closed_at, existing=existing, storage_gb=row.storage_gb, storage_price=_storage_price(db, row))
+
+
+def _storage_price(db: Session, row: SubscriptionRequest) -> int | None:
+    if row.kind != "storage" or not row.storage_gb:
+        return None
+    subscription = db.get(OrganizationSubscription, row.subscription_id)
+    per_gb = catalogue.storage_extra_gb_price(subscription.family) if subscription and subscription.family else None
+    return per_gb * row.storage_gb if per_gb else None
 
 
 @router.post("/requests", response_model=SubscriptionRequestResponse, status_code=201)
@@ -218,7 +260,7 @@ def create_request(
     try:
         created = billing_requests.create(db, organization_id=context.organization_id, user_id=context.user_id,
                                           subscription_id=body.subscription_id, kind=body.kind,
-                                          plan_key=body.plan_key, note=body.note)
+                                          plan_key=body.plan_key, note=body.note, storage_gb=body.storage_gb)
     except billing_requests.RequestError as exc:
         db.rollback()
         raise PublicAPIError(exc.status, exc.code, exc.message) from exc
@@ -235,3 +277,52 @@ def list_requests(
     rows = (db.query(SubscriptionRequest).filter(SubscriptionRequest.organization_id == context.organization_id)
             .order_by(SubscriptionRequest.created_at.desc()).limit(20).all())
     return [_request_view(db, row) for row in rows]
+
+
+# --- Q5: storage (free up space, request more) ------------------------------------------------------------
+
+def _storage_item(db: Session, item: billing_storage.StoredResult) -> StoredResultItem:
+    # The files "Free up space" would delete, to download first (the kept execution archive is not among them).
+    downloads = [f"/api/v1/results/{item.result.id}/products/{key}"
+                 for key in sorted(billing_storage.deletable_outputs(item.result))]
+    return StoredResultItem(result_id=item.result.id, project_name=item.project.name, result_type=item.result.result_type,
+                            created_at=item.result.created_at, bytes=item.bytes, files=item.files,
+                            confirmation_code=billing_storage.confirmation_code(item.result), downloads=downloads)
+
+
+@router.get("/storage", response_model=StorageOverview)
+def get_storage(limit: int = Query(50, ge=1, le=200), db: Session = Depends(get_db),
+                context: RequestContext = Depends(get_request_context)) -> StorageOverview:
+    """Storage used and the results that hold it, largest first (members). Read only."""
+    membership = _require_member(db, context)
+    allowance = limits.storage(db, context.organization_id)
+    engines = active_engine_keys(db, context.organization_id)
+    items = billing_storage.stored_results(db, context.organization_id, engines, limit)
+    return StorageOverview(used=allowance.used, limit=allowance.limit, level=allowance.level,
+                           blocks_at_limit=get_settings().billing_storage_block_at_limit,
+                           warning_levels=sorted(get_settings().billing_storage_warning_percents) + [100],
+                           can_manage=membership.role.value in {OrganizationRole.OWNER.value, OrganizationRole.ADMIN.value},
+                           items=[_storage_item(db, item) for item in items])
+
+
+@router.post("/storage/results/{result_id}/delete-files", response_model=DeleteFilesResponse)
+def delete_result_files(result_id: uuid.UUID, body: DeleteFilesRequest, db: Session = Depends(get_db),
+                        context: RequestContext = Depends(get_request_context)) -> DeleteFilesResponse:
+    """Q5a "Free up space": delete one finished result's output files (owners and admins, after confirming;
+    audited). The result record and history stay. Download the files first: this cannot be undone."""
+    membership = _require_member(db, context)
+    if membership.role.value not in {OrganizationRole.OWNER.value, OrganizationRole.ADMIN.value}:
+        raise PublicAPIError(403, "billing_role_required", "Only organisation owners and admins can delete files.")
+    result = db.get(Result, result_id)
+    project = db.get(Project, result.project_id) if result is not None and result.project_id else None
+    if result is None or project is None or project.organization_id != context.organization_id:
+        raise PublicAPIError(404, "result_not_found", "Result not found.")
+    require_project_access(project, context)
+    require_engine_entitlement(db, context, result.engine_key)
+    actor = audit.Actor(user_id=context.user_id, label="customer")
+    outcome = billing_storage.delete_files(db, result, confirm=body.confirm, actor=actor,
+                                           organization_id=context.organization_id)
+    db.commit()
+    allowance = limits.storage(db, context.organization_id)
+    return DeleteFilesResponse(**outcome, storage=Allowance(used=allowance.used, limit=allowance.limit,
+                                                            level=allowance.level))

@@ -242,7 +242,7 @@ def acknowledge_alert(db: Session, alert_id: uuid.UUID, *, reason: str, actor: a
 
 def new_price_version(
     db: Session, plan_key: str, *, monthly_price: int | None, top_up_credit_price: int | None, reason: str,
-    actor: audit.Actor, effective_from: datetime | None = None,
+    actor: audit.Actor, effective_from: datetime | None = None, source: str = "nova_ari_console",
 ) -> BillingPlanPrice:
     """Prices are versioned: a change is a new row; earlier versions stay (append-only)."""
     reason = audit.require_reason(reason)
@@ -259,7 +259,7 @@ def new_price_version(
                .order_by(BillingPlanPrice.version.desc()).limit(1).scalar() or 0) + 1
     row = BillingPlanPrice(plan_key=plan_key, version=version, currency=catalogue.load_catalogue()["currency"],
                            monthly_price=monthly_price, top_up_credit_price=top_up_credit_price,
-                           effective_from=effective_from or datetime.now(timezone.utc), source="nova_ari_console",
+                           effective_from=effective_from or datetime.now(timezone.utc), source=source,
                            reason=reason, created_by_user_id=actor.user_id)
     db.add(row)
     db.flush()

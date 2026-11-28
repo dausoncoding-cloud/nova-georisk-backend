@@ -22,7 +22,7 @@ from app.models.platform import BillingPlan, OrganizationSubscription
 from app.services.abliner import phone as phones
 from app.services.abliner.client import AblinerClient, AblinerError
 from app.services.abliner.errors import map_error
-from app.services.billing import catalogue, ledger
+from app.services.billing import catalogue, ledger, vat
 from app.services.platform_admin.overview import paid_through
 
 logger = logging.getLogger(__name__)
@@ -64,11 +64,18 @@ def offer(db: Session, subscription: OrganizationSubscription, purpose: str, tod
     plan = db.get(BillingPlan, subscription.plan_key) if subscription.plan_key else None
     if plan is None or plan.is_internal:
         return _unavailable(purpose, "internal_plan", "The Internal plan is not paid for.")
+    if not catalogue.plan_on_current_catalogue(plan):
+        # Security review M2: prices from an earlier catalogue file are never charged by Mobile Money. The owner
+        # runs `billing.cli apply-catalogue --apply` before ABLINER_PAYMENTS_ENABLED=true.
+        return _unavailable(purpose, "catalogue_not_applied",
+                            "Mobile Money is not available for this plan yet. " + CONTACT)
     price = catalogue.current_price(db, plan.key)
     if purpose == "top_up":
+        if not ledger.is_current(subscription):  # Q7: top-up credits are usable only with an active plan
+            return _unavailable(purpose, "plan_not_active", "Renew your plan first: top-up credits can only be used with an active plan.")
         if price is None or price.top_up_credit_price is None:
             return _unavailable(purpose, "top_up_unavailable", "Top-ups are not offered for this plan yet. " + CONTACT)
-        amount = catalogue.TOP_UP_PACK_CREDITS * price.top_up_credit_price
+        amount = vat.charge(catalogue.TOP_UP_PACK_CREDITS * price.top_up_credit_price)
         result = Offer(purpose, True, amount, price.currency, credits=catalogue.TOP_UP_PACK_CREDITS)
     elif purpose == "renewal":
         if plan.is_custom or price is None or price.monthly_price is None:
@@ -76,7 +83,7 @@ def offer(db: Session, subscription: OrganizationSubscription, purpose: str, tod
         today = today or _today()
         last_paid = paid_through(db, subscription.id)
         start = max(today, last_paid + timedelta(days=1)) if last_paid else today
-        result = Offer(purpose, True, price.monthly_price, price.currency, covers_from=start,
+        result = Offer(purpose, True, vat.charge(price.monthly_price), price.currency, covers_from=start,
                        covers_until=_add_month(start) - timedelta(days=1))
     else:
         raise PublicAPIError(422, "purpose_invalid", "Choose a top-up or a plan renewal.")

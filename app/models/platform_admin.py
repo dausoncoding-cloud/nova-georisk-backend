@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import BigInteger, CheckConstraint, Date, DateTime, ForeignKey, Index, String, Text, text
+from sqlalchemy import BigInteger, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -82,7 +82,10 @@ class SubscriptionRequest(UUIDPrimaryKeyMixin, Base):
 
     __tablename__ = "subscription_requests"
     __table_args__ = (
-        CheckConstraint("kind IN ('top_up','upgrade')", name="ck_subscription_request_kind"),
+        # "storage": Q5(b) extra storage, in whole GB, priced by NOVA ARI (price per GB is data, TBD).
+        CheckConstraint("kind IN ('top_up','upgrade','storage')", name="ck_subscription_request_kind"),
+        CheckConstraint("kind <> 'storage' OR (storage_gb IS NOT NULL AND storage_gb BETWEEN 1 AND 10000)",
+                        name="ck_subscription_request_storage"),
         CheckConstraint("status IN ('open','done','declined')", name="ck_subscription_request_status"),
         CheckConstraint("kind <> 'upgrade' OR plan_key IS NOT NULL", name="ck_subscription_request_plan"),
         CheckConstraint("kind <> 'top_up' OR (credits IS NOT NULL AND credits > 0)", name="ck_subscription_request_credits"),
@@ -99,6 +102,7 @@ class SubscriptionRequest(UUIDPrimaryKeyMixin, Base):
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     plan_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     credits: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    storage_gb: Mapped[int | None] = mapped_column(Integer, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     requested_by_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, index=True)

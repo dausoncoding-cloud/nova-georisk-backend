@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models.platform import BillingPlan, OrganizationSubscription
 from app.models.platform_admin import SubscriptionRequest
-from app.services.billing import audit, catalogue
+from app.services.billing import audit, catalogue, ledger
 
 
 class RequestError(ValueError):
@@ -28,16 +28,22 @@ class Created:
 
 
 def create(db: Session, *, organization_id: uuid.UUID, user_id: uuid.UUID, subscription_id: uuid.UUID, kind: str,
-           plan_key: str | None = None, note: str | None = None) -> Created:
+           plan_key: str | None = None, note: str | None = None, storage_gb: int | None = None) -> Created:
     subscription = db.get(OrganizationSubscription, subscription_id)
     if subscription is None or subscription.organization_id != organization_id or subscription.family is None:
         raise RequestError("subscription_not_found", "Subscription not found.", 404)
     credits = None
     if kind == "top_up":
+        if not ledger.is_current(subscription):  # Q7
+            raise RequestError("plan_not_active", "Renew your plan first: top-up credits can only be used with an active plan.", 409)
         price = catalogue.current_price(db, subscription.plan_key) if subscription.plan_key else None
         if price is None or price.top_up_credit_price is None:
             raise RequestError("top_up_unavailable", "Top-ups are not offered for this plan yet. Contact NOVA ARI.", 409)
         credits, plan_key = catalogue.TOP_UP_PACK_CREDITS, None
+    elif kind == "storage":  # Q5b: extra storage, priced by NOVA ARI until a price per GB is set (plans file)
+        if not storage_gb or not 1 <= storage_gb <= 10000:
+            raise RequestError("storage_gb_invalid", "Ask for between 1 and 10,000 GB.")
+        plan_key = None
     elif kind == "upgrade":
         plan = db.get(BillingPlan, plan_key) if plan_key else None
         if (plan is None or plan.family != subscription.family or plan.is_internal or plan.status != "active"
@@ -50,6 +56,7 @@ def create(db: Session, *, organization_id: uuid.UUID, user_id: uuid.UUID, subsc
         return Created(open_request, existing=True)
     request = SubscriptionRequest(organization_id=organization_id, subscription_id=subscription.id, kind=kind,
                                   plan_key=plan_key, credits=credits, requested_by_user_id=user_id,
+                                  storage_gb=storage_gb if kind == "storage" else None,
                                   note=(note or "").strip()[:1000] or None, status="open")
     try:  # two parallel requests: the unique open-request index decides, the loser gets the winner's request
         with db.begin_nested():

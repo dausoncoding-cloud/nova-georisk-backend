@@ -106,20 +106,24 @@ def test_researcher_new_sign_in_ends_the_older_session_with_a_notice(db_session,
     assert tracker.ended_notice(second) is None
 
 
-def test_other_plans_keep_three_sessions_and_enforcement_off_keeps_all(db_session, stack, monkeypatch):
+@pytest.mark.parametrize("plan_key", ["frris_wrris.professional", "megis.enterprise", "frris_wrris.custom"])
+def test_every_plan_keeps_one_session_and_enforcement_off_keeps_all(db_session, stack, monkeypatch, plan_key):
+    """Q8 (decided 2026-11-21): one active session per user on all customer plans; a new sign-in ends the old one."""
     store, tracker, _ = stack
-    monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", False)  # this test is about "off"
-    t = _tenant(db_session, "sessions-pro", plan_key="frris_wrris.professional")
-    tokens = [_sign_in(db_session, store, tracker, t)[0] for _ in range(4)]
-    assert all(store.get(token) for token in tokens)  # enforcement off: today's behaviour
+    monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", False)  # off: today's behaviour
+    t = _tenant(db_session, f"sessions-{plan_key.replace('.', '-')}", plan_key=plan_key)
+    tokens = [_sign_in(db_session, store, tracker, t)[0] for _ in range(3)]
+    assert all(store.get(token) for token in tokens)
     monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", True)
-    fifth = _sign_in(db_session, store, tracker, t)[0]
-    alive = [token for token in [*tokens, fifth] if store.get(token)]
-    assert alive == [*tokens[2:], fifth]  # the two oldest ended, three remain
+    newest = _sign_in(db_session, store, tracker, t)[0]
+    alive = [token for token in [*tokens, newest] if store.get(token)]
+    assert alive == [newest]  # phone OR computer, not both
+    assert tracker.ended_notice(tokens[0]) is not None  # the existing "signed out because ..." notice
 
 
-def test_device_list_marks_this_device_and_signs_out_another(client, db_session, stack, bff, api_tracker):
+def test_device_list_marks_this_device_and_signs_out_another(client, db_session, stack, bff, api_tracker, monkeypatch):
     store, tracker, _ = stack
+    monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", False)  # two devices exist only while off (Q8)
     t = _tenant(db_session, "sessions-devices", plan_key="frris_wrris.professional")
     phone, phone_ref = _sign_in(db_session, store, tracker, t, agent=SAFARI_IPHONE)
     laptop, laptop_ref = _sign_in(db_session, store, tracker, t, agent=CHROME_WINDOWS)
@@ -140,8 +144,9 @@ def test_device_list_marks_this_device_and_signs_out_another(client, db_session,
     assert client.get("/api/v1/account/sessions", headers=_api_headers(other)).json()["items"][0]["id"] == str(other_ref)
 
 
-def test_sign_out_other_devices_keeps_this_one(client, db_session, stack, api_tracker):
+def test_sign_out_other_devices_keeps_this_one(client, db_session, stack, api_tracker, monkeypatch):
     store, tracker, _ = stack
+    monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", False)  # several devices exist only while off (Q8)
     t = _tenant(db_session, "sessions-others", plan_key="frris_wrris.professional")
     tokens = [_sign_in(db_session, store, tracker, t) for _ in range(3)]
     current_token, current_ref = tokens[-1]
@@ -300,3 +305,12 @@ def test_proxy_sends_the_session_ref_and_ignores_a_browser_supplied_one(db_sessi
     sent = {name.lower(): value for name, value in captured["headers"].items()}
     assert sent["x-nova-session-ref"] == str(ref)
     assert redis_client.exists(f"{get_settings().session_redis_prefix}seen:{ref}")
+
+
+def test_internal_plan_keeps_three_sessions(db_session, stack, monkeypatch):
+    """Q8 exemption (owner, 2026-11-21): the Internal plan allows 3 sessions per user."""
+    store, tracker, _ = stack
+    monkeypatch.setattr(get_settings(), "billing_enforcement_enabled", True)
+    t = _tenant(db_session, "sessions-internal", plan_key="frris_wrris.internal")
+    tokens = [_sign_in(db_session, store, tracker, t)[0] for _ in range(4)]
+    assert [token for token in tokens if store.get(token)] == tokens[1:]
