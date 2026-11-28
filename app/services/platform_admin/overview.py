@@ -14,13 +14,14 @@ from app.core.config import get_settings
 from app.models.billing import CreditLedgerEntry, Payment
 from app.models.identity import Organization, OrganizationMembership, User
 from app.models.platform import BillingPlan, OrganizationSubscription, SubscriptionStatus
+from app.models.abliner import PaymentIntent
 from app.models.platform_admin import OrganizationUsageDaily, SecurityAlert, SubscriptionRequest
 from app.models.project import Project
 from app.models.sessions import UserSession
 from app.models.task import Task
 from app.services.billing import catalogue, ledger, limits
 
-FLAGS = ("payment_overdue", "expiring_soon", "new_device", "credits_low", "storage_high", "suspended", "request_open")
+FLAGS = ("payment_overdue", "expiring_soon", "new_device", "credits_low", "storage_high", "suspended", "request_open", "payment_review")
 
 
 def _today() -> date:
@@ -119,6 +120,8 @@ def customer_rows(db: Session) -> list[CustomerRow]:
     plans = {plan.key: plan for plan in db.query(BillingPlan)}
     open_requests = {sub_id for (sub_id,) in db.query(SubscriptionRequest.subscription_id)
                      .filter(SubscriptionRequest.status == "open")}
+    payment_reviews = {sub_id for (sub_id,) in db.query(PaymentIntent.subscription_id)
+                       .filter(PaymentIntent.status == "review", PaymentIntent.resolved_at.is_(None))}
     for organization in db.query(Organization).order_by(Organization.name):
         subscriptions = limits.subscriptions(db, organization.id)
         seats = limits.seats(db, organization.id)
@@ -159,6 +162,8 @@ def customer_rows(db: Session) -> list[CustomerRow]:
                 flags.append("suspended")
             if subscription.id in open_requests:
                 flags.append("request_open")
+            if subscription.id in payment_reviews:
+                flags.append("payment_review")
             rows.append(CustomerRow(
                 organization_id=organization.id, organization_name=organization.name,
                 organization_slug=organization.slug, subscription_id=subscription.id, family=subscription.family,

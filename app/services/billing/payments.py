@@ -226,6 +226,37 @@ def record_top_up_payment(
     return PaymentResult(payment, entry)
 
 
+def record_test_payment(
+    db: Session, subscription_id: uuid.UUID, *, amount: int, method: str, paid_on: date, actor: audit.Actor, key: str,
+    reference: str | None = None, note: str | None = None, currency: str = "TZS",
+) -> PaymentResult:
+    """The owner's Abliner live test (TZS 500): a payment labelled test-only that adds NO credits and no plan period
+    (owner decision 2026-11-21). No ledger entry (the ledger holds only non-zero credit movements); the audit row
+    (payment.record_test) and the payment note carry the "TEST" label. Reversible like any payment."""
+    key = _check_key(key)
+    subscription = ledger.lock_subscription(db, subscription_id)
+    note = _clean(note) or "TEST: payment-gateway live test, no credits"
+    if not note.startswith("TEST:"):
+        note = f"TEST: {note}"
+    fingerprint = _fingerprint(purpose="test", subscription=subscription.id, amount=amount, method=method,
+                               paid_on=paid_on, reference=_clean(reference), note=note, currency=currency)
+    replayed = _replay(db, key, subscription.id, "test", fingerprint)
+    if replayed:
+        return replayed
+    if _claim(db, key, "payment.test", fingerprint):
+        return _replay(db, key, subscription.id, "test", fingerprint) or _raise_reused()
+    _check_common(amount, method, paid_on, currency)
+    payment = Payment(
+        organization_id=subscription.organization_id, subscription_id=subscription.id, amount=amount,
+        currency=currency, method=method, reference=_clean(reference), paid_on=paid_on, purpose="test",
+        note=note, recorded_by_user_id=actor.user_id, idempotency_key=key, request_sha256=fingerprint,
+    )
+    _insert_payment(db, payment)
+    audit.record(db, actor, "payment.record_test", reason=note, organization_id=subscription.organization_id,
+                 target_type="payment", target_id=payment.id, current={**_payment_view(payment), "credits": 0})
+    return PaymentResult(payment, None)
+
+
 def reverse_payment(
     db: Session, payment_id: uuid.UUID, *, reason: str, actor: audit.Actor, key: str,
 ) -> PaymentResult:

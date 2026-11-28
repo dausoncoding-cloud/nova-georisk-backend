@@ -10,6 +10,7 @@ from app.models.platform import EntitlementStatus, OrganizationEngineEntitlement
 from app.models.project import Project
 from app.models.task import Task, TaskStatus, TaskType
 from app.workers.celery_tasks import execute_engine_task, run_engine_analysis
+from tests.integration.billing_fixtures import subscribe
 
 
 def _tenant(db_session, slug: str):
@@ -38,6 +39,7 @@ def _tenant(db_session, slug: str):
         ]
     )
     db_session.flush()
+    subscribe(db_session, organization.id)  # enforcement ON needs an Active subscription (billing_fixtures)
     headers = {
         "X-Nova-User-Id": str(user.id),
         "X-Nova-Organization-Id": str(organization.id),

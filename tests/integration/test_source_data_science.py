@@ -25,6 +25,7 @@ from app.models.result import Result
 from app.models.task import Task, TaskStatus
 from app.services.source_data.catalogue import get_profile
 from app.workers.celery_tasks import execute_engine_task, run_engine_analysis
+from tests.integration.billing_fixtures import subscribe
 
 
 def _tenant(db, slug):
@@ -36,6 +37,8 @@ def _tenant(db, slug):
         OrganizationMembership(organization_id=org.id, user_id=user.id, role=MembershipRole.OWNER),
         OrganizationEngineEntitlement(organization_id=org.id, engine_key="firris", status=EntitlementStatus.ACTIVE, source="integration-test"),
     ])
+    db.flush()
+    subscribe(db, org.id)  # enforcement ON needs an Active subscription (billing_fixtures)
     project = Project(name="Source-bound FIRRIS", organization_id=org.id, engine_key="firris")
     db.add(project)
     db.flush()

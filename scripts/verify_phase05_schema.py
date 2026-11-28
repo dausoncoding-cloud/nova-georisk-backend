@@ -60,6 +60,12 @@ def main() -> None:
         "ix_tasks_status",
     }
 
+    if "payment_intents" in inspector.get_table_names():  # Abliner migrations present (feat/abliner-payments)
+        # Security review M4 (round 4 item 7): the real column is gone after f3b5d7e9a1c4, not only the ORM attribute.
+        intent_columns = {column["name"] for column in inspector.get_columns("payment_intents")}
+        assert "phone_sha256" not in intent_columns, "payment_intents.phone_sha256 must not exist at head"
+        assert "phone_masked" in intent_columns
+
     with engine.connect() as connection:
         project_org, project_engine = connection.execute(
             text("SELECT organization_id, engine_key FROM projects WHERE id=:id"),

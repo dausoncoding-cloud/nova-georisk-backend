@@ -9,6 +9,8 @@ from app.api.v1.endpoints import (
     analyses,
     aoi,
     aoi_capacity,
+    abliner_payments,
+    abliner_webhooks,
     account_sessions,
     billing,
     engines,
@@ -50,6 +52,8 @@ api_router.include_router(live.router)
 api_router.include_router(administration.router)
 api_router.include_router(external_data.router)
 api_router.include_router(billing.router)
+api_router.include_router(abliner_payments.router)
+api_router.include_router(abliner_webhooks.router)
 api_router.include_router(account_sessions.router)
 api_router.include_router(account_sessions.org_router)
 api_router.include_router(admin_platform_router)

@@ -37,8 +37,14 @@ from app.schemas.platform_admin import (AddCustomerRequest, AddSubscriptionReque
                                         OverviewTiles, PaymentRecorded, PlanChangeRequest, PriceChangeRequest,
                                         ReasonRequest, RecordPaymentRequest, SecurityAlertPage, SecurityAlertResponse,
                                         StatusChangeRequest, UsageThisPeriod, AdminRequest, AdminRequestPage,
-                                        CloseRequest)
+                                        CloseRequest, AdminMobilePayment, AdminMobilePaymentPage, ResolveReviewRequest,
+                                        IntegrationResponse, IntegrationTestResult)
 from app.models.platform_admin import SubscriptionRequest
+from app.models.abliner import IntegrationStatus, PaymentIntent
+from app.services.abliner.client import AblinerClient, get_client as _abliner_client
+from app.services.integrations import checks as integration_checks
+from app.services.integrations import status as integration_status
+from app.services.abliner import review as abliner_review
 from app.services.billing import requests as billing_requests
 from app.services.billing import audit, backfill, ledger, limits, payments, statuses
 from app.services.billing.submission import validate_key
@@ -76,6 +82,10 @@ def _errors(db: Session):
     except billing_requests.RequestError as exc:
         db.rollback()
         raise PublicAPIError(exc.status, exc.code, exc.message) from exc
+
+
+def get_console_abliner_client() -> AblinerClient:
+    return _abliner_client()
 
 
 def _overrides(value) -> dict | None:
@@ -528,3 +538,94 @@ def close_customer_request(request_id: uuid.UUID, body: CloseRequest, db: Sessio
         billing_requests.close(db, request_id, outcome=body.outcome, reason=body.reason, actor=admin.actor)
         db.commit()
     return body
+
+
+# --- Mobile Money payments (Abliner): review queue ----------------------------------------------------------
+
+@router.get("/mobile-payments", response_model=AdminMobilePaymentPage)
+def list_mobile_payments(
+    state: str = Query("review", pattern="^(review|open|all)$"), limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0), db: Session = Depends(get_db), admin: AdminContext = Depends(require_platform_admin),
+) -> AdminMobilePaymentPage:
+    """Mobile Money payments; "review" lists the ones a person must look at (mismatch, or completed after expiry)."""
+    query = db.query(PaymentIntent)
+    if state == "review":
+        query = abliner_review.open_reviews(db)
+    elif state == "open":
+        query = query.filter(PaymentIntent.status.in_(("created", "pending", "pending_unknown")))
+    rows = query.order_by(PaymentIntent.created_at.desc(), PaymentIntent.id).offset(offset).limit(limit).all()
+    orgs = {org.id: org.name for org in db.query(Organization).filter(
+        Organization.id.in_({row.organization_id for row in rows}))} if rows else {}
+    return AdminMobilePaymentPage(items=[AdminMobilePayment(
+        id=row.id, created_at=row.created_at, organization_id=row.organization_id,
+        organization_name=orgs.get(row.organization_id, ""), subscription_id=row.subscription_id, purpose=row.purpose,
+        amount=row.amount, currency=row.currency, credits=row.credits, phone=row.phone_masked, status=row.status,
+        reference=row.reference, abliner_tx_id=row.abliner_tx_id, abliner_event_tx_id=row.abliner_event_tx_id,
+        provider_reference=row.provider_reference, failure_code=row.failure_code, review_reason=row.review_reason,
+        payment_id=row.payment_id, resolution=row.resolution, resolved_at=row.resolved_at) for row in rows],
+        total=query.count(), limit=limit, offset=offset)
+
+
+@router.post("/mobile-payments/{intent_id}/resolve", response_model=ResolveReviewRequest)
+def resolve_mobile_payment(intent_id: uuid.UUID, body: ResolveReviewRequest, db: Session = Depends(get_db),
+                           admin: AdminContext = Depends(require_platform_admin)) -> ResolveReviewRequest:
+    """Close a review with a reason (audited). Never adds credits: record the payment first if the customer paid."""
+    try:
+        abliner_review.resolve(db, intent_id, resolution=body.resolution, reason=body.reason, actor=admin.actor)
+    except abliner_review.ReviewError as exc:
+        db.rollback()
+        raise PublicAPIError(exc.status, exc.code, exc.message) from exc
+    except audit.ReasonRequired as exc:
+        db.rollback()
+        raise PublicAPIError(422, "reason_required", str(exc)) from exc
+    db.commit()
+    return body
+
+
+# --- Integrations (read-only; plan §6) -----------------------------------------------------------------------
+
+TEST_INTERVAL_SECONDS = 30
+
+
+def _integration(db: Session, name: str) -> IntegrationResponse:
+    config = integration_checks.configuration(name)
+    row = db.get(IntegrationStatus, name)
+    return IntegrationResponse(
+        name=name, label=integration_checks.LABELS[name], configured=config.configured, missing=config.missing,
+        enabled=config.enabled, last_success_at=row.last_success_at if row else None,
+        last_error_at=row.last_error_at if row else None, last_error_code=row.last_error_code if row else None,
+        last_webhook_at=row.last_webhook_at if row else None, last_webhook_event=row.last_webhook_event if row else None,
+        last_test_at=row.last_test_at if row else None, last_test_result=row.last_test_result if row else None)
+
+
+@router.get("/integrations", response_model=list[IntegrationResponse])
+def list_integrations(db: Session = Depends(get_db),
+                      admin: AdminContext = Depends(require_platform_admin)) -> list[IntegrationResponse]:
+    return [_integration(db, name) for name in integration_status.NAMES]
+
+
+@router.post("/integrations/{name}/test", response_model=IntegrationTestResult)
+def test_integration(name: str, db: Session = Depends(get_db), admin: AdminContext = Depends(require_platform_admin),
+                     client: AblinerClient = Depends(get_console_abliner_client)) -> IntegrationTestResult:
+    """Test connection: audited, at most once per 30 s per integration, result code only."""
+    if name not in integration_status.NAMES:
+        raise PublicAPIError(404, "integration_not_found", "Unknown integration.")
+    row = db.query(IntegrationStatus).filter(IntegrationStatus.name == name).with_for_update().one_or_none()
+    now = datetime.now(timezone.utc)
+    if row is not None and row.last_test_at is not None and (now - row.last_test_at).total_seconds() < TEST_INTERVAL_SECONDS:
+        db.rollback()
+        raise PublicAPIError(429, "test_too_soon", "This integration was tested a moment ago. Try again in 30 seconds.")
+    result = integration_checks.test_connection(name, abliner_client=client if name == "abliner" else None)
+    if row is None:
+        row = IntegrationStatus(name=name)
+        db.add(row)
+    row.last_test_at, row.last_test_result = now, result[:60]
+    if integration_checks.ok(result):
+        row.last_success_at = now
+    elif result != "not_configured":
+        row.last_error_at, row.last_error_code = now, f"test_{result}"[:60]
+    db.flush()
+    audit.record(db, admin.actor, "integration.test", reason="Test connection", organization_id=None,
+                 target_type="integration", target_id=name, current={"result": result})
+    db.commit()
+    return IntegrationTestResult(name=name, ok=integration_checks.ok(result), result=result)

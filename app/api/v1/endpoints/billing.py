@@ -6,6 +6,7 @@ admins only. Nothing here writes billing data: payments, top-ups and status chan
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -172,7 +173,10 @@ def get_payments(
     membership = _require_member(db, context)
     if membership.role.value not in {OrganizationRole.OWNER.value, OrganizationRole.ADMIN.value}:
         raise PublicAPIError(403, "billing_role_required", "Only organisation owners and admins can see payments.")
-    query = db.query(Payment).filter(Payment.organization_id == context.organization_id)
+    # Security review L5: the operator's gateway test (purpose "test") and its reversal are not the customer's.
+    test_ids = db.query(Payment.id).filter(Payment.organization_id == context.organization_id, Payment.purpose == "test")
+    query = db.query(Payment).filter(Payment.organization_id == context.organization_id, Payment.purpose != "test",
+                                     or_(Payment.reverses_payment_id.is_(None), Payment.reverses_payment_id.notin_(test_ids)))
     total = query.count()
     rows = query.order_by(Payment.paid_on.desc(), Payment.created_at.desc(), Payment.id).offset(offset).limit(limit).all()
     reversed_ids = {row.reverses_payment_id for row in db.query(Payment.reverses_payment_id).filter(

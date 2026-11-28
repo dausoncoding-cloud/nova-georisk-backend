@@ -358,3 +358,63 @@ class AdminRequestPage(BaseModel):
 class CloseRequest(BaseModel):
     outcome: Literal["done", "declined"]
     reason: str = _reason()
+
+
+class AdminMobilePayment(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    organization_id: uuid.UUID
+    organization_name: str
+    subscription_id: uuid.UUID
+    purpose: str
+    amount: int
+    currency: str
+    credits: int | None
+    phone: str  # masked
+    status: str
+    reference: str
+    abliner_tx_id: str | None
+    abliner_event_tx_id: str | None
+    provider_reference: str | None
+    failure_code: str | None
+    review_reason: str | None
+    payment_id: uuid.UUID | None
+    resolution: str | None
+    resolved_at: datetime | None
+
+
+class AdminMobilePaymentPage(BaseModel):
+    items: list[AdminMobilePayment]
+    total: int
+    limit: int
+    offset: int
+
+
+class ResolveReviewRequest(BaseModel):
+    resolution: Literal["credited_manually", "no_action"]
+    reason: str = _reason()
+
+
+class IntegrationResponse(BaseModel):
+    """Read-only. There is no field that could carry a secret or a value."""
+    name: Literal["abliner", "gee", "auth0"]
+    label: str
+    configured: bool
+    # Names of missing settings (never their values).
+    missing: list[str]
+    # Abliner only: whether customer payments are switched on (ABLINER_PAYMENTS_ENABLED).
+    enabled: bool | None
+    last_success_at: datetime | None
+    last_error_at: datetime | None
+    last_error_code: str | None
+    last_webhook_at: datetime | None
+    last_webhook_event: str | None
+    last_test_at: datetime | None
+    last_test_result: str | None
+
+
+class IntegrationTestResult(BaseModel):
+    name: str
+    ok: bool
+    # connected, reachable, not_configured, timeout, unauthorized, ...: a code, never a response body.
+    result: str

@@ -9,7 +9,7 @@ from pathlib import PurePosixPath, PureWindowsPath
 import uuid
 from datetime import date
 
-from pydantic import model_validator
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -140,6 +140,18 @@ class Settings(BaseSettings):
     billing_expiring_soon_days: int = 7
     # API-request and download counters (Redis buffer, flushed to Postgres). Tests switch this off.
     usage_counting_enabled: bool = True
+
+    # --- Abliner Mobile Money (docs/ABLINER_PAYMENTS_PLAN.md) ---
+    # Off by default: no new payments. Payments already started still settle (webhook, reconciliation).
+    abliner_payments_enabled: bool = False
+    abliner_api_base_url: str = "https://abliner.net"
+    # Set only on the server (ABLINER_API_KEY, ABLINER_WEBHOOK_SECRET). SecretStr keeps them out of repr and logs.
+    abliner_api_key: SecretStr = SecretStr("")
+    abliner_webhook_secret: SecretStr = SecretStr("")
+    abliner_callback_url: str = "https://app.novageorisk.com/api/v1/webhooks/abliner"
+    abliner_reconcile_min_age_minutes: int = 3
+    # A payment with no result from Abliner after this long is "expired" (no credits).
+    abliner_intent_expiry_minutes: int = 30
 
     @property
     def allowed_cors_origins(self) -> list[str]:

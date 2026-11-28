@@ -14,12 +14,13 @@ import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import RedirectResponse, Response, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.background import BackgroundTask
 from sqlalchemy.orm import Session
 
 from app.bff.membership import MembershipResolutionError, resolve_membership
 from app.bff.oidc import OIDCError, OIDCProvider, create_pkce_pair, get_oidc_provider
+from app.bff.webhook_limit import WebhookLimiter, get_webhook_limiter
 from app.bff.session import (
     BrowserSession,
     OIDCStateStore,
@@ -40,6 +41,7 @@ from app.core.http import (
     validation_exception_handler,
 )
 from app.db.session import SessionLocal, get_db
+from app.services.sessions.client_ip import client_ip
 from app.services.sessions.tracking import SessionTracker, get_session_tracker
 from app.schemas.errors import ErrorEnvelope
 from app.schemas.auth import AuthConfigResponse, BrowserSessionResponse
@@ -350,6 +352,48 @@ _RESPONSE_HEADER_ALLOWLIST = {
     "last-modified",
     "x-request-id",
 }
+
+
+# Abliner webhook (docs/ABLINER_PAYMENTS_PLAN.md §3, review row B2). The ONLY route without a session or CSRF
+# check: exact path, POST only, declared before the session proxy below. In production the edge sends /api/*
+# straight here (not through the gateway), so this route rate-limits and caps the body by itself. It reads no cookie, sets no X-Nova-*
+# identity and holds no Abliner secret: it forwards the raw body and the three x-webhook-* headers to the API,
+# which verifies the HMAC. tests/unit/test_bff_webhook_route.py pins that nothing else is exempt.
+ABLINER_WEBHOOK_PATH = "/api/v1/webhooks/abliner"
+_WEBHOOK_HEADERS = ("content-type", "x-webhook-id", "x-webhook-timestamp", "x-webhook-signature")
+_WEBHOOK_MAX_BYTES = 64 * 1024
+
+
+def _too_large() -> JSONResponse:
+    return JSONResponse(status_code=413, content={"status": "rejected", "code": "payload_too_large"})
+
+
+@app.post(ABLINER_WEBHOOK_PATH, include_in_schema=False)
+async def abliner_webhook(request: Request, limiter: WebhookLimiter = Depends(get_webhook_limiter)) -> Response:
+    # Self-sufficient (production edge -> BFF directly): per-source rate limit and a streamed 64 KB cap.
+    source = client_ip(request.client.host if request.client else None, request.headers.get("x-forwarded-for"))
+    if not await limiter.allow(source or "unknown"):
+        return JSONResponse(status_code=429, content={"status": "rejected", "code": "rate_limited"})
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > _WEBHOOK_MAX_BYTES:
+        return _too_large()
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > _WEBHOOK_MAX_BYTES:
+            return _too_large()
+        chunks.append(chunk)
+    body = b"".join(chunks)
+    headers = {name: request.headers[name] for name in _WEBHOOK_HEADERS if name in request.headers}
+    headers["X-Internal-Secret"] = settings.internal_api_secret
+    target = f"{settings.internal_api_base_url.rstrip('/')}{ABLINER_WEBHOOK_PATH}"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=3.0)) as client:
+            upstream = await client.post(target, content=body, headers=headers)
+    except httpx.HTTPError:
+        logger.warning("Abliner webhook could not reach the API")
+        return JSONResponse(status_code=502, content={"status": "unavailable"})
+    return Response(content=upstream.content[:2048], status_code=upstream.status_code, media_type="application/json")
 
 
 @app.api_route(
