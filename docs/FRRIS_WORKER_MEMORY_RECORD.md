@@ -27,10 +27,11 @@
   - the user sees the **same generic message** as other failures: "Analysis execution failed. Please retry or contact support with the request ID.";
   - the cause is kept server-side only: "…stale-task sweeper";
   - the `failed` event is appended to the task's hash-chained execution record, which is its audit trail, and a warning is logged with the task and organization;
-  - the refund policy is unchanged (below).
-- **Refund behaviour now (unchanged, owner to decide):**
-  - The failure is classed as a software error, so with enforcement on the charge stays and there is **no automatic refund** (NOVA ARI refunds manually with an adjustment).
-  - With enforcement off, no ledger entries.
+  - the credit is refunded automatically (below).
+- **Refund behaviour (updated in r13, security review round 4, item 2):**
+  - A swept task is now **refunded automatically**: `refund_failed_task` with the `stale_task` cause, idempotency key `refund:<task id>`, at most once per task. The system lost the task, so the charge is returned.
+  - The sweep only moves RUNNING to FAILED; a worker that finishes late discards its own result, so a COMPLETED task is never swept or refunded.
+  - With enforcement off nothing is charged, so there are no ledger entries.
 
 ## 3. Measurements on the server image (throwaway containers; isolated network, throwaway Redis, `APP_ENV=test`, no production credentials; capped 640 / 1,280 MiB)
 
