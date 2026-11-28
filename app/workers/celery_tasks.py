@@ -138,9 +138,14 @@ def _mark_failed(db, task: Task, error: Exception) -> None:
         # Preserve the rejected record in storage; expose only an integrity flag.
         task.result_payload = {**(task.result_payload or {}), "execution_integrity_error": True}
     task.completed_at = datetime.now(timezone.utc)
-    # Subscriptions: give the credit back for allow-listed data failures when the plan's refund flag is on.
+    # Subscriptions: give the credit back for allow-listed data failures when the plan's refund flag is on, and always
+    # for a task the stale-task sweeper failed (security review round 4, item 2). Only reached on RUNNING/QUEUED ->
+    # FAILED (see the early return above), and refund:<task id> allows one refund per task.
     from app.services.billing.refunds import is_data_failure, refund_failed_task
-    refund_failed_task(db, task, cause="data_failure" if is_data_failure(error) else "software_error")
+    from app.services.tasks.stale_sweeper import StaleTaskError
+    cause = ("stale_task" if isinstance(error, StaleTaskError)
+             else "data_failure" if is_data_failure(error) else "software_error")
+    refund_failed_task(db, task, cause=cause)
     db.commit()
 
 

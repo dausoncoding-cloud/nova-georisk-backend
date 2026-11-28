@@ -67,15 +67,49 @@ def _assert_swept(db, task, result_id, folder):
     return task
 
 
-def test_enforced_stale_task_is_failed_cleaned_and_keeps_the_software_error_refund_policy(client, db_session, enforced, tmp_path):
+def test_enforced_stale_task_is_failed_cleaned_and_refunded_once(client, db_session, enforced, tmp_path):
+    """Security review round 4, item 2: a swept task failed because of the system (no live worker), so its credit is
+    returned automatically, through the idempotent refund path (refund:<task id>), exactly once.
+    (r12 kept the software-error policy here, no automatic refund; the review changed that for swept tasks.)"""
+    from app.services.billing import refunds
     t = _tenant(db_session, "sweep-on", credits=5)
     task, result_id, folder = _stale(client, db_session, t, tmp_path)
-    assert len(_entries(db_session, t.sub, "charge")) == 1
+    [charge] = _entries(db_session, t.sub, "charge")
     body = client.get(f"/api/v1/tasks/{task.id}", headers=t.headers).json()
     assert body["status"] == "failed" and body["error_summary"] == GENERIC_FAILURE
     _assert_swept(db_session, task, result_id, folder)
-    assert _entries(db_session, t.sub, "refund") == []  # software error: no automatic refund (policy unchanged)
+    [refund] = _entries(db_session, t.sub, "refund")
+    assert refund.amount == -charge.amount and refund.bucket == charge.bucket and refund.task_id == task.id
+    assert refund.idempotency_key == f"refund:{task.id}" and refund.metadata_json == {"cause": "stale_task"}
+    assert refund.reason == refunds.STALE_TASK_REASON
     assert len(_entries(db_session, t.sub, "charge")) == 1
+
+
+def test_a_swept_task_is_never_refunded_twice(client, db_session, enforced, tmp_path):
+    """A second sweep, the worker's failure bridge firing late, or a late worker never refund again."""
+    t = _tenant(db_session, "sweep-once", credits=5)
+    task, result_id, folder = _stale(client, db_session, t, tmp_path)
+    assert client.get("/api/v1/tasks", headers=t.headers).status_code == 200
+    _assert_swept(db_session, task, result_id, folder)
+    stale_sweeper.sweep(db_session, t.org.id)  # second sweep: the task is FAILED, not a candidate
+    celery_tasks.persist_worker_failure(task.id, RuntimeError("worker child lost"))  # late bridge: not RUNNING
+    celery_tasks.persist_worker_failure(task.id, stale_sweeper.StaleTaskError(stale_sweeper.STALE_REASON))
+    db_session.expire_all()
+    assert db_session.get(Task, task.id).status == TaskStatus.FAILED
+    assert len(_entries(db_session, t.sub, "refund")) == 1
+
+
+def test_a_completed_task_is_never_refunded(client, db_session, enforced, tmp_path):
+    """A COMPLETED task is never swept or refunded, however long ago it started."""
+    t = _tenant(db_session, "sweep-completed", credits=5)
+    task, _, _ = _stale(client, db_session, t, tmp_path)
+    task.status = TaskStatus.COMPLETED
+    db_session.commit()
+    assert client.get("/api/v1/tasks", headers=t.headers).status_code == 200
+    celery_tasks.persist_worker_failure(task.id, stale_sweeper.StaleTaskError(stale_sweeper.STALE_REASON))
+    db_session.expire_all()
+    assert db_session.get(Task, task.id).status == TaskStatus.COMPLETED
+    assert _entries(db_session, t.sub, "refund") == [] and len(_entries(db_session, t.sub, "charge")) == 1
 
 
 def test_unenforced_stale_task_is_swept_from_the_task_list_with_no_ledger_entries(client, db_session, unenforced, tmp_path):

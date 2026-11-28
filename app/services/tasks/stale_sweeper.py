@@ -11,8 +11,10 @@ FRRIS tasks are swept when BOTH hold:
 
 A swept task goes through the same path as a lost worker child (``persist_worker_failure``): status FAILED, the
 reserved (half-written) result row and its output folder removed, the same generic user-visible message, the
-``failed`` event appended to the task's hash-chained execution record (its audit trail), and the unchanged refund
-policy (``refund_failed_task`` with the software-error cause: no automatic refund; NOVA ARI refunds manually).
+``failed`` event appended to the task's hash-chained execution record (its audit trail). The credit is returned
+automatically (``refund_failed_task`` with the ``stale_task`` cause, key ``refund:<task id>``, at most once; security
+review round 4, item 2): the system lost the task. A worker that finishes after the sweep finds the task no longer
+RUNNING and discards its own result, so the refund stays consistent; a COMPLETED task is never swept.
 
 Callers pass the organization of the request, so a user's request only ever sweeps that organization's tasks.
 The operator CLI (``python -m app.services.tasks.stale_sweeper``) sweeps every organization.
