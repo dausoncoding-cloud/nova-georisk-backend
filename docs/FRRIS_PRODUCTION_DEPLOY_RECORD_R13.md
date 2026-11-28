@@ -218,9 +218,23 @@ No secret or `.env` content was touched.
 2. Over SSH, set `ABLINER_API_KEY` and `ABLINER_WEBHOOK_SECRET` in the live environment; restart api and worker.
 3. `integrations.cli check` shows Abliner `connected`; also run Test connection in the console.
 4. Set the webhook URL in the Abliner dashboard.
-5. Install the reconcile cron and confirm both crons with `crontab -l`. Two adjustments for this server:
-   - `/var/log/nova` does not exist, so create it or choose another log path;
-   - the live stack runs from `/home/deploy/nova-releases/firris-2f1b2dc/compose.active.json`, so the cron's `docker compose exec` needs that `-f` file (or `docker exec firris-release-2f1b2dc-firris-2f1b2dc-api-1 …`).
+5. Install the reconcile cron and confirm both crons with `crontab -l` (fix round r5, item 5: the earlier line used `/var/log/nova`, which does not exist on this server, and a plain `docker compose exec` without the live compose file).
+   - **First, by hand, as `deploy` (dry run, changes nothing):**
+
+     ```
+     docker compose --project-name firris-release-2f1b2dc --env-file /home/deploy/nova-releases/firris-2f1b2dc/deployment-inputs.env -f /home/deploy/nova-releases/firris-2f1b2dc/compose.active.json --profile workers-after-quiet-point exec -T firris-2f1b2dc-api python -m app.services.abliner.cli reconcile
+     ```
+
+     Expected output: one JSON line, `{"mode": "dry-run", "checked": <n>, "outcomes": {...}}`.
+   - **Then add exactly this line with `crontab -e` (as `deploy`; save the previous crontab first, e.g. `crontab -l > /home/deploy/nova-ops/crontab.before-reconcile`):**
+
+     ```
+     */10 * * * * flock -n /tmp/abliner-reconcile.lock sh -c 'date -u -Iseconds; docker compose --project-name firris-release-2f1b2dc --env-file /home/deploy/nova-releases/firris-2f1b2dc/deployment-inputs.env -f /home/deploy/nova-releases/firris-2f1b2dc/compose.active.json --profile workers-after-quiet-point exec -T firris-2f1b2dc-api python -m app.services.abliner.cli reconcile --apply' >> /home/deploy/nova-ops/logs/abliner-reconcile.log 2>&1
+     ```
+
+   - Why each part: `--project-name`, `--env-file`, `-f` and `--profile` are the live stack's own (the same as every operator command in `docs/FIRRIS_LIVE_DEPLOYMENT_CUTOVER.md`); `exec -T` because cron has no terminal; the log goes to `/home/deploy/nova-ops/logs/`, next to `session-purge.log`; `flock -n` skips a run while the previous one still runs; `date -u -Iseconds` timestamps each run without a `%` (cron treats `%` as a newline); no environment is needed beyond cron's default `PATH=/usr/bin:/bin`.
+   - **Tested** on 2026-11-28 against a local replica of this layout (project `firris-release-2f1b2dc`, services `firris-2f1b2dc-api` and the profile-gated worker, the same file names), run as cron runs it (`env -i PATH=/usr/bin:/bin /bin/sh -c '<line without the schedule>'`): dry run and `--apply` both exit 0 and append a timestamp and `{"mode": ..., "checked": 0, "outcomes": {}}`; a second run while the lock is held exits 1 and runs nothing. **Not yet run on the server:** before installing, check there that `deployment-inputs.env` and `compose.active.json` exist at those paths and that `docker compose ... ps` lists `firris-2f1b2dc-api`.
+   - After the first run (within 10 minutes) check `tail -n 2 /home/deploy/nova-ops/logs/abliner-reconcile.log`. Confirm with `crontab -l` that the reconcile line and the existing `17 0 * * *` IP-purge line are both present.
 6. Live TZS 500 test payment, then reverse it.
 7. Seller details, if receipts are wanted.
 8. `apply-catalogue --apply` (read section 13 first).
