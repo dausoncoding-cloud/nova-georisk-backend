@@ -3,8 +3,9 @@
 An unsalted SHA-256 of a Tanzanian mobile number (255 + 9 digits) is reversible in seconds, and nothing read it.
 The intent keeps `phone_masked` only.
 
-Downgrade re-adds the column as nullable: the hashes were never kept, so they cannot be restored, and the
-pre-review code fills it for new intents. Nothing is lost by the downgrade itself.
+Downgrade re-adds `phone_sha256` as a NULLABLE String(64) column, empty (NULL) for every existing row: the hashes
+were never kept, so they cannot be restored, and the pre-review code fills it only for new intents. Nothing is lost
+by the downgrade itself.
 
 Revision ID: f3b5d7e9a1c4
 Revises: d7f9b1c3e5a8

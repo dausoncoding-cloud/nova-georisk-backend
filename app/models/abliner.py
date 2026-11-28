@@ -2,7 +2,7 @@
 
 A payment intent is one "Pay with Mobile Money" action. It is never a payment: credits or a plan period are
 recorded only when Abliner reports "completed", through the existing payments service (app/services/billing).
-The full phone number is never stored: only a masked form and a SHA-256.
+The full phone number is never stored: only a masked form (security review M4 removed the unsalted SHA-256).
 """
 from __future__ import annotations
 
