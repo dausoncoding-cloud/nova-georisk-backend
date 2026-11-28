@@ -642,3 +642,53 @@ def test_r4_6_reference_less_and_foreign_reference_events_through_the_webhook_ne
     assert reviewed.status == "review" and "not this payment's" in reviewed.review_reason
     assert db_session.get(AblinerWebhookEvent, foreign["id"]).outcome == "review"
     assert reviewed.payment_id is None and not _payments(db_session, intent) and _credits(db_session, intent) == 0
+
+
+def test_r5_3_a_failed_retry_never_overwrites_an_outcome_another_delivery_settled(client, db_session, monkeypatch):
+    """Fix round r5, item 3: retry A's settlement fails and A rolls back (releasing the event row's lock); retry B
+    of the same event then settles it and commits "settled". A must not then write "error" over B's outcome."""
+    from sqlalchemy import event as sa_event
+    from app.services.abliner import webhooks
+    from app.services.billing import payments as billing_payments
+    t = _tenant(db_session, "abw-r5-race")
+    intent = _intent(db_session, t)
+    real, calls, state = billing_payments.record_top_up_payment, {"n": 0}, {"armed": False, "winner": None}
+
+    def flaky(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] in (1, 2):  # the first delivery and retry A fail; retry B (call 3) succeeds
+            state["armed"] = calls["n"] == 2
+            raise RuntimeError("database hiccup")
+        return real(*args, **kwargs)
+
+    payload = _event(intent)
+    body = json.dumps(payload).encode()
+
+    def retry_b(session, transaction):
+        # Only when A's top-level transaction has ended (its rollback released the row lock), not a savepoint's.
+        if not state["armed"] or transaction.parent is not None or transaction.nested:
+            return
+        state["armed"] = False
+        ts = str(int(time.time()))
+        headers = {"x-webhook-timestamp": ts, "x-webhook-id": payload["id"],
+                   "x-webhook-signature": hmac.new(SECRET.encode(), ts.encode() + b"." + body, hashlib.sha256).hexdigest()}
+        other = sessionmaker(bind=db_session.get_bind())()
+        try:
+            state["winner"] = webhooks.process(other, body, headers)
+        finally:
+            other.close()
+
+    monkeypatch.setattr(billing_payments, "record_top_up_payment", flaky)
+    assert _send(client, payload).status_code == 503  # first delivery: stored as "error"
+    sa_event.listen(db_session, "after_transaction_end", retry_b)
+    try:
+        retry_a = _send(client, payload)
+    finally:
+        sa_event.remove(db_session, "after_transaction_end", retry_b)
+    assert state["winner"] is not None and state["winner"].outcome == "settled"  # B ran inside A's window and won
+    assert retry_a.status_code == 503  # A's own attempt failed
+    db_session.expire_all()
+    assert db_session.get(AblinerWebhookEvent, payload["id"]).outcome == "settled"  # never overwritten by A
+    assert db_session.get(PaymentIntent, intent.id).status == "completed"
+    assert _send(client, payload).json() == {"status": "duplicate"}
+    assert len(_payments(db_session, intent)) == 1 and _credits(db_session, intent) == 10 and calls["n"] == 3
