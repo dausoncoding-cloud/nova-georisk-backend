@@ -584,3 +584,34 @@ def test_r4_1_a_settlement_error_is_retried_by_abliner_and_settles_exactly_once(
     assert _send(client, payload).json() == {"status": "duplicate"}  # a retry after success never credits twice
     assert len(_payments(db_session, intent)) == 1 and _credits(db_session, intent) == 10
     assert calls["n"] == 2
+
+
+@pytest.mark.parametrize("currency", ["absent", None, ""], ids=["key-absent", "null", "empty"])
+def test_r4_4_a_completed_event_with_no_currency_goes_to_review_with_no_credit(client, db_session, currency):
+    """Review round 4, item 4: a missing currency is never taken to be TZS."""
+    t = _tenant(db_session, f"abw-r4-cur-{currency or 'none'}")
+    intent = _intent(db_session, t)
+    payload = _event(intent)
+    if currency == "absent":
+        del payload["data"]["currency"]
+    else:
+        payload["data"]["currency"] = currency
+    assert _send(client, payload).json() == {"status": "ok"}
+    db_session.expire_all()
+    intent = db_session.get(PaymentIntent, intent.id)
+    assert intent.status == "review" and "no currency reported" in intent.review_reason
+    assert intent.payment_id is None and not _payments(db_session, intent) and _credits(db_session, intent) == 0
+    assert db_session.get(AblinerWebhookEvent, payload["id"]).outcome == "review"
+
+
+def test_r4_4_reconciliation_with_no_currency_goes_to_review_with_no_credit(db_session):
+    t = _tenant(db_session, "abw-r4-cur-rec")
+    intent = _intent(db_session, t, age_minutes=5)
+    item = _remote_item(intent, "completed")
+    del item["currency"]
+    remote = Remote()
+    remote.items = {intent.reference: [item]}
+    assert reconcile.run(db_session, remote.client(), apply=True).counts == {"review": 1}
+    db_session.refresh(intent)
+    assert intent.status == "review" and "no currency reported" in intent.review_reason
+    assert not _payments(db_session, intent) and _credits(db_session, intent) == 0

@@ -132,7 +132,10 @@ def apply(db: Session, intent_id: uuid.UUID, remote: Remote) -> str:
     problems = []
     if remote.amount is not None and int(remote.amount) != intent.amount:
         problems.append(f"amount {remote.amount} instead of {intent.amount}")
-    if (remote.currency or "TZS").upper() != intent.currency:
+    currency = str(remote.currency or "").strip().upper()
+    if not currency:  # security review round 4, item 4: a missing currency is never assumed to be TZS
+        problems.append("no currency reported")
+    elif currency != intent.currency:
         problems.append(f"currency {remote.currency} instead of {intent.currency}")
     if remote.amount is None:
         problems.append("no amount reported")
