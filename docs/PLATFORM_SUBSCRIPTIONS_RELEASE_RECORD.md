@@ -324,7 +324,7 @@ The app itself is reached only through `app.novageorisk.com` (gateway, BFF).
 - **Account-sharing detection** beyond the "New device" alert is a later option (about 4–5 days), as is the "possible account sharing" panel on board 14.
 - **No email channel yet.** Usage notices at 75, 90 and 100% are recorded once each (`credit_usage_notices.delivered_at`), and requests wait in the console, ready for a later email step.
 - **No WRRIS engine key yet.** It takes one line in `plans.v1.json` once the engine exists.
-- **"Provider unavailable" failures** are not yet told apart from software errors, so they are never refunded automatically.
+- **"Provider unavailable" failures** are not told apart from software errors; since fix round r5 item 1 (owner decision 2026-11-28) both are refunded automatically (`software_error`, see the cause table in `app/services/billing/refunds.py`).
 - **The console's customer table is built per request.** It suits hundreds of customers; thousands would need a precomputed table.
 - **Redis is not persistent here.** A restart loses at most the usage counts since the last flush.
 

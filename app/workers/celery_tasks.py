@@ -25,6 +25,7 @@ from app.models.result import Result
 from app.models.aoi import AOI
 from app.models.project import Project
 from app.models.task import Task, TaskStatus
+from app.services.tasks.failures import WorkerTimeLimitError
 from sqlalchemy import func
 from app.services.tasks.execution import (append_event, execution_record, claim_task,
     validate_execution, validate_workload, validate_source_snapshots)
@@ -83,7 +84,7 @@ class FIRRISRequest(Request):
             return super().on_timeout(soft, timeout)
         finally:
             if not soft and self.args:
-                persist_worker_failure(self.args[0], RuntimeError("Worker hard time limit exceeded"))
+                persist_worker_failure(self.args[0], WorkerTimeLimitError("Worker hard time limit exceeded"))
 
     def on_failure(self, exc_info, send_failed_event=True, return_ok=False):
         try:
@@ -138,14 +139,11 @@ def _mark_failed(db, task: Task, error: Exception) -> None:
         # Preserve the rejected record in storage; expose only an integrity flag.
         task.result_payload = {**(task.result_payload or {}), "execution_integrity_error": True}
     task.completed_at = datetime.now(timezone.utc)
-    # Subscriptions: give the credit back for allow-listed data failures when the plan's refund flag is on, and always
-    # for a task the stale-task sweeper failed (security review round 4, item 2). Only reached on RUNNING/QUEUED ->
-    # FAILED (see the early return above), and refund:<task id> allows one refund per task.
-    from app.services.billing.refunds import is_data_failure, refund_failed_task
-    from app.services.tasks.stale_sweeper import StaleTaskError
-    cause = ("stale_task" if isinstance(error, StaleTaskError)
-             else "data_failure" if is_data_failure(error) else "software_error")
-    refund_failed_task(db, task, cause=cause)
+    # Subscriptions: the refund policy table is in app/services/billing/refunds.py (owner decision, fix round r5,
+    # item 1): failures caused by our system are refunded automatically; data failures follow the plan's flag. Only
+    # reached on RUNNING/QUEUED -> FAILED (see the early return above), and refund:<task id> allows one per task.
+    from app.services.billing.refunds import failure_cause, refund_failed_task
+    refund_failed_task(db, task, cause=failure_cause(error))
     db.commit()
 
 

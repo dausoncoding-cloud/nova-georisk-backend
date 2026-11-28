@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -173,12 +174,15 @@ def process(db: Session, raw_body: bytes, headers) -> Outcome:
     except Exception:
         # Security review round 4, item 1: keep the event as "error" (retryable, see _retryable) and answer 503, so
         # Abliner's retries (about 2 s and 5 s later) settle it; reconciliation remains the safety net after that.
+        # Fix round r5, item 3: the rollback released the row lock, so another delivery of this event may have
+        # settled it meanwhile. Only insert the "error" row if none is stored; never overwrite a stored outcome
+        # (a stored "error" row stays "error", a "settled" or "review" row stays as it is).
         db.rollback()
-        db.merge(AblinerWebhookEvent(webhook_id=webhook_id, event=event, abliner_tx_id=remote.tx_id,
-                                     customer_reference=remote.reference, remote_status=remote.status or None,
-                                     amount=remote.amount, currency=(remote.currency or None) and str(remote.currency)[:3],
-                                     intent_id=intent.id,
-                                     outcome="error"))
+        db.execute(pg_insert(AblinerWebhookEvent).values(
+            webhook_id=webhook_id, event=event, abliner_tx_id=remote.tx_id, customer_reference=remote.reference,
+            remote_status=remote.status or None, amount=remote.amount,
+            currency=(remote.currency or None) and str(remote.currency)[:3], intent_id=intent.id, outcome="error",
+        ).on_conflict_do_nothing(index_elements=["webhook_id"]))
         integration_status.error(db, "abliner", "settlement_error")
         db.commit()
         logger.exception("Abliner webhook settlement error webhook=%s intent=%s", webhook_id, intent.id)

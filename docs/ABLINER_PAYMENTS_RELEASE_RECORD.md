@@ -43,9 +43,14 @@ Other shared files, one line each: `app/models/__init__.py` and `app/db/migratio
 3. Over SSH, set `ABLINER_API_KEY` and `ABLINER_WEBHOOK_SECRET` in the server environment file, then `docker compose up -d api worker`. The BFF needs neither.
 4. `docker compose exec api python -m app.services.integrations.cli check`: Abliner must be `"test": "connected"`. Then check the console's NOVA ARI → Integrations → Test connection.
 5. In the Abliner dashboard, set the webhook URL `https://app.novageorisk.com/api/v1/webhooks/abliner`. It is also sent with each deposit.
-6. Install the reconciliation cron: `*/10 * * * * flock -n /tmp/abliner-reconcile.lock docker compose exec -T api python -m app.services.abliner.cli reconcile --apply >> /var/log/nova/abliner-reconcile.log 2>&1`.
-   **Confirm both crons exist on the server** (`crontab -l` as the deploy user): the Abliner reconciliation line above, and the daily IP purge `python -m app.services.sessions.cli purge --apply` (docs/PLATFORM_SUBSCRIPTIONS_RELEASE_RECORD.md step 1b). After the first run, check `/var/log/nova/abliner-reconcile.log` has an entry.
+6. Install the reconciliation cron. On the production server use exactly the tested command and line in `docs/FRRIS_PRODUCTION_DEPLOY_RECORD_R13.md` §14 step 5 (fix round r5, item 5):
+
+   ```
+   */10 * * * * flock -n /tmp/abliner-reconcile.lock sh -c 'date -u -Iseconds; docker compose --project-name firris-release-2f1b2dc --env-file /home/deploy/nova-releases/firris-2f1b2dc/deployment-inputs.env -f /home/deploy/nova-releases/firris-2f1b2dc/compose.active.json --profile workers-after-quiet-point exec -T firris-2f1b2dc-api python -m app.services.abliner.cli reconcile --apply' >> /home/deploy/nova-ops/logs/abliner-reconcile.log 2>&1
+   ```
+   **Confirm both crons exist on the server** (`crontab -l` as the deploy user): the Abliner reconciliation line above, and the daily IP purge `python -m app.services.sessions.cli purge --apply` (docs/PLATFORM_SUBSCRIPTIONS_RELEASE_RECORD.md step 1b). After the first run, check `/home/deploy/nova-ops/logs/abliner-reconcile.log` has an entry.
 7. **Live test (TZS 500, 0 credits):**
+   - **Test organization first (fix round r5, item 6), only for this test:** `… python -m app.services.billing.cli create-test-organization` (dry run), then `… create-test-organization --reason "TZS 500 Abliner live test" --apply`. It creates `nova-payments-test` ("NOVA ARI payment test (not a customer)") with **no members, no engine access, no projects** and one Active `frris_wrris.internal` subscription (source `test-organization`), audited, and prints that `subscription_id`. Safe to repeat (same IDs); it refuses an existing organization it did not create. Code and rules: `app/services/billing/test_organization.py`. Use its `subscription_id` below, never a customer's.
    - Run `… python -m app.services.abliner.cli test-payment --subscription-id <id> --admin-email <your NOVA ARI e-mail> --operator "<name>"`. It's a dry run first; then add `--apply` and type the phone at the prompt.
    - Approve it on the phone. Expect:
      - the payment's status is `completed`;

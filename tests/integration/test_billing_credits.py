@@ -294,11 +294,9 @@ def test_data_failure_refund_only_when_the_flag_is_on_and_at_most_once(client, d
     db_session.commit()
     refund = _entries(db_session, t.sub, "refund")
     assert len(refund) == 1 and refund[0].task_id == on.id and refund[0].idempotency_key == f"refund:{on.id}"
-
-    software = _failed_charged_task(client, db_session, t)
-    _mark_failed(db_session, software, RuntimeError("Earth Engine internal error"))
-    assert len(_entries(db_session, t.sub, "refund")) == 1  # software errors are refunded manually
-    assert ledger.balances(db_session, t.sub.id).total == 5 - 3 + 1
+    assert ledger.balances(db_session, t.sub.id).total == 5 - 2 + 1
+    # Software errors: refunded automatically since the owner decision of fix round r5, item 1
+    # (tests/integration/test_refund_policy.py); this test covers the data-failure flag only.
 
 
 def test_queue_failure_is_refunded_even_with_the_flag_off(client, db_session, enforced, monkeypatch):

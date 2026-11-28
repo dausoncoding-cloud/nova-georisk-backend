@@ -7,6 +7,8 @@
         --reason "..." [--apply]                       # dry run unless --apply
     python -m app.services.billing.cli sweep-statuses [--apply]   # expire ended subscriptions; Q7 grace
     python -m app.services.billing.cli apply-catalogue [--apply]  # prices and plan limits from plans.v2.json
+    python -m app.services.billing.cli create-test-organization --reason "..." [--slug nova-payments-test] [--apply]
+                                                   # only for the TZS 500 live test (test_organization.py)
 
 All are safe to repeat. Commands that change accounts print what they would do unless `--apply` is
 given, and write `platform_audit` rows (actor "operator command: <name>") when they apply.
@@ -18,7 +20,7 @@ import json
 
 from app.db.session import SessionLocal
 from app.models.platform import OrganizationSubscription
-from app.services.billing import audit, backfill, catalogue, ledger, statuses
+from app.services.billing import audit, backfill, catalogue, ledger, statuses, test_organization
 
 
 def grant_monthly(db) -> dict:
@@ -81,6 +83,21 @@ def run_apply_catalogue(db, args) -> dict:
             "changes": changes}
 
 
+def run_test_organization(db, args) -> dict:
+    if args.apply and not (args.reason or "").strip():
+        raise SystemExit("--reason is required with --apply.")
+    try:
+        report = test_organization.ensure(db, slug=args.slug, reason=args.reason, apply=args.apply)
+    except test_organization.TestOrganizationError as exc:
+        db.rollback()
+        raise SystemExit(f"create-test-organization refused: {exc}") from None
+    if args.apply:
+        db.commit()
+    else:
+        db.rollback()
+    return {"mode": "apply" if args.apply else "dry-run", **report.as_dict()}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.services.billing.cli")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -96,6 +113,10 @@ def main(argv: list[str] | None = None) -> int:
     sweep.add_argument("--apply", action="store_true")
     sync = commands.add_parser("apply-catalogue", help="bring prices and plan limits up to the current plans file")
     sync.add_argument("--apply", action="store_true")
+    testorg = commands.add_parser("create-test-organization", help="the TZS 500 live test's organisation (Internal plan)")
+    testorg.add_argument("--slug", default=test_organization.DEFAULT_SLUG)
+    testorg.add_argument("--reason", default=None)
+    testorg.add_argument("--apply", action="store_true")
     args = parser.parse_args(argv)
     db = SessionLocal()
     try:
@@ -113,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise SystemExit(f"backfill refused: {exc}") from None
         elif args.command == "apply-catalogue":
             print(json.dumps(run_apply_catalogue(db, args), indent=2))
+        elif args.command == "create-test-organization":
+            print(json.dumps(run_test_organization(db, args), indent=2))
         else:
             print(json.dumps(run_sweep(db, args), indent=2))
     finally:

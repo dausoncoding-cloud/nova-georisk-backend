@@ -7,7 +7,8 @@ because the task is no longer QUEUED, and the task keeps counting against the or
 FRRIS tasks are swept when BOTH hold:
   * it has been RUNNING for more than the stale-running setting (default 4 h, equal to the hard time limit, so
     a live execution would already have been stopped and failed by Celery); and
-  * no live worker reports it as executing (Celery ``inspect active``). If the broker cannot be asked, nothing is swept.
+  * a worker answers Celery ``inspect active`` and none reports it as executing. If the broker cannot be asked, or no
+    worker answers at all (``active()`` returns None), liveness is unknown and nothing is swept (fix round r5, item 2).
 
 A swept task goes through the same path as a lost worker child (``persist_worker_failure``): status FAILED, the
 reserved (half-written) result row and its output folder removed, the same generic user-visible message, the
@@ -62,7 +63,12 @@ def live_task_ids() -> frozenset[str] | None:
     except Exception:  # noqa: BLE001 - broker unreachable: liveness unknown, so sweep nothing
         logger.warning("Stale-task sweep skipped: worker liveness could not be checked", exc_info=True)
         return None
-    ids = frozenset(str(request["args"][0]) for requests in (active or {}).values() for request in requests or []
+    if active is None:
+        # Fix round r5, item 2: no worker answered inside the timeout (all down, busy, or the reply was lost).
+        # That is "unknown", not "nothing is running": sweep nothing, and do not cache it.
+        logger.warning("Stale-task sweep skipped: no worker answered the liveness check")
+        return None
+    ids = frozenset(str(request["args"][0]) for requests in active.values() for request in requests or []
                     if request.get("args"))
     _live_cache = (time.monotonic(), ids)
     return ids
