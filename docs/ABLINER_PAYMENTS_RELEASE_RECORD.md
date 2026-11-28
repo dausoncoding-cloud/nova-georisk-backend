@@ -225,3 +225,37 @@ With enforcement OFF, none of these changes access, credits or analyses. The vis
 4. **Last resort:** restore the dump above with `pg_restore --clean` into `nova_georisk_firris_2f1b2dc`, with api, bff and worker stopped. This loses anything written after 2026-11-28 ~14:30 UTC, so use it only if 1–3 cannot be used.
 
 Audit rows are never deleted: they record what happened, including the rollback.
+
+### 5.3 `apply-catalogue` (catalogue v2): applied
+
+Run in tmux on the server (`bp1-catalogue-dry`, then `bp1-catalogue-apply`), with the output kept in `/home/deploy/nova-releases/billing-phase1-20261128/`.
+
+**Dry run:** 35 changes across 14 plans (14 limits, 7 prices, 14 catalogue versions), identical to the r13 dry run (R13 record §13).
+
+**`--apply`:**
+- exit 0, 35 changes;
+- a dry run straight after shows **0 changes**;
+- audit: `plan.limits` 14, `plan.price` 7, `plan.catalogue_version` 14 (actor "operator command: apply-catalogue").
+
+Final state of the plans (latest price version; TZS):
+
+| Plan | Credits/month | Seats | Sessions | Refund on data failure | Monthly | Top-up per credit | Price version |
+|---|---|---|---|---|---|---|---|
+| frris_wrris.researcher | 10 | 1 | 1 | yes | 150,000 | **15,000** | v2 |
+| frris_wrris.professional | 30 | 5 | **1** | yes | 300,000 | 10,000 | v1 |
+| frris_wrris.academic | 75 | 10 | **1** | yes | 750,000 | 10,000 | v1 |
+| frris_wrris.institutional | 150 | 25 | **1** | yes | 1,500,000 | 10,000 | v1 |
+| frris_wrris.enterprise | 250 | 50 | **1** | yes | 2,500,000 | 10,000 | v1 |
+| frris_wrris.custom | — | — | **1** | yes | contract | 10,000 | v1 |
+| frris_wrris.internal | unlimited | — | **3** | yes | not paid | — | — |
+| megis.researcher | 10 | 1 | 1 | yes | 250,000 | **25,000** | v2 |
+| megis.professional | 50 | 5 | **1** | yes | 500,000 | **25,000** | v2 |
+| megis.academic | 100 | 10 | **1** | yes | 1,000,000 | **25,000** | v2 |
+| megis.institutional | 200 | 25 | **1** | yes | 2,000,000 | **25,000** | v2 |
+| megis.enterprise | 350 | 50 | **1** | yes | 3,500,000 | **25,000** | v2 |
+| megis.custom | — | — | **1** | yes | contract | **25,000** | v2 |
+| megis.internal | unlimited | — | **3** | yes | not paid | — | — |
+
+Every plan is active with `catalogue_version` 2. There are now 19 price rows (12 before; the older versions are kept).
+
+Effect while the flags are OFF: none on access or charging. Session limits and refunds apply only with enforcement ON, and offers stay off with the payments flag OFF.
