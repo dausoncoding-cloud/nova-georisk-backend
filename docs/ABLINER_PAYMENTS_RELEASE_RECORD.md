@@ -46,7 +46,7 @@ Other shared files, one line each: `app/models/__init__.py` and `app/db/migratio
 6. Install the reconciliation cron. On the production server use exactly the tested command and line in `docs/FRRIS_PRODUCTION_DEPLOY_RECORD_R13.md` §14 step 5 (fix round r5, item 5):
 
    ```
-   */10 * * * * flock -n /tmp/abliner-reconcile.lock sh -c 'date -u -Iseconds; docker compose --project-name firris-release-2f1b2dc --env-file /home/deploy/nova-releases/firris-2f1b2dc/deployment-inputs.env -f /home/deploy/nova-releases/firris-2f1b2dc/compose.active.json --profile workers-after-quiet-point exec -T firris-2f1b2dc-api python -m app.services.abliner.cli reconcile --apply' >> /home/deploy/nova-ops/logs/abliner-reconcile.log 2>&1
+   */10 * * * * flock -n /tmp/abliner-reconcile.lock sh -c 'date -u -Iseconds; c=$(docker ps -q --filter label=com.docker.compose.project=firris-release-2f1b2dc --filter label=com.docker.compose.service=firris-2f1b2dc-api --filter health=healthy); n=$(echo $c | wc -w); if [ "$n" -ne 1 ]; then echo "RECONCILE-FAILED: $n healthy api containers"; exit 1; fi; docker exec "$c" python -m app.services.abliner.cli reconcile --apply || { r=$?; echo "RECONCILE-FAILED: exit $r"; exit $r; }' >> /home/deploy/nova-ops/logs/abliner-reconcile.log 2>&1
    ```
    **Confirm both crons exist on the server** (`crontab -l` as the deploy user): the Abliner reconciliation line above, and the daily IP purge `python -m app.services.sessions.cli purge --apply` (docs/PLATFORM_SUBSCRIPTIONS_RELEASE_RECORD.md step 1b). After the first run, check `/home/deploy/nova-ops/logs/abliner-reconcile.log` has an entry.
 7. **Live test (TZS 500, 0 credits):**

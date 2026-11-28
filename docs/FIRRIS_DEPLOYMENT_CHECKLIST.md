@@ -68,6 +68,7 @@ docker compose run --rm --no-deps api python -m scripts.validate_production_envi
 - [ ] Central logs preserve request/task IDs and restrict access to raw worker exceptions.
 - [ ] Restore PostGIS and artifacts together; verify Result checksums after recovery.
 - [ ] Stop new submissions before rollback. Preserve the artifact volume and database; never use `down -v` in production.
+- [ ] Check that the reconcile cron path still points at the live release: if the Abliner reconcile cron is installed, `crontab -l` shows the line from `docs/FRRIS_PRODUCTION_DEPLOY_RECORD_R13.md` §14 step 5, its label filter matches exactly one healthy api container (`docker ps -q --filter label=com.docker.compose.project=firris-release-2f1b2dc --filter label=com.docker.compose.service=firris-2f1b2dc-api --filter health=healthy | wc -l` is 1), and the freshness check there prints `RECONCILE-OK` (log written in the last 25 minutes, no `RECONCILE-FAILED`).
 
 ## Final production decision
 
