@@ -447,4 +447,5 @@ The full list (H1, M1–M5, L1–L9), with tests, is in `docs/ABLINER_PAYMENTS_R
 | M2 Mobile Money charged v1 prices until `apply-catalogue --apply`; the offer test depended on test order | Catalogue-version stamp per plan; `catalogue_not_applied` until applied; §6.3 step 2 required before the Abliner flag | C6 | `test_abliner_payments.py::test_m2_mobile_money_never_charges_v1_prices`; the offer test sets the v1 state explicitly; `test_apply_catalogue_*` asserts every plan stamped |
 | L5 (part) the customer could download the operator's TEST receipt | 404 on the customer route | C7 | `test_receipts.py::test_abliner_settled_and_test_payments_get_receipts` |
 | Rebase | `e8a0c2d4f6b1` revises `f3b5d7e9a1c4` (the M4 migration on the Abliner branch); one linear head | — | migration round trip |
+| Round 4 item 3 (2026-11-28): `BILLING_VIEW_GRACE_DAYS` was not validated | Unset or a whole number of days ≥ 1; anything else (0, negative, non-integer, empty) refuses start-up with "BILLING_VIEW_GRACE_DAYS must be unset or a whole number of days, 1 or more" | — | `tests/unit/test_billing_view_grace_setting.py` (11) |
 
