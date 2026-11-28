@@ -294,3 +294,25 @@ What could confuse:
 - "Renews on 1 Dec 2026" for a plan that is not paid for.
 
 Left in place pending the owner's decision. Rollback, if wanted: §5.2 item 2.
+
+**Backfill UNDONE (owner decision, 2026-11-28).**
+
+*Why:* the Subscription page showed price and purchase elements to NOVAREX users, while the owner had been told that nothing payment-related was visible yet. **The backfill will be redone on enable day, only after the Subscription page fix is deployed.** Catalogue v2 stays applied.
+
+*How* (§5.2 item 2):
+- One transaction, from `undo_backfill.sql` via `run_undo.sh` in `/home/deploy/nova-releases/billing-phase1-20261128/`, run in tmux: a dry run (`bp1-undo-dry`, rolled back), then the apply (`bp1-undo-apply`).
+- The script refuses without a reason, if the backfilled subscription is gone, if there is not exactly one subscription, or if any dependent row exists: ledger, usage notices, payment intents, payments, subscription requests. All of these were 0. `payment_intents` and `subscription_requests` would cascade on delete, so they are checked explicitly.
+- It re-links the `firris` entitlement to no subscription, writes one `platform_audit` row, and deletes the subscription:
+  - action `subscription.backfill_undo`;
+  - actor "operator command: backfill-undo";
+  - previous and current link state;
+  - the reason above.
+- The dry run and the apply showed the same result. A backfill dry run now proposes `create` 1 again, as before the phase.
+
+*Database compared with the pre-phase snapshots (§5.2):*
+- **Identical:** `organizations`, `organization_subscriptions` (0 rows), `credit_ledger_entries`, `organization_memberships`.
+- **`organization_engine_entitlements`:** values identical; only `updated_at` keeps the backfill's time (14:53:45 UTC). It is left as it is, because it records a real change.
+- **`billing_plans` and `billing_plan_prices`:** only the catalogue v2 changes (limits, `catalogue_version`, 7 new price rows from `plans.v2.json`; old price rows unchanged).
+- **`platform_audit`:** gains `subscription.backfill_create` and `subscription.backfill_undo`.
+
+*UI after the undo* (the same method, with fresh production responses for the owner and an admin): the Subscription link is **hidden**, and no page shows a billing element. `/subscription` typed directly shows only "This organisation has no subscription yet. Contact NOVA ARI.", the same text as the r13 render before the backfill.
