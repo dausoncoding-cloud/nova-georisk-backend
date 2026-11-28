@@ -2,7 +2,9 @@
 
 **Date:** 2026-11-28 (UTC). **Host:** `deploy@172.236.139.113`. **Owner instruction:** 2026-11-28: merge the reviewed payment and subscription work and deploy it with all billing features OFF.
 
-**Status of this record:** written in two parts. Sections 1–4 (code, tests, migrations, rollback plan, nginx check) were committed **before** the deploy; the results are added afterwards.
+**Status of this record:** written in two parts. Sections 1–6 (code, tests, migrations, rollback plan, nginx check, crons) were committed **before** the deploy (`fc20c01`). Sections 7–13 were added afterwards.
+
+**Outcome:** r13 is deployed and activated, with **no rollback**. All billing features are OFF. The Rufiji equality check against result v10 is **EQUAL**.
 
 ## 1. Code and tags
 
@@ -73,3 +75,177 @@ All changes are **additive**: the r12 code runs on the r13 schema, and r12 has n
 - **IP-purge cron:** present, `17 0 * * *` (`sessions.cli purge --apply`, log in `nova-ops/logs/session-purge.log`).
 - `/var/log/nova` (the path in the payment checklist) does not exist.
 - Nothing was installed.
+
+## 7. Phase A (2026-11-28, UTC)
+
+| Step | Result |
+|---|---|
+| Release folder | `/home/deploy/nova-releases/r13-ecf7554-20261128`; sources are `git archive` of `ecf7554` and `0b58dce`; the checksums of all 14 transferred files are equal on both ends |
+| Rollback tags `:rollback-before-r13` | backend = r12 `sha256:86b9df4a7da7…`; frontend = r10 `sha256:80c62b2a0c8f…`; both equal the live containers' images; `rollback/compose.previous.json` = the r12 candidate (`cmp` equal) |
+| Build (tmux `r13-build`) | backend `nova-georisk-backend:r13-ecf7554-20261128` = **`sha256:93beed70b9f4499ad7eb58b4acba083146df050a0209992c7623203e59b3f35e`** (label `ecf7554…`), 8 s (dependency layers cached); frontend `nova-georisk-frontend:r13-0b58dce-20261128` = **`sha256:565724b1cefaf5ed4322d8edc76ec81f4c0aacb4c6fd3ad5b7cf28a2e5daf35c`** (label `0b58dce…`), 67 s; lowest available memory 724 MB |
+| Image gates | packaging 0 findings; OpenAPI `5d8bafb6…` equals the tested hash; `pip freeze` identical to r10–r12; settings defaults: payments `False`, no Abliner API key, no webhook secret, grace days unset, enforcement `False`, no seller; the 3 migration files present |
+| Candidate | only the images differ from r12; the script asserts enforcement `false` and that no `ABLINER_*`, `BILLING_VIEW_GRACE_DAYS` or `SELLER_*` key exists in any service; the gateway keeps the r10 `gateway.conf` mount and the log limits |
+| Diag worker | healthy in 16 s, no version mismatch, 0 tasks received; its one Redis key `_kombu.binding.diag_noop_r13_20261128t080033z` (db 3) was shown, then deleted by name after the cutover; none left |
+| **Migration** (tmux `r13-migrate`, while r12 served) | gate passed (current `c5e7a9b1d3f6`, one head `e8a0c2d4f6b1`, 0 tasks queued or running); pre-migration dump `backup/pre-migration-20261128T0801Z.dump` 4,158,801 B, 38 TABLE DATA entries, SHA-256 `788ba68de93b2a38…`; **`alembic upgrade head` in 3.7 s**, current == heads == `e8a0c2d4f6b1`; new tables `abliner_webhook_events`, `integration_status`, `payment_intents`, `payment_receipts`, `receipt_counters`; r12 api, bff and worker stayed healthy on the r13 schema |
+
+## 8. Phase B (tmux `r13-cutover`)
+
+- Artifacts base archive (services running): 1,285,046,026 B in 240 s.
+- Gates: broker empty, worker idle. Quiesced at 08:06:25.
+- Dump `production-20261128T0802Z.dump`: 4,174,812 B, 43 TABLE DATA entries (5 new tables), SHA-256 `62b760c6970dbc8c…`.
+- Artifacts incremental archive: 11,749 B.
+- `alembic current` == heads == `e8a0c2d4f6b1`.
+- **API downtime 48.2 s.** Gateway swap 7.8 s. Result `activated`; `compose.active.json` = the r13 candidate.
+
+**After the cutover:**
+- api, bff and worker run revision `ecf7554`; the gateway runs `0b58dce`. All are healthy, with 0 restarts.
+- Memory limits (512 / 448 / 640 / 96 MiB) and log limits (json-file, 10m × 3) are unchanged.
+- Enforcement is `false` in api, bff and worker; no `ABLINER_*`, grace or seller variable is set.
+- 0 error lines in the api, bff, worker and gateway logs. The 6 edge `[error]` lines are all my own limit and deny checks.
+- **Artifacts restore check:** base + incremental extracted in a throwaway container are identical to the live volume (3,980 files).
+- `backup/SHA256SUMS` written.
+
+**Off-server copy:** `~/nova-backups/20261128-r13-artifacts/` on the workstation holds the base and incremental archives, both snapshots and both dumps. `sha256sum -c` passed for all 6 files.
+
+## 9. Edge change (`edge_r13.py`)
+
+- The live files were checked against the r10 SHA-256 and copied to `edge-conf.d/`.
+- `app.conf`, then `frontend-app.conf`, were installed by atomic rename.
+- `nginx -t` OK, then reload (no restart).
+- `nginx -T`: `app.conf`, `default-server.conf` and `frontend-app.conf` are loaded; `zone=nova_release_webhook:10m` is declared once and the location is present once.
+- **Installed SHA-256 now:** `app.conf` `3bbe53c16d0a…`, `frontend-app.conf` `a8713ff2223a…`, `default-server.conf` `216a0b8ddffd…`. Each equals the file at `ecf7554`.
+
+| Check | Before | After |
+|---|---|---|
+| api `/health` / api `/api/v1/projects` | 200 / 404 | 200 / 404 |
+| app `/`, `/auth/session` | 200, 200 | 200, 200 |
+| 26 MB upload route / 26 MB `/api/v1/analyses` | 401 / 413 | 401 / 413 |
+| webhook GET, PUT, DELETE | 401 (BFF) | **403 at the edge** |
+| webhook 70 KB POST | 413 | **413** |
+
+Not run: the checklist's empty-POST check (expects `401 invalid_signature` from the BFF route). It is left for the owner's turn-on.
+
+## 10. Smoke tests
+
+| Check | Result |
+|---|---|
+| Health, app, login page, `/auth/session` | 200 |
+| `/auth/login` | 302 to the identity provider (login via BFF) |
+| `/api/v1/results` without a session | 401 |
+| Result v10, own organization / another organization | 200 / **403** |
+| Tasks, own / other organization | 200 / **403** |
+| Protected download `firris_pdf_report` with Range, own / other | **206** (16 B) / **403** |
+| External datasets, own / other; source catalogue | 200 / **403**; 200 |
+| Upload limits | 26 MB upload route 401 (reaches auth); 52.5 MB 413; 26 MB `analyses`, review sub-route, `source-datasets`, api host: 413 (**unchanged**) |
+| Webhook location | GET/PUT/DELETE **403**, 70 KB POST **413** |
+| **Payments, flag unset** (as the NOVAREX owner through the API) | `POST /billing/abliner/payments` → **404 `payments_unavailable`**; offers return `enabled: false` from settings (the probe with a random id got 404 `subscription_not_found`; production has no subscription); own payment list 200 (empty); `billing/summary` 200 with `enforcement_enabled: false`, 0 subscriptions, seller `null`; customer offers without a session 401 |
+| Rows | `payment_intents` 0, `payments` 0, `abliner_webhook_events` 0, `payment_receipts` 0 |
+| Queue | the Rufiji run below went QUEUED → RUNNING → COMPLETED; the duplicate submission (same idempotency key) returned the same task |
+
+## 11. What a customer sees with all flags OFF
+
+The r13 build was rendered in a local headless browser at 1440 and 390 px. `/api` used production's real responses for the NOVAREX owner, with platform-admin access answering 403 as for any non-platform user. The session name and e-mail were placeholders.
+
+- **Navigation:** the "Subscription" link is **hidden** (shown only when the organization has a subscription; production has 0). No billing banner (banners need enforcement on). No payment, receipt, storage or seller element on any page.
+- **`/subscription` typed directly:** "My subscription — This organisation has no subscription yet. Contact NOVA ARI." Plain and finished; no payment form (Mobile Money appears only when offers say `enabled`).
+- **Login page (everyone):** a new privacy note: "For security we record sign-ins (device, approximate location and IP address). IP addresses are deleted after 30 days." This is accurate: sign-ins are recorded, and the daily IP-purge cron is installed.
+- **Analyses, New analysis, Settings, Home:** unchanged; no billing wording.
+
+**Verdict:** nothing confusing or unfinished is visible; left live.
+
+## 12. Rufiji run and equality check
+
+- Task `67fd1a77…`, submitted 08:33:16 UTC; result `231d9ddf…` v13; 0 worker errors.
+- **EQUAL to result version 10:**
+  - whole area 57,361 / 7,461;
+  - observed 2,236 / 337;
+  - Umwe 1,046 / 142, Ikwiriri 775 / 126, Mgomba 415 / 69, Mtunda 0 / 0;
+  - `flood_exposure` identical, timings aside.
+
+| Measure | r12 | r13 |
+|---|---|---|
+| Run time | 231 s | **270 s** |
+| Worker peak, `docker stats` | 543 MiB | **572 MiB** |
+| Worker cgroup `memory.peak` | 640 MiB | 640 MiB |
+| Worker cgroup `memory.events max` | 469 | **1,248** |
+| OOM kills | 0 | 0 |
+| Host lowest MemAvailable during run | — | 518 MB; swap up to 249 MB |
+
+**Notes:**
+- The run was 39 s slower, with a 29 MiB higher peak and more reclaim at the cgroup limit, but no OOM kill.
+- During the run the API itself was at 425 MiB of its 512 MiB limit. The added payment and receipt code is loaded in the API and BFF, not in the FRRIS science path.
+- The figures are from one run each; repeat runs would show whether this is noise.
+
+## 13. Billing CLI dry runs (nothing applied)
+
+**`apply-catalogue` (dry run), catalogue version 2, 35 changes across 14 plans:**
+- `catalogue_version` 1 → 2 for all 14 plans (`frris_wrris.*` and `megis.*`: researcher, professional, academic, institutional, enterprise, custom, internal).
+- Limits:
+  - `refund_on_data_failure` false → true on every plan;
+  - `session_limit` 3 → 1 on professional, academic, institutional, enterprise and custom (both families);
+  - `session_limit` none → 3 on the internal plans.
+- Prices:
+  - `frris_wrris.researcher` top-up 10,000 → 15,000;
+  - top-up 25,000 added where none was set (5 plans with prices 250,000 … 3,500,000 and custom);
+  - monthly prices unchanged.
+
+**`backfill-subscriptions --internal-org legacy` (dry run):** one change, `create` for `legacy` (NOVAREX): plan `frris_wrris.internal`, status `active`, engine `firris`.
+
+**Test organization:** none exists in production. `legacy` (NOVAREX) is the only organization, with 4 members, so no backfill could be shown for it.
+
+After both dry runs: `organization_subscriptions` 0, organizations 1. **Nothing was applied.**
+
+For the owner:
+- the internal plan's new `session_limit` 3 applies to NOVAREX once the backfill and catalogue are applied and enforcement is on;
+- check that this fits its 4 members' use.
+
+## 14. What stays OFF, and turning payments on later
+
+**Stays OFF / not set:**
+- `ABLINER_PAYMENTS_ENABLED` (unset, default false);
+- `BILLING_ENFORCEMENT_ENABLED=false`;
+- `BILLING_VIEW_GRACE_DAYS` unset (an empty value would stop start-up);
+- no `ABLINER_API_KEY` or `ABLINER_WEBHOOK_SECRET`;
+- no seller details (receipts answer 503, seller footer hidden);
+- catalogue v2 and the backfill not applied;
+- reconcile cron not installed.
+
+No secret or `.env` content was touched.
+
+**Checklist (full text in `docs/ABLINER_PAYMENTS_RELEASE_RECORD.md` §3).** Steps 1 and the edge parts of step 2 are **done in r13**. Remaining, by the owner:
+
+1. Edge check: an empty POST to the webhook returns `401 invalid_signature`.
+2. Over SSH, set `ABLINER_API_KEY` and `ABLINER_WEBHOOK_SECRET` in the live environment; restart api and worker.
+3. `integrations.cli check` shows Abliner `connected`; also run Test connection in the console.
+4. Set the webhook URL in the Abliner dashboard.
+5. Install the reconcile cron and confirm both crons with `crontab -l`. Two adjustments for this server:
+   - `/var/log/nova` does not exist, so create it or choose another log path;
+   - the live stack runs from `/home/deploy/nova-releases/firris-2f1b2dc/compose.active.json`, so the cron's `docker compose exec` needs that `-f` file (or `docker exec firris-release-2f1b2dc-firris-2f1b2dc-api-1 …`).
+6. Live TZS 500 test payment, then reverse it.
+7. Seller details, if receipts are wanted.
+8. `apply-catalogue --apply` (read section 13 first).
+9. Set `ABLINER_PAYMENTS_ENABLED=true`; restart api.
+10. One real top-up, then announce.
+
+To also enforce billing: run the backfill with `--apply`, then set enforcement on, as separate owner decisions.
+
+## 15. Disk and skipped items
+
+**Server disk:**
+- before r13: 11,866,001,408 B free (77 %);
+- after: 10,407,374,848 B free (79 %);
+- the new images and the 1.29 GB artifacts archive account for the difference.
+
+**Untouched:**
+- held cleanup items 1, 2, 4 and 5;
+- the r10, r11 and r12 rollback files;
+- certbot;
+- nova-ops;
+- secrets;
+- the engine postgres, redis and nginx containers, except the edge reload through the release path.
+
+**Skipped or not done:**
+- the gateway's `gateway.conf` is kept at r10; the repository's gateway webhook block is not installed (the gateway is not on the production path);
+- the abliner intermediate head was not re-tested on its own;
+- the empty-POST webhook signature check (owner's turn-on);
+- the crons were only checked, not installed.
