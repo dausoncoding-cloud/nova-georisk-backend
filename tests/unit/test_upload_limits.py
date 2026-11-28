@@ -64,6 +64,25 @@ def test_64k_only_inside_the_abliner_webhook_location(path):
     assert text.index(WEBHOOK_OPENING) < text.index("location ^~ /api/ {")  # declared at server level, before /api/
 
 
+ZONES = {"frontend-app.conf": ROOT / "production-edge" / "app.conf", "gateway.conf": ROOT / "conf.d" / "gateway.conf"}
+BROWSER_ZONES = {"nova_release_browser_api", "nova_release_browser_auth", "nova_gateway_api", "nova_gateway_auth"}
+
+
+@pytest.mark.parametrize("path", CONFIGS, ids=lambda p: p.name)
+def test_r4_5_the_abliner_webhook_location_is_post_only_with_its_own_rate_limit_zone(path):
+    """Security review round 4, item 5: POST only, and a rate-limit zone of its own (never a browser zone), defined
+    in the file that holds that server's zones (the edge's are in production-edge/app.conf, loaded with it)."""
+    block = _block(path.read_text(), WEBHOOK_OPENING)
+    code = "\n".join(line.split("#", 1)[0] for line in block.splitlines())
+    post_only = (re.search(r"limit_except\s+POST\s*\{\s*deny\s+all;\s*\}", code)
+                 or re.search(r"if \(\$request_method != POST\) \{\s*return 404", code))
+    assert post_only, "the webhook location must refuse every method but POST"
+    zones = re.findall(r"limit_req\s+zone=(\w+)", code)
+    assert len(zones) == 1 and zones[0] not in BROWSER_ZONES, zones
+    declared = re.findall(r"^limit_req_zone\s+\$binary_remote_addr\s+zone=(\w+):", ZONES[path.name].read_text(), re.M)
+    assert zones[0] in declared
+
+
 @pytest.mark.parametrize("url,matches", [
     (f"/api/v1/projects/{PID}/external-datasets", True),
     (f"/api/v1/projects/{PID}/external-datasets/", False),
