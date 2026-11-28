@@ -330,3 +330,85 @@ Run in tmux (`bp1-testorg-dry`, `bp1-testorg-apply`) with `create-test-organizat
   - audit `organization.test_created` 1 and `subscription.test_created` 1.
 - A repeat dry run answers `exists` with the same IDs.
 - NOVAREX's billing summary still has no subscription for the owner or the admin, so nothing changes for NOVAREX users.
+
+### 5.6 Entering the Abliner key and webhook secret (prepared, NOT run; owner only)
+
+**Where the values go, and why there.** The live services read no env file. Every secret they use today (`INTERNAL_API_SECRET`, `OIDC_CLIENT_SECRET`, `POSTGRES_PASSWORD`) is an entry in the `environment` list of `/home/deploy/nova-releases/firris-2f1b2dc/compose.active.json`:
+- mode 600, owner `deploy`;
+- `cutover.py` rewrites it at every release, from a candidate built from it;
+- `runtime.env` and `deployment-inputs.env` exist but no running service reads them.
+
+So the two values go into that file, for **api and worker only**:
+
+| Variable | Value starts with | Services |
+|---|---|---|
+| `ABLINER_API_KEY` | `tsl_live_` | api, worker |
+| `ABLINER_WEBHOOK_SECRET` | `whsec_` | api, worker |
+
+The BFF and the gateway never get them. `ABLINER_PAYMENTS_ENABLED` is **not** set (it stays false).
+
+**Tool:** `set_abliner_secrets.py`. A copy is in `docs/ops/` (not in any image); it is staged at `/home/deploy/nova-releases/billing-phase1-20261128/set_abliner_secrets.py`, mode 600, SHA-256 starting `fbeb04f530708d4d`.
+- It reads each value **twice** at hidden prompts (`getpass`), so there is no echo, nothing in shell history and nothing in any process's arguments.
+- It checks the prefix, rejects spaces and line breaks, and refuses if:
+  - the payments flag is on;
+  - the file is not mode 600 or not owned by `deploy`;
+  - the running api/worker images differ from the file.
+- It first copies the file to `compose.active.json.before-abliner-<UTC stamp>` (mode 600). It then writes through a temporary file (mode 600, flushed to disk) and renames it over the original.
+- Afterwards it checks that only those two names changed, in those two services.
+- It prints names only and restarts nothing.
+- Tested locally with placeholders: write OK; second entry differs, wrong prefix, payments flag on, and mode 644 all refused. `--check` on the server passed read-only (nothing written; no Abliner value present today).
+
+**Procedure (owner, after r15 is deployed; at a quiet time, because the api is down for about 20 s):**
+
+1. In the Abliner dashboard, create a **new API key named "NOVA-GeoRisk production"** and **rotate the webhook signing secret**. Do this only at the moment of entering them. The dashboard callback URL **stays empty** (`callback_url` is sent with every deposit). Keep the old key "NOVAPAY" until the TZS 500 test has passed.
+2. `ssh -t deploy@172.236.139.113`, then:
+   ```
+   cd /home/deploy/nova-releases/billing-phase1-20261128
+   sha256sum set_abliner_secrets.py          # must start fbeb04f530708d4d
+   docker exec -i nova-georisk-engine-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d nova_georisk_firris_2f1b2dc -At' <<'SQL'
+   select count(*) from tasks where status in ('QUEUED', 'RUNNING');
+   SQL
+   ```
+   The count must be **0**, because restarting the worker would stop a running analysis.
+3. ```
+   python3 set_abliner_secrets.py --check
+   python3 set_abliner_secrets.py
+   ```
+   Paste the API key at the first two prompts and the webhook secret at the next two. Nothing is shown. Expect `OK: api and worker have ABLINER_API_KEY and ABLINER_WEBHOOK_SECRET (values not shown); file mode 600; …`.
+4. **Restart only api and worker:**
+   ```
+   docker compose --project-name firris-release-2f1b2dc -f /home/deploy/nova-releases/firris-2f1b2dc/compose.active.json up -d --no-deps --wait --wait-timeout 300 firris-2f1b2dc-api firris-2f1b2dc-worker
+   ```
+5. **Verify without printing any value:**
+   ```
+   for s in api worker; do docker exec firris-release-2f1b2dc-firris-2f1b2dc-$s-1 python -c "from app.core.config import get_settings as g; s=g(); k=s.abliner_api_key.get_secret_value(); w=s.abliner_webhook_secret.get_secret_value(); print('$s: key set', bool(k), 'prefix ok', k.startswith('tsl_live_'), '| webhook secret set', bool(w), 'prefix ok', w.startswith('whsec_'), '| payments enabled', s.abliner_payments_enabled)"; done
+   docker exec firris-release-2f1b2dc-firris-2f1b2dc-bff-1 sh -c 'printenv | cut -d= -f1 | grep -c "^ABLINER_"'
+   for s in api bff worker gateway; do docker inspect -f "$s {{.State.Health.Status}} restarts={{.RestartCount}}" firris-release-2f1b2dc-firris-2f1b2dc-$s-1; done
+   curl -s -w ' %{http_code}\n' -X POST -H 'Content-Type: application/json' https://app.novageorisk.com/api/v1/webhooks/abliner
+   ```
+   Expected:
+   - api and worker: `key set True prefix ok True | webhook secret set True prefix ok True | payments enabled False`;
+   - BFF: `0`;
+   - all four containers healthy;
+   - the webhook answers `{"status":"rejected","code":"invalid_signature"} 401` (it was `503 webhook_not_configured`).
+6. **Never run** on the live stack:
+   - `docker compose config`;
+   - `docker inspect` without `-f`;
+   - `printenv` without `cut`;
+   - `cat`, `less` or `grep` on `compose.active.json` or its `.before-abliner-*` copy.
+
+   All of them would show secrets.
+7. **Afterwards, on the Windows PC:** press Win+V and choose **Clear all**, and in Settings → System → Clipboard choose **Clear clipboard data**. If "Sync across devices" is on, clear it there too (better: turn it off before copying). Clear the password manager's clipboard if it keeps one. Never paste either value into a chat, a ticket or a terminal command line.
+
+**If something goes wrong:**
+- A value was pasted into a command line by mistake, or shown on screen: rotate it in the dashboard at once, remove the line from history (`history -d <n>`), and rerun steps 3–5.
+- **To remove the values again:**
+  ```
+  install -m 600 compose.active.json.before-abliner-<stamp> compose.active.json
+  ```
+  run in `/home/deploy/nova-releases/firris-2f1b2dc/`, then step 4 again.
+
+**Next releases.** The candidate check of the release template must allow exactly these two values, in api and worker only, both or neither. It must still refuse `ABLINER_PAYMENTS_ENABLED` and any other `ABLINER_*` until the owner decides to turn payments on.
+- Done in the workstation template (`~/frris-guide-data/r14-deploy/tpl/make_candidate.py`): names only, never values. Tested with 7 cases; only "none" and "both in api and worker" pass.
+- Added to the template checklist.
+- Note: rolling r15 back to the r14 compose would drop the values (r14's compose has none). With payments OFF that is harmless; re-enter them with this procedure.
