@@ -1,7 +1,7 @@
 # Abliner Mobile Money payments: release record
 
 Branch `feat/abliner-payments` (backend and frontend). Backend rebased on `main` `2f90ed0` (r12, tag `firris-science-2-r12`; see §4.4). Design: `docs/ABLINER_PAYMENTS_PLAN.md`.
-**Not merged, not deployed.** The independent review's findings and their fixes are in §4; the reviewer re-verifies before merge.
+**Merged and deployed in r13 (2026-11-28), with every flag OFF; r14 followed.** The review's findings and fixes are in §4. Enabling, phase 1, is in §5.
 
 Ships switched off: `ABLINER_PAYMENTS_ENABLED=false`. Billing enforcement is unchanged.
 Secrets come only from the server environment (`ABLINER_API_KEY`, `ABLINER_WEBHOOK_SECRET`), set by the owner over SSH. No value appears in code, tests (placeholders `tsl_live_TEST…`, `whsec_TEST…`), logs, API responses or the console.
@@ -165,9 +165,9 @@ As documented: Idempotency-Key (stored per intent, one attempt); deposit signing
 | # | Step | Who | Status |
 |---|---|---|---|
 | 1 | Backup and rollback plan for the data steps (§5.2) | Claude | done |
-| 2 | `apply-catalogue --apply`, catalogue v2 (§5.3) | Claude | phase 1 |
-| 3 | Backfill: NOVAREX (`legacy`) on the Internal plan (§5.4) | Claude | phase 1 |
-| 4 | `create-test-organization --apply` (§5.5) | Claude | phase 1 |
+| 2 | `apply-catalogue --apply`, catalogue v2 (§5.3) | Claude | **done** |
+| 3 | Backfill: NOVAREX (`legacy`) on the Internal plan (§5.4) | Claude | applied, then **undone** (owner decision); redo on enable day after the Subscription page fix |
+| 4 | `create-test-organization --apply` (§5.5) | Claude | **done** (`nova-payments-test`) |
 | 5 | Fix round r6 (§5.0 items 1–4): review, merge | another session; owner approves | open |
 | 6 | Deploy r15 with every flag OFF (needs the template change in §5.6, note 1) | Claude | open |
 | 7 | In the Abliner dashboard: create a **new** API key "NOVA-GeoRisk production" and **rotate** the webhook signing secret, at the moment of entering them. The dashboard callback URL **stays empty**, because `callback_url` is sent per request | **owner only** | open |
@@ -498,3 +498,32 @@ The BFF and the gateway never get them. `ABLINER_PAYMENTS_ENABLED` is **not** se
    - the Subscription page fix is deployed;
    - the NOVAREX backfill is redone (§5.4);
    - `ABLINER_PAYMENTS_ENABLED=true` (§3 step 9), on the owner's word.
+
+### 5.8 Phase 1 result (2026-11-28)
+
+| Item | Result |
+|---|---|
+| Docs check (§5.0) | 3 gaps plus the `?id=` lookup handed to fix round **r6**; no code changed |
+| Backup (§5.2) | `~/nova-backups/20261128-pre-billing-phase1/`, SHA `592937dd…`, plus snapshots of 7 tables |
+| Catalogue v2 (§5.3) | applied; stays |
+| NOVAREX backfill (§5.4) | applied, then undone the same day: the Subscription page showed price and purchase elements. DB and UI are back to before (only the catalogue changes remain) |
+| Test organization (§5.5) | `nova-payments-test`, subscription `67cbdfac-acde-4de6-baee-f25de5aeb1c5` |
+| Secret entry (§5.6) | prepared and tested; staged on the server; not run |
+| Test plan (§5.7) | written; checks and probe staged; not run |
+| Unchanged | `ABLINER_PAYMENTS_ENABLED` unset, `BILLING_ENFORCEMENT_ENABLED=false`, `BILLING_VIEW_GRACE_DAYS` unset; no Abliner value on the server; no call to Abliner; reconcile cron not installed; no code deployed (production r14) |
+
+Server working folder: `/home/deploy/nova-releases/billing-phase1-20261128/`, mode 700. It holds:
+- the command outputs;
+- `undo_backfill.sql` and `run_undo.sh`;
+- `set_abliner_secrets.py`;
+- `abliner_test_checks.sql` and `abliner_probe_transactions.py`.
+
+No tmux sessions remain.
+
+**Next, in order:**
+1. r6 (another session; reviewed).
+2. A Subscription page fix in a separate reviewed round, e.g. no purchase or upgrade elements on the Internal plan. It is needed before the backfill is redone.
+3. r15 with flags OFF.
+4. The owner's steps 7–8 of §5.1 (§5.6).
+5. Steps 9–16 of §5.1 (§5.7).
+
