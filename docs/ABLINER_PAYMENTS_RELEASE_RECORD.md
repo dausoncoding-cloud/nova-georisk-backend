@@ -259,3 +259,16 @@ Final state of the plans (latest price version; TZS):
 Every plan is active with `catalogue_version` 2. There are now 19 price rows (12 before; the older versions are kept).
 
 Effect while the flags are OFF: none on access or charging. Session limits and refunds apply only with enforcement ON, and offers stay off with the payments flag OFF.
+
+### 5.4 Backfill: NOVAREX on the Internal plan: applied
+
+The steps ran in tmux on the server (`bp1-backfill-dry`, `bp1-backfill-apply`).
+
+- **Dry run:** one `create` for `legacy` (NOVAREX, `00000000-…0001`), `frris_wrris.internal`, active, engine `firris`; the same as in r13.
+- **`--apply`** with the reason "Billing enable day phase 1 (2026-11-28): NOVAREX on the Internal plan, owner instruction; all billing flags OFF":
+  - exit 0;
+  - subscription **`f0a37b2b-6db1-4174-8bd3-bc20b78c4a32`**, `frris_wrris.internal`, ACTIVE, source `backfill`;
+  - the `firris` entitlement is linked to it;
+  - audit `subscription.backfill_create` 1;
+  - credit-ledger rows 0;
+  - a dry run straight after shows `ok` 1 (nothing left to do).
