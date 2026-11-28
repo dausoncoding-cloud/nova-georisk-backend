@@ -313,7 +313,7 @@ The app itself is reached only through `app.novageorisk.com` (gateway, BFF).
 | Q2 MEGIS top-up price | TZS 25,000 per credit (10 credits = TZS 250,000), **pending final client confirmation** | `plans.v2.json` family price; later changes via Plans and pricing |
 | Q3 refund on data failure | ON | `plans.v2.json` `refund_on_data_failure: true`; a contract can still switch it off |
 | Q4 roll-over / top-up expiry | Unused monthly credits expire at month end; top-ups do not | `BILLING_MONTHLY_CREDITS_ROLL_OVER=false` (default, unchanged), `BILLING_TOP_UP_CREDITS_EXPIRE=false` |
-| Q5 storage | Warn at 90% and 100%; at 100% new analyses stop until space is freed or added; viewing and downloads always allowed. "Free up space" and "Request extra storage" (price per GB TBD) | `BILLING_STORAGE_BLOCK_AT_LIMIT=true`, `BILLING_STORAGE_WARNING_PERCENTS=[90]`; `storage_extra_gb_price` in `plans.v2.json` (null) |
+| Q5 storage | Warn at 90% and 100%; at 100% new analyses stop until space is freed or added; viewing and downloads always allowed. "Free up space" and "Request extra storage" (price per GB TBD). **Owner decision 2026-11-28:** "Free up space" never deletes the execution archive (`execution_archive`, execution-archive.json), the audit/export copy of the execution record; all other output files are deleted as before | `BILLING_STORAGE_BLOCK_AT_LIMIT=true`, `BILLING_STORAGE_WARNING_PERCENTS=[90]`; `storage_extra_gb_price` in `plans.v2.json` (null) |
 | Q6 receipts / VAT | PDF payment receipt for every recorded payment (Abliner-settled included), "Payment receipt – not a TRA fiscal receipt"; test payments in a TEST series. Seller identity and VAT mode are settings (default VAT none) | `SELLER_LEGAL_NAME`, `SELLER_TIN`, `SELLER_ADDRESS`, `SELLER_LOGO_PATH`, `SELLER_VAT_MODE`, `SELLER_VAT_RATE_PERCENT` |
 | Q7 expiry | New analyses stop; view/download for 2 days, then access closes; Renew plan (Mobile Money too); top-ups only with an active plan | `BILLING_VIEW_GRACE_DAYS=2`, set in the server environment **at Phase B** (default unset, security review H1); the `sweep-statuses --apply` cron closes access, and only while billing enforcement is on |
 | Q8 sessions | 1 active session per user on all customer plans; a new sign-in ends the old one with the existing notice. The Internal plan keeps 3 (owner, 2026-11-21) | `plans.v2.json` `session_limit: 1` (Internal: 3) |
@@ -385,12 +385,13 @@ branch.** If the Abliner review changes that branch, this one is rebased onto it
   - It is a dry run unless `--apply`, and a second run changes nothing.
   - Price edits made in the console after the v1 seed would be overwritten by `--apply`, so read the dry run first.
 - **Q5:**
-  - `GET /billing/storage` lists the results that hold files, largest first.
+  - `GET /billing/storage` lists the results that hold files to free, largest first (the execution archive is not counted or listed there).
   - `POST /billing/storage/results/{id}/delete-files`:
     - for owners and admins, with project access and engine entitlement;
     - the user types the first 8 characters of the result ID;
     - files are removed only inside the artifact root;
     - the result record, summary and provenance stay;
+    - the execution archive (`execution_archive`, execution-archive.json) is never deleted (owner decision 2026-11-28, `KEPT_OUTPUTS` in `app/services/billing/storage.py`): it stays on disk, stays downloadable and still counts towards storage used, and `GET /tasks/{id}/archive` is unchanged; test `test_storage_decisions.py::test_free_up_space_keeps_the_execution_archive`;
     - audited as `storage.files_deleted`, with the customer as actor.
   - Request kind `storage`, in whole GB.
   - The 100% block applies to new analyses while enforcement is on; viewing and downloads are never blocked.

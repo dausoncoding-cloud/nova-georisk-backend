@@ -7,6 +7,8 @@
     - Each deleted entry keeps its label and a deleted marker (no path, no size), so downloads of it return 404
       and the result page lists it no longer.
     - Audited (`storage.files_deleted`, the customer as actor), never undone.
+    - Owner decision 2026-11-28: the execution archive (`execution_archive`, execution-archive.json) is never
+      deleted (see KEPT_OUTPUTS). It is not listed as space to free and it stays downloadable.
 (b) "Request extra storage": a request to NOVA ARI like a top-up request (`subscription_requests` kind "storage",
     whole GB). The price per GB is data (`storage_extra_gb_price` in plans.v2.json), unset for now, so NOVA ARI
     quotes it.
@@ -39,6 +41,21 @@ class StoredResult:
     files: int
 
 
+# Owner decision 2026-11-28: "Free up space" never deletes these outputs. `execution_archive`
+# (execution-archive.json) is the audit/export copy of the task's execution record, so it stays with the result
+# record, summary and provenance. It is a small JSON file, and it still counts towards storage used.
+KEPT_OUTPUTS = frozenset({"execution_archive"})
+
+
+def _deletable(key, entry) -> bool:
+    return key not in KEPT_OUTPUTS and isinstance(entry, dict) and bool(entry.get("path"))
+
+
+def deletable_outputs(result: Result) -> dict:
+    """The output entries "Free up space" deletes: those with a file, except KEPT_OUTPUTS."""
+    return {key: entry for key, entry in (result.output_files or {}).items() if _deletable(key, entry)}
+
+
 def _size(entry) -> int:
     if not isinstance(entry, dict) or not entry.get("path"):
         return 0
@@ -47,15 +64,14 @@ def _size(entry) -> int:
 
 
 def stored_results(db: Session, organization_id: uuid.UUID, engines: set[str], limit: int = 50) -> list[StoredResult]:
-    """The organisation's results that still hold files, largest first (results of engines it can access)."""
+    """The organisation's results that still hold files to free (KEPT_OUTPUTS excluded), largest first (results of engines it can access)."""
     rows = (db.query(Result, Project).join(Project, Project.id == Result.project_id)
             .filter(Project.organization_id == organization_id, Result.engine_key.in_(engines or {""})).all())
     items = []
     for result, project in rows:
         if (result.summary or {}).get("status") == "running":
             continue
-        entries = [entry for entry in (result.output_files or {}).values() if _size(entry) or
-                   (isinstance(entry, dict) and entry.get("path"))]
+        entries = list(deletable_outputs(result).values())
         size = sum(_size(entry) for entry in entries)
         if entries:
             items.append(StoredResult(result, project, size, len(entries)))
@@ -77,7 +93,7 @@ def delete_files(db: Session, result: Result, *, confirm: str, actor: audit.Acto
     if (locked.summary or {}).get("status") == "running":
         raise PublicAPIError(409, "result_running", "This analysis is still running.")
     entries = dict(locked.output_files or {})
-    targets = {key: entry for key, entry in entries.items() if isinstance(entry, dict) and entry.get("path")}
+    targets = deletable_outputs(locked)  # never KEPT_OUTPUTS (the execution archive)
     if not targets:
         raise PublicAPIError(409, "files_already_deleted", "These files were already deleted.")
     root = artifact_root()

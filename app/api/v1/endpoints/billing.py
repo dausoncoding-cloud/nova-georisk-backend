@@ -282,8 +282,9 @@ def list_requests(
 # --- Q5: storage (free up space, request more) ------------------------------------------------------------
 
 def _storage_item(db: Session, item: billing_storage.StoredResult) -> StoredResultItem:
-    downloads = [f"/api/v1/results/{item.result.id}/products/{key}" for key, entry in
-                 sorted((item.result.output_files or {}).items()) if isinstance(entry, dict) and entry.get("path")]
+    # The files "Free up space" would delete, to download first (the kept execution archive is not among them).
+    downloads = [f"/api/v1/results/{item.result.id}/products/{key}"
+                 for key in sorted(billing_storage.deletable_outputs(item.result))]
     return StoredResultItem(result_id=item.result.id, project_name=item.project.name, result_type=item.result.result_type,
                             created_at=item.result.created_at, bytes=item.bytes, files=item.files,
                             confirmation_code=billing_storage.confirmation_code(item.result), downloads=downloads)

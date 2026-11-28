@@ -123,3 +123,62 @@ def test_request_extra_storage_goes_to_nova_ari(client, db_session):
     assert again["existing"] is True and again["id"] == body["id"]
     assert client.post("/api/v1/billing/requests", headers=t.headers,
                        json={"subscription_id": str(t.sub.id), "kind": "storage"}).status_code == 422
+
+
+def test_free_up_space_keeps_the_execution_archive(client, db_session, root):
+    """Owner decision 2026-11-28: the execution archive (audit/export copy) is never deleted; every other output
+    file is; the result record, summary, provenance and GET /tasks/{id}/archive stay."""
+    from app.workers.celery_tasks import execute_engine_task
+    t = _tenant(db_session, "st-archive", credits=5)
+    submitted = _submit(client, t)
+    assert submitted.status_code == 202, submitted.text
+    task_id = uuid.UUID(submitted.json()["task"]["id"])
+    execute_engine_task(db_session, task_id)
+    db_session.expire_all()
+    result = db_session.query(Result).filter(Result.task_id == task_id).one()
+    files = {key: entry for key, entry in result.output_files.items() if entry.get("path")}
+    assert "execution_archive" in files and len(files) >= 2, sorted(files)
+    archive = root / files["execution_archive"]["path"]
+    others = [root / entry["path"] for key, entry in files.items() if key != "execution_archive"]
+    assert archive.name == "execution-archive.json" and archive.is_file() and all(p.is_file() for p in others)
+    archive_bytes = archive.read_bytes()
+    summary, provenance = result.summary, result.provenance
+    assert summary and provenance
+    before = client.get(f"/api/v1/tasks/{task_id}/archive", headers=t.headers)
+    assert before.status_code == 200, before.text
+
+    item = next(i for i in client.get("/api/v1/billing/storage", headers=t.headers).json()["items"]
+                if i["result_id"] == str(result.id))
+    assert item["files"] == len(others)
+    assert item["bytes"] == sum(e.get("file_size_bytes") or 0 for k, e in files.items() if k != "execution_archive")
+    assert f"/api/v1/results/{result.id}/products/execution_archive" not in item["downloads"]
+    done = client.post(f"/api/v1/billing/storage/results/{result.id}/delete-files", headers=t.headers,
+                       json={"confirm": item["confirmation_code"]})
+    assert done.status_code == 200, done.text
+    assert done.json()["files_deleted"] == len(others)
+
+    # The archive file remains, unchanged; every other output file is gone.
+    assert archive.is_file() and archive.read_bytes() == archive_bytes
+    assert not any(p.exists() for p in others)
+    db_session.expire_all()
+    kept = db_session.get(Result, result.id)
+    assert kept.output_files["execution_archive"] == files["execution_archive"]
+    assert all("deleted_at" in kept.output_files[k] and "path" not in kept.output_files[k]
+               for k in files if k != "execution_archive")
+    # The result record, summary and provenance remain.
+    assert (kept.summary, kept.provenance) == (summary, provenance)
+    assert client.get(f"/api/v1/results/{result.id}", headers=t.headers).status_code == 200
+    # The archive is still downloadable, and GET /tasks/{id}/archive still works with the same record.
+    assert client.get(f"/api/v1/results/{result.id}/products/execution_archive", headers=t.headers).status_code == 200
+    after = client.get(f"/api/v1/tasks/{task_id}/archive", headers=t.headers)
+    assert after.status_code == 200, after.text
+    assert after.json() == before.json()
+    assert [r["id"] for r in after.json()["results"]] == [str(result.id)]
+    # Nothing left to free: the result leaves the list, and a second delete is refused.
+    listed = client.get("/api/v1/billing/storage", headers=t.headers).json()["items"]
+    assert str(result.id) not in [i["result_id"] for i in listed]
+    again = client.post(f"/api/v1/billing/storage/results/{result.id}/delete-files", headers=t.headers,
+                        json={"confirm": item["confirmation_code"]})
+    assert again.status_code == 409 and again.json()["error"]["code"] == "files_already_deleted"
+    event = db_session.query(PlatformAudit).filter_by(action="storage.files_deleted", target_id=str(result.id)).one()
+    assert "execution_archive" not in event.previous["files"] and "execution_archive" not in event.current["deleted"]
