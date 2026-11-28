@@ -63,7 +63,7 @@ Prices live in the database (`billing_plans` plus a new `billing_plan_prices` ta
 - **Refund when a run fails for data reasons:**
   - **policy flag** `refund_on_data_failure` (on the plan, overridable per subscription), **default off until the client confirms** (Q3);
   - "data reasons" are the existing allow-listed data failures: no Sentinel-1 pass, radar coverage of the area, valid coverage below 70%, provider unavailable;
-  - software errors are investigated by NOVA ARI and refunded manually with an `adjustment` entry and a reason;
+  - **failures caused by our system are refunded automatically** (owner decision, fix round r5 item 1, 2026-11-28): software errors, Celery time limits, a lost worker child and stale-swept tasks; the exact cause table is in `app/services/billing/refunds.py`. Cancelled tasks are not refunded, and input rejected at submission is never charged;
   - refund key `refund:<task_id>`, so there is at most one refund per task.
 - **Monthly grant:** at the start of each billing month, `monthly_grant` (key `grant:<subscription>:<YYYY-MM>`, so it runs once even if the scheduler retries). Whether unused credits roll over is open question Q4; the default proposal is that monthly credits expire at month end and top-ups do not.
 - **Warnings at 75% and 90%** of the month's available credits (grant plus top-ups) used. Shown as an in-app banner to all members, and on the "My subscription" page. Email follows once the email channel exists (the real-time alerts plan); each warning is sent once per month.
