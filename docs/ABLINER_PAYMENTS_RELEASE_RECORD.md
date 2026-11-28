@@ -412,3 +412,89 @@ The BFF and the gateway never get them. `ABLINER_PAYMENTS_ENABLED` is **not** se
 - Done in the workstation template (`~/frris-guide-data/r14-deploy/tpl/make_candidate.py`): names only, never values. Tested with 7 cases; only "none" and "both in api and worker" pass.
 - Added to the template checklist.
 - Note: rolling r15 back to the r14 compose would drop the values (r14's compose has none). With payments OFF that is harmless; re-enter them with this procedure.
+
+### 5.7 Webhook URL and the TZS 500 test plan (only after r6 is merged and deployed as r15)
+
+**Production webhook URL:** `https://app.novageorisk.com/api/v1/webhooks/abliner`
+- It is sent as `callback_url` with every deposit; the setting `abliner_callback_url` defaults to exactly this, and production sets nothing else.
+- The Abliner dashboard URL therefore **stays empty**.
+- Route: edge `location =` (POST only, 64 KB) → BFF → api. Since r14 an empty POST answers `503 webhook_not_configured`; after §5.6 it answers `401 invalid_signature`.
+
+**Before the test, all done and recorded:**
+- r15 deployed with flags OFF;
+- §5.6 done (new key "NOVA-GeoRisk production", rotated webhook secret, both verified);
+- `integrations.cli check` shows Abliner `connected`, and the console's Test connection agrees;
+- the reconcile cron is installed and its freshness check prints `RECONCILE-OK`;
+- 0 analyses queued or running.
+
+**The test** (owner; over `ssh -t`; test organization `nova-payments-test`, subscription `67cbdfac-acde-4de6-baee-f25de5aeb1c5`):
+
+1. **Dry run** (does nothing):
+   ```
+   docker exec -it firris-release-2f1b2dc-firris-2f1b2dc-api-1 python -m app.services.abliner.cli test-payment --subscription-id 67cbdfac-acde-4de6-baee-f25de5aeb1c5 --admin-email <your NOVA ARI e-mail> --operator "<your name>"
+   ```
+   Expect `{"mode": "dry-run", …, "amount_tzs": 500, "credits": 0, "admin_found": true}`.
+2. **Run it:** repeat with `--apply`. Type the phone at the prompt (`07…` or `2557…`).
+   - The number shows on your screen while typing. It is not a secret, but don't share the screen. It is stored only masked.
+   - Expect `"status": "pending"`, a reference `NOVA-XXXXXXXX` (**write it down**), and the masked phone.
+   - `failed` means Abliner refused the request, so no money moved; see "If it fails" below.
+3. **On the phone:** approve the Mobile Money prompt with your PIN.
+4. **What you should see:**
+   - **NOVAREX's app:** nothing. The test organization has no members, and NOVAREX has no subscription.
+   - **NOVA ARI console → Integrations → Abliner:** the last webhook shows within seconds, event `transaction.completed`.
+   - **Console → Customers → "NOVA ARI payment test (not a customer)":** one payment of TZS 500, purpose test, note starting "TEST: Abliner live test …, no credits".
+   - **Console → Mobile payments review:** empty.
+5. **Database and audit** (read-only; `docs/ops/abliner_test_checks.sql`, staged on the server):
+   ```
+   cd /home/deploy/nova-releases/billing-phase1-20261128
+   docker exec -i nova-georisk-engine-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d nova_georisk_firris_2f1b2dc -At -F " | " -v ref=NOVA-XXXXXXXX' < abliner_test_checks.sql
+   ```
+   Expected:
+   - **intent:** `completed | test | 500 | TZS`, masked phone, `failure_code` and `review_reason` empty, `has_payment` true;
+   - **webhook events:** one `transaction.completed` row, `completed | 500 | TZS | settled`;
+   - **payments:** one `test`, 500, TZS, `mobile_money`, "TEST: …";
+   - **receipts:** one, series `test`;
+   - **credit-ledger rows:** **0**;
+   - **audit:** `abliner.test_payment` (at the start), then `payment.record_test` (actor `system:abliner`);
+   - **integration status:** `last_webhook_event transaction.completed` (the old `webhook_webhook_not_configured` error dates from the r14 smoke probe);
+   - **NOVAREX:** `0 | 0`.
+6. **Record the two uncertain points** (both open since §5.0):
+   - **`tx_…` against UUID:** the check's `deposit_reply_id` and `webhook_id` give the shape of the id from the deposit reply and from the webhook's `data.id`, plus `ids_equal`. Matching uses our reference first, so a difference is harmless. Record which it is.
+   - **`amount` against `amount_cents`:**
+     - In the webhook: the event row stores `data.amount`. `amount 500` with outcome `settled` means the webhook carries `amount`. A review with "no amount reported" means it carries only `amount_cents`; then r6's fix must cover the webhook too.
+     - In `GET /transactions`: run the read-only probe (staged; it makes up to 3 GETs at Abliner):
+       ```
+       docker exec -i firris-release-2f1b2dc-firris-2f1b2dc-api-1 python - NOVA-XXXXXXXX < abliner_probe_transactions.py
+       ```
+       For the `?customer_reference=`, `?id=` and `?limit=5` forms it prints the field names, the id shape, `amount` and `amount_cents`.
+   - Write both answers into this record.
+7. **Seeing the real webhook body safely.** We neither store nor log raw bodies (the owner's logging rule), and this stays so.
+   - The facts needed come from the stored fields and the probe above.
+   - To see the body itself, use the Abliner dashboard's delivery view if it has one: look at it in the browser and do not copy it anywhere. The body holds no secret (the signature is a header), but it holds the provider reference; treat it as private payment data.
+   - Do **not** use: packet capture, nginx body logging, debug logging, or printing request headers. The headers include the signature.
+
+**If it fails, or is reversed:**
+
+| What happens | What the system does | What you do |
+|---|---|---|
+| You decline, cancel, or the prompt times out | `transaction.failed` → intent `failed` (`abliner_failed`); no payment, no receipt, no credits | Nothing to undo. Retry with step 2 (a new intent and a new key; one open test intent at a time) |
+| Abliner refuses at once (e.g. `invalid_phone`, `ussd_session_busy`, `amount_out_of_range`) | Intent `failed` with that code; no push, no money | Fix the cause and retry |
+| `unauthorized` / `invalid_request_signature` / `idempotency_key_required` | Intent `failed` (`gateway_misconfigured`); nothing charged | Stop. Recheck §5.6 step 5 and the dashboard key. No retry until fixed |
+| Abliner does not answer (timeout) | Intent `pending_unknown` | Approve if prompted. Reconciliation decides within 3–30 min; with no result after 30 min the intent is `expired`, and a later `completed` goes to review |
+| The webhook does not arrive | The cron settles it after ≥ 3 min (source `reconciliation`) | Check `RECONCILE-OK` and the intent status |
+| Completed, but the amount, currency or transaction differs | Intent `review` with an `abliner.review` audit row; no payment | Resolve in Console → Mobile payments review, with a reason |
+| Money moves back later (no such event is documented) | Any unexpected event on a completed intent → `review` plus an `abliner.alert` audit row | Decide in the review queue; reverse the payment in the console if the money went back |
+
+**After a successful test:**
+1. **Reverse the test payment:** Console → Customers → "NOVA ARI payment test (not a customer)" → Payments → the TEST payment → Reverse, with the reason "TZS 500 live test done; bookkeeping reversal".
+   - This adds a reversal payment (no receipt) and a `payment.reverse` audit row.
+   - It is bookkeeping only: **it does not send money back**. The TZS 500, less Abliner's fee, stays in the Abliner balance. It came from your own phone; withdraw it as usual if you want.
+2. **Delete the old API key "NOVAPAY"** (created 5 Oct 2026) in the Abliner dashboard. Then `integrations.cli check` must still show `connected` with the new key.
+3. **Remove the test organization:** Console → Customers → the test organization → cancel its subscription, with a reason.
+   - The organization row stays (no members, named "not a customer").
+   - Its payment, reversal, receipt and audit rows stay: payments are append-only and the books must keep them.
+   - Do not try to delete the organization.
+4. Then, outside this test, on enable day:
+   - the Subscription page fix is deployed;
+   - the NOVAREX backfill is redone (§5.4);
+   - `ABLINER_PAYMENTS_ENABLED=true` (§3 step 9), on the owner's word.
