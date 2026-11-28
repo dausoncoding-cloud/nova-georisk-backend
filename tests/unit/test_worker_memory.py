@@ -54,7 +54,8 @@ def test_live_task_ids_reads_the_task_argument_and_is_unknown_when_the_broker_fa
     assert stale_sweeper.live_task_ids() == frozenset({"abc"})
     monkeypatch.setattr(stale_sweeper, "_live_cache", None)
     monkeypatch.setattr(celery_app.control, "inspect", lambda timeout: Inspect(None))  # no worker replied
-    assert stale_sweeper.live_task_ids() == frozenset()
+    assert stale_sweeper.live_task_ids() is None  # r5-2: unknown, not "no task is live"
+    assert stale_sweeper._live_cache is None  # and not cached
     monkeypatch.setattr(stale_sweeper, "_live_cache", None)
     monkeypatch.setattr(celery_app.control, "inspect", lambda timeout: Inspect(ConnectionError("broker down")))
     assert stale_sweeper.live_task_ids() is None

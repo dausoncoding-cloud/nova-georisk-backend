@@ -14,6 +14,8 @@ from app.workers import celery_tasks
 from tests.integration.test_billing_credits import _entries, _failed_charged_task, _tenant  # noqa: F401  (fixtures)
 from tests.integration.test_billing_credits import _queue  # noqa: F401  (autouse: no broker in tests)
 
+_REAL_LIVE_TASK_IDS = stale_sweeper.live_task_ids  # the autouse fixture below stubs it; r5-2 uses the real one
+
 
 @pytest.fixture(autouse=True)
 def _bridge(monkeypatch, engine, tmp_path):
@@ -165,3 +167,29 @@ def test_repeated_sweeps_do_not_append_events_twice(client, db_session, tmp_path
     client.get("/api/v1/tasks", headers=t.headers)
     db_session.expire_all()
     assert len(db_session.get(Task, task.id).result_payload["execution_record"]["events"]) == events
+
+
+def test_r5_2_when_no_worker_answers_liveness_is_unknown_and_nothing_is_swept(client, db_session, tmp_path, monkeypatch):
+    """Fix round r5, item 2: the real live_task_ids (only Celery's inspect is replaced). When no worker answers,
+    inspect().active() returns None: liveness is UNKNOWN, so nothing is swept, and the unknown is not cached. When
+    a worker answers without the task, the task is swept."""
+    from app.core.celery_app import celery_app
+    monkeypatch.setattr(stale_sweeper, "live_task_ids", _REAL_LIVE_TASK_IDS)
+    replies = {"active": None}
+
+    class Inspect:
+        def active(self):
+            return replies["active"]
+
+    monkeypatch.setattr(celery_app.control, "inspect", lambda timeout: Inspect())
+    t = _tenant(db_session, "sweep-r5-unknown", credits=5, subscribed=_subscribed())
+    task, result_id, folder = _stale(client, db_session, t, tmp_path)
+    assert stale_sweeper.sweep(db_session, t.org.id) == []  # no worker replied: sweep nothing
+    db_session.expire_all()
+    assert db_session.get(Task, task.id).status == TaskStatus.RUNNING
+    assert db_session.get(Result, result_id) is not None and folder.exists()
+    from app.models.billing import CreditLedgerEntry
+    assert db_session.query(CreditLedgerEntry).filter(CreditLedgerEntry.kind == "refund").count() == 0
+    replies["active"] = {"worker@host": []}  # a worker answers and is not running it (the unknown was not cached)
+    assert stale_sweeper.sweep(db_session, t.org.id) == [task.id]
+    _assert_swept(db_session, task, result_id, folder)
