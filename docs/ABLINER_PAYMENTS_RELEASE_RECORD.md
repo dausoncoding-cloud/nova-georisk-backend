@@ -272,3 +272,25 @@ The steps ran in tmux on the server (`bp1-backfill-dry`, `bp1-backfill-apply`).
   - audit `subscription.backfill_create` 1;
   - credit-ledger rows 0;
   - a dry run straight after shows `ok` 1 (nothing left to do).
+
+**UI check after the backfill: STOPPED, waiting for the owner.**
+
+How it was checked: the live frontend `0b58dce` was rendered locally (headless, 1440 and 390 px) with production's real API responses (read-only GETs through the BFF) for the NOVAREX owner (`3908bc44`) and an admin (`4262badd`). NOVAREX has no "member" role; the other three are ADMIN. Names and e-mails were placeholders.
+
+What changed: the "Subscription" link now shows in the navigation for both roles. Home, Analyses, New analysis and Settings are otherwise unchanged, and there is no banner.
+
+The `/subscription` page (the same for owner and admin) shows price and purchase elements:
+- a **"Buy credits"** and an **"Upgrade plan"** button;
+- a **"Buy additional credits"** card ("… once payment is confirmed …"; then "The Internal plan has no credit limit.");
+- a **"Plans for FRRIS and WRRIS"** table with monthly prices in TZS (150,000 … 2,500,000) and **"Request upgrade"** links, plus a "Compare plans" button;
+- **"Extra storage (GB)" / "Request extra storage"**.
+
+There are no Mobile Money or pay-now elements: the offers API answers `enabled: false`, `internal_plan`.
+
+What could confuse:
+- "0 analyses" this period, although analyses were run: with enforcement OFF nothing is counted;
+- "Active sessions 0 / No active sessions recorded";
+- a "Storage 2 GB" tile next to "2.04 GB (no limit)";
+- "Renews on 1 Dec 2026" for a plan that is not paid for.
+
+Left in place pending the owner's decision. Rollback, if wanted: §5.2 item 2.
