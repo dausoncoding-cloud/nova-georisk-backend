@@ -615,3 +615,30 @@ def test_r4_4_reconciliation_with_no_currency_goes_to_review_with_no_credit(db_s
     db_session.refresh(intent)
     assert intent.status == "review" and "no currency reported" in intent.review_reason
     assert not _payments(db_session, intent) and _credits(db_session, intent) == 0
+
+
+def test_r4_6_reference_less_and_foreign_reference_events_through_the_webhook_never_credit(client, db_session):
+    """Review round 4, item 6, through the signed webhook route (M3 on the webhook path).
+
+    * no customer_reference and an Abliner id that is not ours: no intent can be attributed, the event is stored
+      as "ignored", nothing is credited and the open payment is untouched;
+    * our Abliner id but someone else's customer_reference: the intent goes to review, nothing is credited."""
+    t = _tenant(db_session, "abw-r4-noref")
+    intent = _intent(db_session, t)  # TZS 100,000, the common top-up amount
+    stranger = _event(intent)
+    stranger["data"]["customer_reference"] = None
+    stranger["data"]["id"] = "tx_someone_else"
+    assert _send(client, stranger).json() == {"status": "ok"}
+    db_session.expire_all()
+    assert db_session.get(AblinerWebhookEvent, stranger["id"]).outcome == "ignored"
+    assert db_session.get(PaymentIntent, intent.id).status == "pending"
+    assert not _payments(db_session, intent) and _credits(db_session, intent) == 0
+
+    foreign = _event(intent, reference="NOVA-SOMEONE")
+    foreign["data"]["id"] = intent.abliner_tx_id
+    assert _send(client, foreign).json() == {"status": "ok"}
+    db_session.expire_all()
+    reviewed = db_session.get(PaymentIntent, intent.id)
+    assert reviewed.status == "review" and "not this payment's" in reviewed.review_reason
+    assert db_session.get(AblinerWebhookEvent, foreign["id"]).outcome == "review"
+    assert reviewed.payment_id is None and not _payments(db_session, intent) and _credits(db_session, intent) == 0
